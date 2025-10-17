@@ -1,5 +1,10 @@
-streamlit>=1.0
-pandas
-PyPDF2
+playwright
+beautifulsoup4
+python-dateutil
+tqdm
 pdfplumber
 rapidfuzz
+pandas
+PyPDF2
+streamlit>=1.0
+requests
