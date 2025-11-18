@@ -1,0 +1,38 @@
+services:
+  streamlit:
+    build: .
+    command: ["streamlit", "run", "streamlit_prototype.py", "--server.port", "8501", "--server.address", "0.0.0.0"]
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./:/app
+      - ./logs:/app/logs
+    env_file: .env
+    restart: unless-stopped
+
+  scheduler:
+    build: .
+    command: ["/app/docker/run_scheduler.sh"]
+    volumes:
+      - ./:/app
+      - ./logs:/app/logs
+    env_file: .env
+    restart: unless-stopped
+
+  downloader:
+    build: .
+    command: ["/app/docker/run_downloader_loop.sh"]
+    volumes:
+      - ./:/app
+      - ./logs:/app/logs
+    env_file: .env
+    restart: on-failure
+
+  bid_parser:
+    build: .
+    command: ["/app/docker/run_parser_loop.sh"]
+    volumes:
+      - ./:/app
+      - ./logs:/app/logs
+    env_file: .env
+    restart: on-failure

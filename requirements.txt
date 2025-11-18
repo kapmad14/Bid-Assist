@@ -1,10 +1,17 @@
-playwright
-beautifulsoup4
-python-dateutil
-tqdm
+# Your existing packages
+playwright==1.55.0
 pdfplumber
-rapidfuzz
 pandas
-PyPDF2
-streamlit>=1.0
+rapidfuzz
+beautifulsoup4
+tqdm
+python-dateutil
+streamlit
 requests
+sqlite-utils
+
+# New packages for GPT-based parser
+openai>=1.3.0
+python-dotenv>=1.0.0
+supabase>=2.0.0
+
