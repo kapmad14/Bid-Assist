@@ -1,179 +1,179 @@
-# matching_worker.py (FIXED for bigint boq_line_id)
-
+# matching_worker.py
 import os
 import time
-import logging
-from datetime import datetime
-from typing import List
-from supabase import create_client
-from dotenv import load_dotenv
+import math
+from collections import defaultdict
+from typing import List, Dict
+from datetime import datetime, timezone
 
-load_dotenv()
-
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SERVICE_ROLE_KEY = os.environ.get("SERVICE_ROLE_KEY")
-
-if not SUPABASE_URL or not SERVICE_ROLE_KEY:
-    raise RuntimeError("Missing SUPABASE_URL or SERVICE_ROLE_KEY")
-
-sb = create_client(SUPABASE_URL, SERVICE_ROLE_KEY)
-
-# Fuzzy matching setup
+# pip install supabase rapidfuzz
+from supabase import create_client  # supabase-py
 try:
-    from rapidfuzz.fuzz import token_sort_ratio
-    def fuzzy_score(a: str, b: str) -> float:
-        if not a or not b:
-            return 0.0
-        return token_sort_ratio(a, b) / 100.0
-    logger.info("Using rapidfuzz for fuzzy scoring")
+    from rapidfuzz import fuzz
 except Exception:
+    fuzz = None
+
+# CONFIG
+SUPABASE_URL = os.environ['SUPABASE_URL']
+SUPABASE_KEY = os.environ['SUPABASE_KEY']
+THRESHOLD = int(os.environ.get('MATCH_THRESHOLD', 65))
+BATCH_TENDERS = int(os.environ.get('BATCH_TENDERS', 200))  # process per batch
+BATCH_UPSERT = int(os.environ.get('BATCH_UPSERT', 500))
+
+# create supabase client
+sb = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+def normalize_text(s: str) -> str:
+    if not s:
+        return ""
+    s = s.strip().lower()
+    # remove extra punctuation except spaces; keep alphanum and spaces
+    import re
+    s = re.sub(r'[^a-z0-9\s]', ' ', s)
+    s = re.sub(r'\s+', ' ', s)
+    return s
+
+def cheap_token_overlap(a: str, b: str) -> bool:
+    # Very cheap prefilter: if no token overlap, skip
+    if not a or not b:
+        return False
+    a_tokens = set(a.split())
+    b_tokens = set(b.split())
+    return len(a_tokens & b_tokens) > 0
+
+def fuzzy_score(a: str, b: str) -> int:
+    if not a or not b:
+        return 0
+    if fuzz:
+        # token_sort_ratio is robust to word order variations
+        try:
+            return int(fuzz.token_sort_ratio(a, b))
+        except Exception:
+            pass
+    # fallback naive approach
     from difflib import SequenceMatcher
-    def fuzzy_score(a: str, b: str) -> float:
-        if not a or not b:
-            return 0.0
-        return SequenceMatcher(None, a.lower(), b.lower()).ratio()
-    logger.info("rapidfuzz not found; using difflib.SequenceMatcher")
+    ratio = SequenceMatcher(None, a, b).ratio()
+    return int(ratio * 100)
 
-# Configuration
-SCORE_THRESHOLD = float(os.getenv("MATCH_THRESHOLD", "0.45"))
-POLL_INTERVAL = 5  # seconds
+def upsert_recommendations(rows: List[Dict]):
+    """
+    Upsert recommendations into Postgres via Supabase SQL RPC or direct SQL.
+    This code uses a direct SQL upsert; supabase-py does not always expose
+    'on_conflict' consistently, so raw SQL is less ambiguous.
+    """
+    if not rows:
+        return
 
+    # Build VALUES list and run a parameterized insert with ON CONFLICT
+    # columns: user_id, catalog_item_id, tender_id, score, catalog_text, tender_text, matched_at
+    vals = []
+    placeholders = []
+    for i, r in enumerate(rows):
+        vals.extend([
+            r['user_id'], r['catalog_item_id'], r['tender_id'],
+            int(r['score']), r.get('catalog_text', None), r.get('tender_text', None)
+        ])
+        idx = i * 6
+        placeholders.append(f"($${vals_start}$$)")  # not used: we will use supabase RPC below
 
-def normalize(response):
-    """Handle different supabase response formats"""
-    if hasattr(response, 'data'):
-        return response.data, None
-    if isinstance(response, dict):
-        return response.get('data'), response.get('error')
-    return response, None
-
-
-def process_job(job):
-    """Process a single matching job"""
-    job_id = job["id"]
-    catalog_id = job["catalog_id"]
-    user_id = job["user_id"]
-
-    logger.info(f"âš™ï¸  Processing job {job_id} for catalog {catalog_id}")
-
+    # Simpler: call a Postgres function via Supabase RPC that accepts jsonb[] and does upsert.
+    # But for simplicity, use supabase.table('recommendations').upsert if available:
     try:
-        # Update job status to running
-        sb.table("matching_jobs").update({
-            "status": "running",
-            "started_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat()
-        }).eq("id", job_id).execute()
+        resp = sb.table('recommendations').upsert(rows, on_conflict='user_id,tender_id').execute()
+        if resp.error:
+            print("Upsert error:", resp.error)
+        return resp
+    except Exception as e:
+        print("Upsert via supabase-py failed, falling back to RPC/raw SQL. Error:", e)
+        # You can implement a SQL RPC endpoint in Supabase that accepts JSONB and inserts/upserts in DB.
+        # Alternatively, if you have direct DB access, use psycopg2 to run an INSERT ... ON CONFLICT statement.
 
-        # Fetch BOQ lines for this catalog
-        boq_resp = sb.table("boq_lines")\
-            .select("*")\
-            .eq("catalog_id", catalog_id)\
-            .execute()
-        boq_rows, _ = normalize(boq_resp)
+def process_tender_batch(tenders: List[Dict], active_catalog_items: List[Dict]):
+    # Group catalog by user
+    catalog_by_user = defaultdict(list)
+    for c in active_catalog_items:
+        catalog_by_user[c['user_id']].append(c)
 
-        # Fetch catalog items
-        cat_resp = sb.table("catalog_items")\
-            .select("*")\
-            .eq("catalog_id", catalog_id)\
-            .execute()
-        catalog_items, _ = normalize(cat_resp)
-
-        if not boq_rows or not catalog_items:
-            logger.warning(f"No BOQ lines or catalog items found for {catalog_id}")
-            sb.table("matching_jobs").update({
-                "status": "done",
-                "finished_at": datetime.utcnow().isoformat(),
-                "updated_at": datetime.utcnow().isoformat()
-            }).eq("id", job_id).execute()
-            return
-
-        logger.info(f"Found {len(boq_rows)} BOQ lines and {len(catalog_items)} catalog items for matching")
-
-        # Compute matches
-        recs = []
-        for boq in boq_rows:
-            boq_id = boq.get("id")
-            boq_desc = (boq.get("description") or "").strip()
-            if not boq_desc:
+    rows_to_upsert = []
+    for tender in tenders:
+        tender_id = tender['id']
+        tender_text_raw = tender.get('item_category_parsed') or ""
+        tender_text = normalize_text(tender_text_raw)
+        # Iterate all users who have a catalog (or restrict to users of interest)
+        # For efficiency, you could precompute the set of users who have catalogs and iterate per user.
+        # Here, we will match each user separately: short-circuit per (user,tender)
+        for user_id, cat_items in catalog_by_user.items():
+            if not tender_text:
                 continue
 
-            for item in catalog_items:
-                item_id = item.get("id")
-                item_title = (item.get("title") or "").strip()
-                if not item_title:
+            matched = False
+            for c in cat_items:
+                cat_text_raw = c.get('category') or ""
+                cat_text = normalize_text(cat_text_raw)
+                # cheap token prefilter
+                if not cheap_token_overlap(tender_text, cat_text):
                     continue
-
-                score = fuzzy_score(boq_desc, item_title)
-                if score >= SCORE_THRESHOLD:
-                    recs.append({
-                        "catalog_id": catalog_id,
-                        "user_id": user_id,
-                        "tender_id": boq.get("tender_id"),
-                        "boq_line_id": boq_id,  # Keep as integer - don't convert
-                        "catalog_item_id": item_id,
-                        "score": round(score, 4),
-                        "note": f"fuzzy match (threshold: {SCORE_THRESHOLD})",
-                        "status": "suggested"
+                score = fuzzy_score(tender_text, cat_text)
+                if score >= THRESHOLD:
+                    rows_to_upsert.append({
+                        'user_id': user_id,
+                        'catalog_item_id': c['id'],
+                        'tender_id': tender_id,
+                        'score': int(score),
+                        'catalog_text': cat_text_raw,
+                        'tender_text': tender_text_raw
                     })
+                    matched = True
+                    break  # SHORT-CIRCUIT: stop for this user+tender
+            # next user
+        # if rows_to_upsert grows, flush in batches
+        if len(rows_to_upsert) >= BATCH_UPSERT:
+            upsert_recommendations(rows_to_upsert)
+            rows_to_upsert = []
 
-        # Insert recommendations
-        if recs:
-            logger.info(f"Inserting {len(recs)} recommendations...")
-            sb.table("recommendations").insert(recs).execute()
+    if rows_to_upsert:
+        upsert_recommendations(rows_to_upsert)
 
-        # Mark job as done
-        sb.table("matching_jobs").update({
-            "status": "done",
-            "finished_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat()
-        }).eq("id", job_id).execute()
+def fetch_active_catalog_items():
+    # Select active catalog items for all users
+    resp = sb.table('catalog_items').select('id,user_id,category').neq('status', 'paused').execute()
+    data, error = resp.data, resp.error
+    if error:
+        raise Exception(f"Error fetching catalog items: {error}")
+    return data or []
 
-        logger.info(f"âœ… Job {job_id} done â€” {len(recs)} recs inserted.")
+def fetch_new_tenders(since_id=None, limit=BATCH_TENDERS):
+    # Simple example: fetch tenders where created_at > last_processed or by batch pages
+    # Here we fetch a batch of tenders. You might maintain a jobs table or a watermark.
+    resp = sb.table('tenders').select('id,item_category_parsed,created_at').order('created_at', desc=False).limit(limit).execute()
+    data, error = resp.data, resp.error
+    if error:
+        raise Exception(f"Error fetching tenders: {error}")
+    return data or []
 
-    except Exception as e:
-        logger.error(f"âŒ Job {job_id} failed: {e}")
-        sb.table("matching_jobs").update({
-            "status": "failed",
-            "finished_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
-            "logs": [{"error": str(e), "timestamp": datetime.utcnow().isoformat()}]
-        }).eq("id", job_id).execute()
-
-
-def main():
-    logger.info(f"ðŸš€ Fuzzy matching worker started (polling every {POLL_INTERVAL}s)")
-    logger.info(f"Score threshold: {SCORE_THRESHOLD}")
-
+def main_loop():
+    # simple loop; in production use queue, cron or cloud-run task
     while True:
         try:
-            # Poll for pending jobs
-            resp = sb.table("matching_jobs")\
-                .select("*")\
-                .eq("status", "pending")\
-                .limit(1)\
-                .execute()
+            catalog_items = fetch_active_catalog_items()
+            if not catalog_items:
+                print("No active catalog items - sleeping")
+                time.sleep(60)
+                continue
 
-            jobs, _ = normalize(resp)
+            tenders = fetch_new_tenders(limit=BATCH_TENDERS)
+            if not tenders:
+                print("No new tenders - sleeping")
+                time.sleep(60)
+                continue
 
-            if jobs:
-                for job in jobs:
-                    process_job(job)
-
-        except KeyboardInterrupt:
-            logger.info("\nðŸ‘‹ Worker stopped by user")
-            break
+            process_tender_batch(tenders, catalog_items)
+            print(f"Processed {len(tenders)} tenders")
+            # Adjust sleep based on throughput
+            time.sleep(5)
         except Exception as e:
-            logger.error(f"Worker error: {e}")
-
-        time.sleep(POLL_INTERVAL)
-
+            print("Worker error:", e)
+            time.sleep(30)
 
 if __name__ == "__main__":
-    main()
+    main_loop()

@@ -45,99 +45,25 @@ export default function TendersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // New: Recommendations toggle + loading indicator
-  const [showRecommendationsOnly, setShowRecommendationsOnly] = useState<boolean>(false);
-  const [loadingRecommendations, setLoadingRecommendations] = useState<boolean>(false);
-
   useEffect(() => {
     async function fetchTenders() {
-      setLoading(true);
-      setError(null);
       try {
-        // If recommendations toggle is OFF -> original behaviour (fetch all tenders)
-        if (!showRecommendationsOnly) {
-          const { data, error } = await supabase
-            .from('tenders')
-            .select('*')
-            .order('created_at', { ascending: false });
-
-          if (error) throw error;
-          setTenders(data || []);
-          setLoading(false);
-          return;
-        }
-
-        // ----------------- Recommendations branch (server-side) -----------------
-        // 1) get current user
-        const userResp = await supabase.auth.getUser();
-        const userData = (userResp as any).data;
-        const userErr = (userResp as any).error;
-        if (userErr || !userData?.user) {
-          // if no user, show nothing for recommendations
-          setTenders([]);
-          setLoading(false);
-          return;
-        }
-        const userId = userData.user.id;
-
-        // 2) fetch active catalog item ids for this user
-        setLoadingRecommendations(true);
-        const catalogResp = await supabase
-          .from('catalog_items')
-          .select('id')
-          .eq('user_id', userId)
-          .neq('status', 'paused'); // only active items
-        const { data: catalogItems, error: catErr } = catalogResp as any;
-        if (catErr) throw catErr;
-
-        const activeCatalogIds = (catalogItems || []).map((c: any) => c.id);
-        if (activeCatalogIds.length === 0) {
-          setTenders([]);
-          setLoadingRecommendations(false);
-          setLoading(false);
-          return;
-        }
-
-        // 3) fetch recommendations for user and those catalog items
-        const recsResp = await supabase
-          .from('recommendations')
-          .select('tender_id')
-          .eq('user_id', userId)
-          .in('catalog_item_id', activeCatalogIds);
-        const { data: recs, error: recErr } = recsResp as any;
-        if (recErr) throw recErr;
-
-        // convert tender ids to numbers (tenders.id is numeric)
-        const matchedTenderIds = (recs || []).map((r: any) => Number(r.tender_id)).filter(Boolean);
-
-        if (!matchedTenderIds || matchedTenderIds.length === 0) {
-          setTenders([]);
-          setLoadingRecommendations(false);
-          setLoading(false);
-          return;
-        }
-
-        // 4) fetch tenders by matched IDs (server still handles ordering)
-        const { data: matchedTenders, error: matchedErr } = await supabase
+        const { data, error } = await supabase
           .from('tenders')
           .select('*')
-          .in('id', matchedTenderIds)
           .order('created_at', { ascending: false });
 
-        if (matchedErr) throw matchedErr;
-        setTenders(matchedTenders || []);
-        setLoadingRecommendations(false);
-        setLoading(false);
+        if (error) throw error;
+        setTenders(data || []);
       } catch (err: any) {
-        setError(err?.message || String(err));
-        setTenders([]);
+        setError(err.message);
+      } finally {
         setLoading(false);
-        setLoadingRecommendations(false);
       }
     }
 
     fetchTenders();
-  }, [supabase, showRecommendationsOnly]);
+  }, [supabase]);
 
   const formatDate = (dateString: string) => {
     if (!dateString) return 'N/A';
@@ -163,7 +89,7 @@ export default function TendersPage() {
     const endDate = new Date(dateString);
     const today = new Date();
     const diffDays = Math.ceil((endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    return diffDays <= 7 && diffDays > 0; // urgent = 7 days (preserve your original logic)
+    return diffDays <= 7 && diffDays > 0;
   };
 
   const isClosed = (dateString: string) => {
@@ -183,11 +109,11 @@ export default function TendersPage() {
     return tender.emd_amount_parsed && parseFloat(tender.emd_amount_parsed) > 0;
   };
 
-  // Apply filters and sorting (unchanged except it now operates on server-supplied `tenders`)
+  // Apply filters and sorting
   const filteredAndSortedTenders = useMemo(() => {
     let result = [...tenders];
 
-    // Search filter (client-side as original)
+    // Search filter
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       result = result.filter((tender) => {
@@ -200,7 +126,7 @@ export default function TendersPage() {
       });
     }
 
-    // Status filter (client-side overlay; preserves your original getTenderStatus logic)
+    // Status filter
     if (statusFilter !== 'all') {
       result = result.filter((tender) => getTenderStatus(tender) === statusFilter);
     }
@@ -283,6 +209,7 @@ export default function TendersPage() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-10 border-2 border-gray-300 text-gray-900 placeholder-gray-500 font-semibold h-12 min-h-[48px] leading-none rounded-lg"
+              // ensure Input uses box-sizing: border-box and doesn't add extra vertical padding
             />
           </div>
 
@@ -294,6 +221,8 @@ export default function TendersPage() {
             >
               <SelectValue placeholder="Newest First" />
             </SelectTrigger>
+
+            {/* NOTE: add z-index, margin-top and max-height so list is visible and scrolls */}
             <SelectContent className="bg-white z-50 mt-2 shadow-lg rounded-lg max-h-60 overflow-auto">
               <SelectItem value="newest" className="font-semibold py-3">Newest First</SelectItem>
               <SelectItem value="oldest" className="font-semibold py-3">Oldest First</SelectItem>
@@ -327,27 +256,6 @@ export default function TendersPage() {
             </SelectContent>
           </Select>
 
-          {/* Recommended toggle (new) */}
-          {/* Recommended toggle (improved visibility) */}
-          <div className="flex items-center gap-2 px-2">
-            <label className="inline-flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={showRecommendationsOnly}
-                onChange={(e) => setShowRecommendationsOnly(e.target.checked)}
-                className="w-4 h-4 accent-[#0E121A]"
-              />
-              <span className="font-semibold text-[#0E121A]">
-                Recommended for me
-              </span>
-            </label>
-
-            {loadingRecommendations && (
-              <span className="text-sm text-gray-500">loading…</span>
-            )}
-          </div>
-
-
           {/* Clear Filters */}
           {hasActiveFilters && (
             <Button
@@ -367,6 +275,9 @@ export default function TendersPage() {
           Showing {filteredAndSortedTenders.length} of {tenders.length} tenders
         </div>
       </div>
+
+
+
 
       {/* Tenders Grid - Clickable Cards */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
