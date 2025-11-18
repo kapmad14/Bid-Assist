@@ -45,30 +45,21 @@ export default function TendersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Recommendations toggle + loading indicator
+  // New: Recommendations toggle + loading indicator
   const [showRecommendationsOnly, setShowRecommendationsOnly] = useState<boolean>(false);
   const [loadingRecommendations, setLoadingRecommendations] = useState<boolean>(false);
-
-  // Pagination
-  const [page, setPage] = useState<number>(0);
-  const pageSize = 12; // show 12 tenders per page
 
   useEffect(() => {
     async function fetchTenders() {
       setLoading(true);
       setError(null);
       try {
-        // If recommendations toggle is OFF -> original behaviour (fetch all tenders paginated)
+        // If recommendations toggle is OFF -> original behaviour (fetch all tenders)
         if (!showRecommendationsOnly) {
-          // apply server-side pagination via range
-          const start = page * pageSize;
-          const end = start + pageSize - 1;
-
           const { data, error } = await supabase
             .from('tenders')
             .select('*')
-            .order('created_at', { ascending: false })
-            .range(start, end);
+            .order('created_at', { ascending: false });
 
           if (error) throw error;
           setTenders(data || []);
@@ -126,16 +117,12 @@ export default function TendersPage() {
           return;
         }
 
-        // 4) fetch tenders by matched IDs with pagination
-        const start = page * pageSize;
-        const end = start + pageSize - 1;
-
+        // 4) fetch tenders by matched IDs (server still handles ordering)
         const { data: matchedTenders, error: matchedErr } = await supabase
           .from('tenders')
           .select('*')
           .in('id', matchedTenderIds)
-          .order('created_at', { ascending: false })
-          .range(start, end);
+          .order('created_at', { ascending: false });
 
         if (matchedErr) throw matchedErr;
         setTenders(matchedTenders || []);
@@ -150,13 +137,7 @@ export default function TendersPage() {
     }
 
     fetchTenders();
-    // whenever key UI state changes, the effect reruns; page is included so paging works
-  }, [supabase, showRecommendationsOnly, page]);
-
-  // whenever filters/search/sort/recommendation toggle changes, reset page to 0
-  useEffect(() => {
-    setPage(0);
-  }, [searchQuery, sortBy, statusFilter, emdFilter, showRecommendationsOnly]);
+  }, [supabase, showRecommendationsOnly]);
 
   const formatDate = (dateString: string) => {
     if (!dateString) return 'N/A';
@@ -182,7 +163,7 @@ export default function TendersPage() {
     const endDate = new Date(dateString);
     const today = new Date();
     const diffDays = Math.ceil((endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    return diffDays <= 7 && diffDays > 0; // urgent = 7 days
+    return diffDays <= 7 && diffDays > 0; // urgent = 7 days (preserve your original logic)
   };
 
   const isClosed = (dateString: string) => {
@@ -202,11 +183,11 @@ export default function TendersPage() {
     return tender.emd_amount_parsed && parseFloat(tender.emd_amount_parsed) > 0;
   };
 
-  // Apply filters and sorting (unchanged except client-side overlay)
+  // Apply filters and sorting (unchanged except it now operates on server-supplied `tenders`)
   const filteredAndSortedTenders = useMemo(() => {
     let result = [...tenders];
 
-    // Search filter (client-side)
+    // Search filter (client-side as original)
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       result = result.filter((tender) => {
@@ -219,7 +200,7 @@ export default function TendersPage() {
       });
     }
 
-    // Status filter (client-side overlay)
+    // Status filter (client-side overlay; preserves your original getTenderStatus logic)
     if (statusFilter !== 'all') {
       result = result.filter((tender) => getTenderStatus(tender) === statusFilter);
     }
@@ -258,11 +239,7 @@ export default function TendersPage() {
     setEMDFilter('all');
   };
 
-  const hasActiveFilters = !!(searchQuery || sortBy !== 'newest' || statusFilter !== 'all' || emdFilter !== 'all');
-
-  // Pagination controls helpers
-  const goPrev = () => setPage((p) => Math.max(0, p - 1));
-  const goNext = () => setPage((p) => p + 1);
+  const hasActiveFilters = searchQuery || sortBy !== 'newest' || statusFilter !== 'all' || emdFilter !== 'all';
 
   if (loading) {
     return (
@@ -350,23 +327,24 @@ export default function TendersPage() {
             </SelectContent>
           </Select>
 
-          {/* Recommended toggle (keeps original look but forces visibility) */}
-          <div className="flex items-center gap-2 px-2 z-40">
+          {/* Recommended toggle (new) */}
+          {/* Recommended toggle (improved visibility) */}
+          <div className="flex items-center gap-2 px-2">
             <label className="inline-flex items-center gap-2 cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={showRecommendationsOnly}
-                onChange={(e) => {
-                  setShowRecommendationsOnly(e.target.checked);
-                }}
-                aria-label="Show recommended tenders only"
+                onChange={(e) => setShowRecommendationsOnly(e.target.checked)}
                 className="w-4 h-4 accent-[#0E121A]"
               />
-              <span className="font-semibold text-[#0E121A] leading-none select-none">
+              <span className="font-semibold text-[#0E121A]">
                 Recommended for me
               </span>
             </label>
-            {loadingRecommendations && <span className="text-sm text-gray-500">loading…</span>}
+
+            {loadingRecommendations && (
+              <span className="text-sm text-gray-500">loading…</span>
+            )}
           </div>
 
 
@@ -386,7 +364,7 @@ export default function TendersPage() {
 
         {/* Results Count */}
         <div className="text-sm text-gray-900 font-bold">
-          Showing {filteredAndSortedTenders.length} items (page {page + 1})
+          Showing {filteredAndSortedTenders.length} of {tenders.length} tenders
         </div>
       </div>
 
@@ -455,42 +433,6 @@ export default function TendersPage() {
           )}
         </div>
       )}
-
-      {/* Pagination Footer */}
-      {/* Pagination Footer (visible + accessible) */}
-      <div
-        className="mt-8 py-4 px-2 flex items-center justify-between bg-transparent z-50"
-        style={{ color: '#0E121A' }}
-        aria-label="pagination-footer"
-      >
-        <div className="text-sm font-medium" style={{ color: '#0E121A' }}>
-          Page <span className="font-semibold">{page + 1}</span>
-        </div>
-
-        <div className="flex gap-2">
-          <button
-            onClick={goPrev}
-            disabled={page === 0}
-            aria-disabled={page === 0}
-            className="border px-3 py-2 rounded bg-white hover:bg-gray-50 active:scale-[0.995]"
-            style={{
-              opacity: page === 0 ? 0.6 : 1,
-              cursor: page === 0 ? 'not-allowed' : 'pointer',
-              color: '#0E121A',
-            }}
-          >
-            Prev
-          </button>
-
-          <button
-            onClick={goNext}
-            className="border px-3 py-2 rounded bg-white hover:bg-gray-50 active:scale-[0.995]"
-            style={{ color: '#0E121A' }}
-          >
-            Next
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
