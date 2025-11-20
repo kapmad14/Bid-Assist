@@ -5,6 +5,7 @@ import { Tender, TenderStatus } from '../types';
 const supabase = createClient();
 
 class TenderStore {
+  // Local cache of shortlisted IDs (string form). Used for quick UI reads.
   private shortlistedIds: Set<string> = new Set();
 
   constructor() {
@@ -18,11 +19,16 @@ class TenderStore {
     }
   }
 
+  /*******************************
+   * LocalStorage helpers
+   *******************************/
   private loadShortlist() {
     try {
       const stored = localStorage.getItem('tenderflow_shortlist');
       if (stored) {
         this.shortlistedIds = new Set(JSON.parse(stored));
+      } else {
+        this.shortlistedIds = new Set();
       }
     } catch (e) {
       console.error('Failed to load shortlist', e);
@@ -38,35 +44,140 @@ class TenderStore {
     }
   }
 
-  /**
-   * Toggle shortlist locally. Kept async so callers can await and handle rollback flows if needed.
-   * Currently only persists to localStorage (client-side).
-   */
-  async toggleShortlist(id: string): Promise<void> {
+  /*******************************
+   * Server-backed shortlist APIs
+   *
+   * Behavior:
+   * - If the user is authenticated, toggleShortlist will attempt to persist to DB.
+   * - If unauthenticated, it falls back to localStorage only and still updates the local set.
+   *
+   * The UI is expected to use optimistic updates and handle rollbacks on failure.
+   *******************************/
+
+  // Insert a shortlist record server-side (throws on error)
+  async addShortlistServer(userId: string, tenderId: number | string) {
+    const payload = { user_id: userId, tender_id: Number(tenderId) };
+    const { error } = await supabase.from('user_shortlists').insert(payload).maybeSingle();
+    if (error) {
+      // ignore unique violation (already present)
+      if ((error as any)?.code === '23505') return;
+      throw error;
+    }
+  }
+
+  // Remove a shortlist server-side (throws on error)
+  async removeShortlistServer(userId: string, tenderId: number | string) {
+    const { error } = await supabase
+      .from('user_shortlists')
+      .delete()
+      .eq('user_id', userId)
+      .eq('tender_id', Number(tenderId));
+    if (error) throw error;
+  }
+
+  // Fetch shortlist tender ids for the authenticated user from server
+  async getShortlistedTenderIdsForUser() {
     try {
-      if (!id) return;
+      const userResp = await supabase.auth.getUser();
+      const user = userResp?.data?.user;
+      if (!user || !user.id) return [];
+
+      const { data, error } = await supabase
+        .from('user_shortlists')
+        .select('tender_id')
+        .eq('user_id', user.id);
+
+      if (error) {
+        console.error('getShortlistedTenderIdsForUser error:', error);
+        return [];
+      }
+      return (data || []).map((r: any) => Number(r.tender_id));
+    } catch (err) {
+      console.error('getShortlistedTenderIdsForUser unexpected error:', err);
+      return [];
+    }
+  }
+
+  // Sync local shortlistedIds with server (fetch user's shortlist and cache locally)
+  // Call this after login or when you want to refresh the local cache
+  async syncShortlistFromServer() {
+    try {
+      const ids = await this.getShortlistedTenderIdsForUser();
+      this.shortlistedIds = new Set(ids.map(String));
+      this.saveShortlist();
+    } catch (err) {
+      console.error('syncShortlistFromServer error:', err);
+    }
+  }
+
+  /**
+   * Toggle shortlist locally AND attempt to persist to server if authenticated.
+   * Returns a result object: { persisted: boolean, reason?: string }
+   * - persisted true => change persisted server-side (or already present)
+   * - persisted false => not persisted (likely unauthenticated). Local cache still updated.
+   */
+  async toggleShortlist(id: string) {
+    if (!id) return { persisted: false, reason: 'invalid-id' };
+
+    // optimistic local flip
+    try {
       if (this.shortlistedIds.has(id)) {
         this.shortlistedIds.delete(id);
       } else {
         this.shortlistedIds.add(id);
       }
+      // persist local
       this.saveShortlist();
-      return;
     } catch (e) {
-      console.error('toggleShortlist failed', e);
+      console.error('toggleShortlist local update failed', e);
       throw e;
+    }
+
+    // Try server-side persistence
+    try {
+      const userResp = await supabase.auth.getUser();
+      const user = userResp?.data?.user;
+      if (!user || !user.id) {
+        // unauthenticated: local only
+        return { persisted: false, reason: 'unauthenticated' };
+      }
+
+      // If we just added it locally -> ensure server has it
+      const numericId = Number(id);
+      if (this.shortlistedIds.has(id)) {
+        try {
+          await this.addShortlistServer(user.id, numericId);
+          return { persisted: true };
+        } catch (err) {
+          console.error('toggleShortlist addShortlistServer error:', err);
+          // rollback local change to reflect server failure
+          this.shortlistedIds.delete(id);
+          this.saveShortlist();
+          return { persisted: false, reason: 'server-error-add' };
+        }
+      } else {
+        // we just removed it locally -> remove from server
+        try {
+          await this.removeShortlistServer(user.id, numericId);
+          return { persisted: true };
+        } catch (err) {
+          console.error('toggleShortlist removeShortlistServer error:', err);
+          // rollback local change back in case of server failure
+          this.shortlistedIds.add(id);
+          this.saveShortlist();
+          return { persisted: false, reason: 'server-error-remove' };
+        }
+      }
+    } catch (err) {
+      console.error('toggleShortlist unexpected error:', err);
+      return { persisted: false, reason: 'unexpected' };
     }
   }
 
-  isShortlisted(id: string): boolean {
-    return this.shortlistedIds.has(id);
-  }
-
-  /**
-   * (Optional) Fetch recommended tender ids for the current user from the recommendations table.
-   * This keeps the old behavior if you want to call it directly.
-   */
-  async getRecommendedTenderIds(): Promise<number[]> {
+  /*******************************
+   * Recommendations helper (existing)
+   *******************************/
+  async getRecommendedTenderIds() {
     try {
       const userResp = await supabase.auth.getUser();
       const user = userResp?.data?.user;
@@ -84,9 +195,8 @@ class TenderStore {
 
       return (data || [])
         .map((r: any) => {
-          // preserve numeric type if tender_id is numeric; otherwise return as-is
-          const n = Number((r as any).tender_id);
-          return Number.isNaN(n) ? (r as any).tender_id : n;
+          const n = Number(r.tender_id);
+          return Number.isNaN(n) ? r.tender_id : n;
         })
         .filter((v: any) => v !== undefined && v !== null);
     } catch (err) {
@@ -95,15 +205,18 @@ class TenderStore {
     }
   }
 
-  // Map DB row to UI Tender model
+  /*******************************
+   * Map DB row to UI Tender model
+   *******************************/
   private mapRowToTender(row: any): Tender {
     const now = new Date();
     const endDate = row?.bid_end_datetime ? new Date(row.bid_end_datetime) : null;
     let status = TenderStatus.OPEN;
     if (endDate && endDate < now) status = TenderStatus.CLOSED;
 
+    const rowId = row?.id != null ? String(row.id) : undefined;
     return {
-      id: row?.id != null ? String(row.id) : undefined,
+      id: rowId,
       bidNumber: row?.bid_number || row?.gem_bid_id,
       title: row?.title || row?.b_category_name || 'Untitled Tender',
       authority: row?.organisation_name || 'GeM Portal',
@@ -129,14 +242,14 @@ class TenderStore {
       pdfStoragePath: row?.pdf_storage_path,
       pdfPublicUrl: row?.pdf_public_url,
       quantity: row?.total_quantity?.toString() || row?.total_quantity_parsed?.toString(),
-      isShortlisted: this.shortlistedIds.has(row?.id?.toString ? row.id.toString() : String(row?.id)),
+      isShortlisted: rowId ? this.shortlistedIds.has(rowId) : false,
       boqItems: row?.boq_items || []
     } as Tender;
   }
 
   /**
    * Main listing method used by the UI.
-   * Supports search, statusFilter, emdFilter, sortBy, pagination, and recommendationsOnly (via RPC).
+   * Supports search, statusFilter, emdFilter, sortBy, pagination, recommendationsOnly and server-backed shortlisted fetch.
    */
   async getTenders(params: {
     page: number;
@@ -147,85 +260,131 @@ class TenderStore {
     sortBy?: 'newest' | 'oldest' | 'closing-soon' | 'closing-latest';
     recommendationsOnly?: boolean;
     source?: 'gem' | 'all';
-  }): Promise<{ data: Tender[]; total: number; totalPages: number }> {
+  }) {
     try {
-      // If recommendationsOnly: use server-side RPC to fetch paged recommended tenders + count
-      // --- inside getTenders, replace the recommendationsOnly block with this ---
-        if (params.recommendationsOnly) {
+      // 1) recommendationsOnly branch (existing combined RPC)
+      if (params.recommendationsOnly) {
         try {
-            const userResp = await supabase.auth.getUser();
-            const user = userResp?.data?.user;
-            if (!user || !user.id) {
-            // not authenticated -> return empty
+          const userResp = await supabase.auth.getUser();
+          const user = userResp?.data?.user;
+          if (!user || !user.id) {
             return { data: [], total: 0, totalPages: 0 };
-            }
+          }
 
-            const from = (params.page - 1) * params.limit;
+          const from = (params.page - 1) * params.limit;
 
-            const { data: rpcRows, error: rpcErr } = await supabase
+          // NOTE: this assumes you already have a suitable RPC created for recommendations.
+          const { data: rpcRows, error: rpcErr } = await supabase
             .rpc('get_recommended_tenders_with_count', {
-                p_user: user.id,
-                p_limit: params.limit,
-                p_offset: from,
+              p_user: user.id,
+              p_limit: params.limit,
+              p_offset: from,
             });
 
-            if (rpcErr) {
+          if (rpcErr) {
             console.error('RPC get_recommended_tenders_with_count error:', rpcErr);
             return { data: [], total: 0, totalPages: 0 };
-            }
+          }
 
-            // rpcRows may be null or [] when no recommendations
-            if (!rpcRows || (Array.isArray(rpcRows) && rpcRows.length === 0)) {
+          if (!rpcRows || (Array.isArray(rpcRows) && rpcRows.length === 0)) {
             return { data: [], total: 0, totalPages: 0 };
-            }
+          }
 
-            // Normalize total_count: it should exist on the first row
-            let total = 0;
-            if (Array.isArray(rpcRows) && rpcRows.length > 0) {
+          let total = 0;
+          if (Array.isArray(rpcRows) && rpcRows.length > 0) {
             const first = rpcRows[0] as any;
             total = Number(first.total_count) || 0;
-            } else if (rpcRows && typeof rpcRows === 'object' && 'total_count' in rpcRows) {
+          } else if (rpcRows && typeof rpcRows === 'object' && 'total_count' in rpcRows) {
             total = Number((rpcRows as any).total_count) || 0;
-            }
+          }
 
-            // Remove the extra total_count property and map rows to Tender model
-            const rows = (rpcRows as any[]).map(r => {
-            // create a shallow copy without total_count to feed mapRowToTender
+          const rows = (rpcRows as any[]).map(r => {
             const { total_count, ...tenderRow } = r;
             return this.mapRowToTender(tenderRow);
-            });
+          });
 
-            const totalPages = Math.ceil((total || 0) / params.limit);
-            return { data: rows, total, totalPages };
+          const totalPages = Math.ceil((total || 0) / params.limit);
+          return { data: rows, total, totalPages };
         } catch (err) {
-            console.error('Error fetching recommended tenders via combined RPC:', err);
+          console.error('Error fetching recommended tenders via combined RPC:', err);
+          return { data: [], total: 0, totalPages: 0 };
+        }
+      }
+
+      // 2) If statusFilter === 'shortlisted' use server-backed JSON RPC (robust)
+      const now = new Date().toISOString();
+      if (params.statusFilter === 'shortlisted') {
+        try {
+          const userResp = await supabase.auth.getUser();
+          const user = userResp?.data?.user;
+          if (!user || !user.id) {
             return { data: [], total: 0, totalPages: 0 };
+          }
+
+          const from = (params.page - 1) * params.limit;
+
+          // This RPC should return a json object: { total: <int>, rows: [ ... tender rows ... ] }
+          const { data: rpcData, error: rpcErr } = await supabase.rpc('get_shortlisted_tenders_json', {
+            p_user: user.id,
+            p_limit: params.limit,
+            p_offset: from,
+          });
+
+          if (rpcErr) {
+            console.error('get_shortlisted_tenders_json error:', rpcErr);
+            return { data: [], total: 0, totalPages: 0 };
+          }
+
+          // Normalize supabase rpc response shapes
+          let payload: any = null;
+          if (!rpcData) {
+            payload = null;
+          } else if (Array.isArray(rpcData) && rpcData.length > 0 && typeof rpcData[0] === 'object' && Object.keys(rpcData[0]).length === 1) {
+            // shape: [{ get_shortlisted_tenders_json: { total:..., rows: [...] } }]
+            const val = rpcData[0];
+            const key = Object.keys(val)[0];
+            payload = (val as any)[key];
+          } else {
+            // shape likely: { total:..., rows: [...] }
+            payload = rpcData as any;
+          }
+
+          if (!payload) return { data: [], total: 0, totalPages: 0 };
+
+          const total = Number(payload.total || 0);
+          const rows = Array.isArray(payload.rows) ? payload.rows : [];
+
+          // Update local shortlist cache with returned row ids (optional, keeps local cache fresh)
+          try {
+            const idsFromServer = rows.map((r: any) => String(r.id));
+            // merge server ids into local set (do not clear local completely because user may have local-only shortlists)
+            idsFromServer.forEach((x: string) => this.shortlistedIds.add(x));
+            this.saveShortlist();
+          } catch (e) {
+            // non-fatal
+            console.warn('Failed to merge shortlist ids from server into local cache', e);
+          }
+
+          const mapped = rows.map((r: any) => this.mapRowToTender(r));
+          const totalPages = Math.ceil((total || 0) / params.limit);
+          return { data: mapped, total, totalPages };
+        } catch (err) {
+          console.error('Error fetching server-side shortlisted tenders:', err);
+          return { data: [], total: 0, totalPages: 0 };
         }
-        }
+      }
 
+      // 3) Fallback: build standard supabase query for tenders
+      let query: any = supabase.from('tenders').select('*', { count: 'exact' });
 
-      // Build a Supabase query for tenders
-      let query = supabase.from('tenders').select('*', { count: 'exact' });
-
-      // 1) Search
+      // Search
       if (params.search && params.search.trim()) {
         const term = params.search.trim();
-        // Keep it simple: match title, gem_bid_id, item_category_parsed
         query = query.or(`title.ilike.%${term}%,gem_bid_id.ilike.%${term}%,item_category_parsed.ilike.%${term}%`);
       }
 
-      // 2) Status filter
-      const now = new Date().toISOString();
-      if (params.statusFilter === 'shortlisted') {
-        const ids = Array.from(this.shortlistedIds).map(id => {
-          const n = Number(id);
-          return Number.isNaN(n) ? id : n;
-        });
-        if (ids.length === 0) {
-          return { data: [], total: 0, totalPages: 0 };
-        }
-        query = query.in('id', ids);
-      } else if (params.statusFilter === 'closed') {
+      // Status filters (open/closed/urgent)
+      if (params.statusFilter === 'closed') {
         query = query.lt('bid_end_datetime', now);
       } else if (params.statusFilter === 'open') {
         query = query.or(`bid_end_datetime.gte.${now},bid_end_datetime.is.null`);
@@ -233,16 +392,20 @@ class TenderStore {
         const nextWeek = new Date();
         nextWeek.setDate(nextWeek.getDate() + 7);
         query = query.gte('bid_end_datetime', now).lte('bid_end_datetime', nextWeek.toISOString());
+      } else if (params.statusFilter === 'all' || !params.statusFilter) {
+        // nothing
+      } else {
+        // If statusFilter was 'shortlisted' we already handled above. For any other unknown value, do nothing.
       }
 
-      // 3) EMD filter
+      // EMD filter
       if (params.emdFilter === 'yes') {
         query = query.gt('emd_amount_parsed', 0);
       } else if (params.emdFilter === 'no') {
         query = query.or('emd_amount_parsed.is.null,emd_amount_parsed.eq.0');
       }
 
-      // 4) Sorting
+      // Sorting
       if (params.sortBy === 'closing-soon') {
         query = query.order('bid_end_datetime', { ascending: true, nullsFirst: false });
       } else if (params.sortBy === 'closing-latest') {
@@ -253,10 +416,9 @@ class TenderStore {
         query = query.order('bid_date', { ascending: false });
       }
 
-      // 5) Pagination
+      // Pagination
       const from = (params.page - 1) * params.limit;
       const to = from + params.limit - 1;
-
       const { data, error, count } = await query.range(from, to);
 
       if (error) {
@@ -276,7 +438,15 @@ class TenderStore {
     }
   }
 
-  async getTenderById(id: string): Promise<Tender | undefined> {
+  /*******************************
+   * Utility methods
+   *******************************/
+  isShortlisted(id: string | undefined | null): boolean {
+    if (!id) return false;
+    return this.shortlistedIds.has(String(id));
+  }
+
+  async getTenderById(id: string) {
     try {
       const { data, error } = await supabase
         .from('tenders')
