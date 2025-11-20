@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,8 +15,11 @@ import {
   ExternalLink,
   FileSpreadsheet,
   File,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Star
 } from 'lucide-react';
+
+import { tenderStore } from '@/services/tenderStore';
 
 interface Tender {
   id: number;
@@ -52,7 +55,8 @@ export default function TenderDetailPage() {
   const params = useParams();
   const router = useRouter();
   const supabase = createClient();
-  const tenderId = params.id;
+  const tenderIdParam = params?.id;
+  const tenderIdNum = tenderIdParam ? Number(tenderIdParam) : NaN;
   
   const [tender, setTender] = useState<Tender | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -67,48 +71,87 @@ export default function TenderDetailPage() {
   const [extractionLogs, setExtractionLogs] = useState<string[]>([]);
   const [clickedDocs, setClickedDocs] = useState<Set<string>>(new Set());
 
+  // Shortlist state (client-side, optimistic)
+  const [isShortlisted, setIsShortlisted] = useState<boolean>(false);
+  const shortlistPendingRef = useRef(false);
+
+  // useRef to prevent setting state after unmount / race conditions
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
   useEffect(() => {
     async function fetchTender() {
+      setLoading(true);
+      setError(null);
+
+      if (!tenderIdParam || Number.isNaN(tenderIdNum)) {
+        setError('Invalid tender id');
+        setLoading(false);
+        return;
+      }
+
       try {
         const { data, error } = await supabase
           .from('tenders')
           .select('*')
-          .eq('id', tenderId)
+          .eq('id', tenderIdNum)
           .single();
 
         if (error) throw error;
+        if (!mountedRef.current) return;
+
         setTender(data);
 
-        // Get PDF URL from Supabase Storage
-        if (data.pdf_storage_path) {
+        // initialize shortlist state from tenderStore (local cache)
+        try {
+          const idStr = data?.id != null ? String(data.id) : '';
+          setIsShortlisted(tenderStore.isShortlisted(idStr));
+        } catch (e) {
+          // ignore
+        }
+
+        // Get PDF URL from Supabase Storage (only if path exists)
+        if (data?.pdf_storage_path) {
           try {
             const publicUrlResponse = supabase.storage
               .from('gem-pdfs')
-              .getPublicUrl(data.pdf_storage_path);
-            
-            if (publicUrlResponse.data && publicUrlResponse.data.publicUrl) {
-              setPdfUrl(publicUrlResponse.data.publicUrl);
-              setSelectedDocUrl(publicUrlResponse.data.publicUrl);
+              .getPublicUrl(data.pdf_storage_path || '');
+
+            const publicUrl = publicUrlResponse?.data?.publicUrl || null;
+            if (publicUrl) {
+              // Basic safety: only accept http(s)
+              if (/^https?:\/\//i.test(publicUrl)) {
+                const safeUrl = encodeURI(publicUrl);
+                setPdfUrl(safeUrl);
+                setSelectedDocUrl(safeUrl);
+              } else {
+                console.warn('Public URL has unsupported protocol', publicUrl);
+              }
             }
           } catch (pdfErr) {
             console.error('Error loading PDF URL:', pdfErr);
           }
         }
       } catch (err: any) {
-        setError(err.message);
+        if (!mountedRef.current) return;
+        setError(err?.message || 'Failed to load tender');
       } finally {
-        setLoading(false);
+        if (mountedRef.current) setLoading(false);
       }
     }
 
-    if (tenderId) {
-      fetchTender();
-    }
-  }, [tenderId, supabase]);
+    fetchTender();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenderIdParam]); // don't include supabase as dep (stable client)
 
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString?: string) => {
     if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleDateString('en-IN', {
+    const d = new Date(dateString);
+    if (Number.isNaN(d.getTime())) return 'N/A';
+    return d.toLocaleDateString('en-IN', {
       day: '2-digit',
       month: 'short',
       year: 'numeric',
@@ -117,9 +160,10 @@ export default function TenderDetailPage() {
     });
   };
 
-  const formatCurrency = (amount: string) => {
+  const formatCurrency = (amount?: string | null) => {
     if (!amount) return 'N/A';
-    const num = parseFloat(amount);
+    const num = parseFloat(String(amount));
+    if (Number.isNaN(num)) return 'N/A';
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
       currency: 'INR',
@@ -140,13 +184,40 @@ export default function TenderDetailPage() {
     return 'Open';
   };
 
-  const handleDownload = (url: string) => {
+  const handleShortlistToggle = async () => {
+    if (!tender?.id || shortlistPendingRef.current) return;
+    shortlistPendingRef.current = true;
+
+    // optimistic update
+    setIsShortlisted(prev => !prev);
+    try {
+      // tenderStore.toggleShortlist may return either void or an object; handle both.
+      const result = await (tenderStore.toggleShortlist(String(tender.id)) as any);
+      // if it returns object with persisted===false and reason === 'server-error-*', we may rollback.
+      if (result && result.persisted === false && result.reason?.startsWith('server-error')) {
+        // rollback optimistic
+        setIsShortlisted(prev => !prev);
+      } else {
+        // success or unauthenticated (still local); keep optimistic state
+      }
+    } catch (err) {
+      console.error('Shortlist toggle failed:', err);
+      // rollback
+      setIsShortlisted(prev => !prev);
+    } finally {
+      shortlistPendingRef.current = false;
+    }
+  };
+
+  const handleDownload = (url: string | null) => {
     if (url) {
-      window.open(url, '_blank');
+      // prefer opening in new tab to avoid download issues
+      window.open(url, '_blank', 'noopener,noreferrer');
     }
   };
 
   const handlePreviewAdditionalDocs = async () => {
+    if (!tender?.id) return;
     setIsExtracting(true);
     setExtractionLogs(['Starting URL extraction...']);
     
@@ -154,26 +225,41 @@ export default function TenderDetailPage() {
       const response = await fetch('/api/extract-documents', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenderId: tender?.id })
+        body: JSON.stringify({ tenderId: tender.id })
       });
+
+      if (!response.ok) {
+        const txt = await response.text().catch(() => 'Non-JSON error');
+        setExtractionLogs(prev => [...prev, `Extraction API error: ${response.status} ${txt}`]);
+        setIsExtracting(false);
+        return;
+      }
       
-      const data = await response.json();
+      let data: any;
+      try {
+        data = await response.json();
+      } catch (err) {
+        setExtractionLogs(prev => [...prev, 'Invalid JSON from extraction API']);
+        setIsExtracting(false);
+        return;
+      }
       
-      if (data.success) {
-        setExtractionLogs(data.logs || []);
-        
-        const formattedDocs = data.documents.map((doc: any) => ({
-          id: doc.order.toString(),
-          filename: doc.filename,
-          fileSize: 'N/A',
-          fileType: doc.filename.split('.').pop()?.toLowerCase() || 'unknown',
-          storageUrl: doc.url,
+      if (data?.success) {
+        setExtractionLogs(prev => [...prev, ...(data.logs || [])]);
+
+        const formattedDocs = (data.documents || []).map((doc: any, idx: number) => ({
+          id: String(doc.order ?? idx),
+          filename: doc.filename || `document-${idx + 1}`,
+          fileSize: doc.size ? String(doc.size) : 'N/A',
+          fileType: (doc.filename || '').split('.').pop()?.toLowerCase() || 'unknown',
+          storageUrl: doc.url ? encodeURI(String(doc.url)) : '',
           extractedAt: new Date().toISOString()
-        }));
+        })) as ExtractedDocument[];
         
         setExtractedDocs(formattedDocs);
         setUrlsExtracted(true);
         
+        // scroll into view after short delay
         setTimeout(() => {
           document.getElementById('documents-section')?.scrollIntoView({ 
             behavior: 'smooth', 
@@ -181,23 +267,32 @@ export default function TenderDetailPage() {
           });
         }, 500);
       } else {
-        setExtractionLogs(prev => [...prev, `Error: ${data.error}`]);
+        setExtractionLogs(prev => [...prev, `Error: ${data?.error || 'Unknown error'}`]);
       }
     } catch (error: any) {
-      setExtractionLogs(prev => [...prev, `Error: ${error.message}`]);
+      setExtractionLogs(prev => [...prev, `Network error: ${error?.message || error}`]);
     } finally {
-      setIsExtracting(false);
+      if (mountedRef.current) setIsExtracting(false);
     }
   };
 
   const canPreview = (fileType: string): boolean => {
-    const previewableTypes = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'];
+    const previewableTypes = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'];
     return previewableTypes.includes(fileType.toLowerCase());
   };
 
   const handleDocumentAction = (docId: string, url: string, fileType: string) => {
-    setClickedDocs(prev => new Set(prev).add(docId));
-    window.open(url, '_blank');
+    setClickedDocs(prev => {
+      const copy = new Set(prev);
+      copy.add(docId);
+      return copy;
+    });
+    if (canPreview(fileType)) {
+      // try open in new tab for now; embed support is used for main bid doc only
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } else {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
   };
 
   const getFileIcon = (fileType: string) => {
@@ -216,7 +311,7 @@ export default function TenderDetailPage() {
     return (
       <div className="container mx-auto px-4 py-8">
         <div className="flex items-center justify-center">
-          <Loader2 className="w-8 h-8 text-[#F7C846] animate-spin" />
+          <Loader2 className="w-8 h-8 text-[#F7C846] animate-spin" aria-hidden />
         </div>
       </div>
     );
@@ -247,7 +342,7 @@ export default function TenderDetailPage() {
             variant="outline"
             className="border-2 border-gray-300 font-bold text-gray-900 hover:bg-gray-50"
           >
-            <ArrowLeft className="h-5 w-5 mr-2" />
+            <ArrowLeft className="h-5 w-5 mr-2" aria-hidden />
             Back to All Tenders
           </Button>
         </div>
@@ -296,13 +391,30 @@ export default function TenderDetailPage() {
                   <p className="text-xs text-gray-600 font-semibold">EMD Amount</p>
                   <p className="font-bold text-sm text-gray-900">{formatCurrency(tender.emd_amount_parsed)}</p>
                 </div>
-                <div>
-                  <p className="text-xs text-gray-600 font-semibold">Consignee Address</p>
-                  <p className="font-bold text-sm text-gray-900">
-                    {tender.city && tender.state 
-                      ? `${tender.city}, ${tender.state}${tender.pincode ? ' - ' + tender.pincode : ''}` 
-                      : tender.pincode || 'N/A'}
-                  </p>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-gray-600 font-semibold">Consignee Address</p>
+                    <p className="font-bold text-sm text-gray-900">
+                      {tender.city && tender.state 
+                        ? `${tender.city}, ${tender.state}${tender.pincode ? ' - ' + tender.pincode : ''}` 
+                        : tender.pincode || 'N/A'}
+                    </p>
+                  </div>
+
+                  {/* Shortlist toggle in bottom-right of Tender Details card */}
+                  <div className="ml-4 self-end">
+                    <button
+                      onClick={handleShortlistToggle}
+                      aria-pressed={isShortlisted}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-semibold transition ${
+                        isShortlisted ? 'bg-black text-white border border-black' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                      }`}
+                      aria-label={isShortlisted ? 'Remove from shortlist' : 'Add to shortlist'}
+                    >
+                      <Star className={`w-4 h-4 ${isShortlisted ? 'fill-current' : ''}`} aria-hidden />
+                      {isShortlisted ? 'Shortlisted' : 'Shortlist'}
+                    </button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -318,23 +430,40 @@ export default function TenderDetailPage() {
                 )}
               </CardHeader>
               <CardContent className="space-y-3">
-                <Button 
-                  className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold"
+                {/* Preview Additional Docs — yellow pill, same as “Recommended for Me” */}
+                <Button
+                  className="
+                    w-full 
+                    bg-[#F7C846] hover:bg-[#e5b53d]
+                    text-[#0E121A] font-bold
+                    rounded-full
+                    py-4 
+                    shadow-md shadow-gray-300/50
+                    disabled:bg-gray-300 disabled:cursor-not-allowed
+                  "
                   onClick={handlePreviewAdditionalDocs}
                   disabled={isExtracting || urlsExtracted}
                 >
                   {isExtracting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                   Preview Additional Docs
                 </Button>
-                <Button className="w-full bg-[#F7C846] hover:bg-[#F7C846]/90 text-[#0E121A] font-bold">
-                  Proceed To Analyse Tender
+
+                {/* Analyze Tender with AI — blue pill with white text */}
+                <Button
+                  className="
+                    w-full
+                    bg-blue-600 hover:bg-blue-700
+                    !text-white font-bold
+                    rounded-full
+                    py-4
+                    shadow-md shadow-gray-300/50
+                  "
+                >
+                  Analyze Tender with AI
                 </Button>
-                <Button variant="outline" className="w-full border-2 border-gray-300 font-semibold">
-                  Mark as Submitted
-                </Button>
-                <Button variant="outline" className="w-full border-2 border-gray-300 font-semibold">
-                  Mark as Won/Lost
-                </Button>
+
+
+                {/* removed Mark as Submitted & Mark as Won/Lost per request */}
               </CardContent>
             </Card>
 
@@ -349,13 +478,14 @@ export default function TenderDetailPage() {
                       size="sm"
                       onClick={() => setExtractionLogs([])}
                       className="font-semibold"
+                      aria-label="Clear extraction logs"
                     >
                       Clear
                     </Button>
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="bg-gray-900 text-green-400 p-3 rounded text-xs font-mono max-h-48 overflow-y-auto">
+                  <div className="bg-gray-900 text-green-400 p-3 rounded text-xs font-mono max-h-48 overflow-y-auto" aria-live="polite">
                     {extractionLogs.map((log, idx) => (
                       <div key={idx} className="mb-1">
                         {`> ${log}`}
@@ -401,23 +531,25 @@ export default function TenderDetailPage() {
                           size="sm"
                           onClick={() => handleDownload(doc.storageUrl)}
                           className="font-semibold"
+                          aria-label={`Download ${doc.filename}`}
                         >
-                          <Download className="h-4 w-4" />
+                          <Download className="h-4 w-4" aria-hidden />
                         </Button>
                         <Button 
                           variant="ghost" 
                           size="sm"
                           onClick={() => handleDocumentAction(doc.id, doc.storageUrl, doc.fileType)}
                           className={`font-semibold ${clickedDocs.has(doc.id) ? 'text-gray-400' : 'text-blue-600'}`}
+                          aria-label={canPreview(doc.fileType) ? `Preview ${doc.filename}` : `Open ${doc.filename}`}
                         >
                           {canPreview(doc.fileType) ? (
                             <>
-                              <Eye className="h-4 w-4 mr-1" />
+                              <Eye className="h-4 w-4 mr-1" aria-hidden />
                               Preview
                             </>
                           ) : (
                             <>
-                              <ExternalLink className="h-4 w-4 mr-1" />
+                              <ExternalLink className="h-4 w-4 mr-1" aria-hidden />
                               Visit Link
                             </>
                           )}
@@ -438,37 +570,57 @@ export default function TenderDetailPage() {
                     <Button 
                       variant="outline" 
                       size="sm"
-                      onClick={() => window.open(selectedDocUrl || '', '_blank')}
+                      onClick={() => selectedDocUrl ? window.open(selectedDocUrl, '_blank', 'noopener,noreferrer') : null}
                       className="border-2 border-gray-300 font-semibold"
+                      aria-label="Open document full screen"
+                      disabled={!selectedDocUrl}
                     >
-                      <ExternalLink className="h-4 w-4 mr-2" />
+                      <ExternalLink className="h-4 w-4 mr-2" aria-hidden />
                       Open Full Screen
                     </Button>
                     <Button 
                       variant="outline" 
                       size="sm"
                       onClick={() => {
+                        if (!selectedDocUrl) return;
                         const link = document.createElement('a');
-                        link.href = selectedDocUrl || '';
+                        link.href = selectedDocUrl;
                         link.download = tender.pdf_storage_path?.split('/').pop() || 'document.pdf';
+                        link.target = '_blank';
+                        link.rel = 'noopener noreferrer';
+                        document.body.appendChild(link);
                         link.click();
+                        link.remove();
                       }}
                       className="border-2 border-gray-300 font-semibold"
+                      aria-label="Download document"
+                      disabled={!selectedDocUrl}
                     >
-                      <Download className="h-4 w-4 mr-2" />
+                      <Download className="h-4 w-4 mr-2" aria-hidden />
                       Download
                     </Button>
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                {selectedDocUrl && (
-                  <embed
-                    src={`${selectedDocUrl}#view=FitH&navpanes=0`}
-                    type="application/pdf"
-                    className="w-full border-0"
-                    style={{ height: '800px' }}
-                  />
+                {selectedDocUrl ? (
+                  // Only embed if it's a PDF (more reliable)
+                  selectedDocUrl.toLowerCase().endsWith('.pdf') ? (
+                    <embed
+                      src={`${selectedDocUrl}#view=FitH&navpanes=0`}
+                      type="application/pdf"
+                      className="w-full border-0"
+                      style={{ height: '800px' }}
+                      aria-label="Bid document preview"
+                      title="Bid document preview"
+                    />
+                  ) : (
+                    <div className="p-6 text-center text-sm text-gray-600">
+                      Preview unavailable for this document type. <Button variant="link" onClick={() => window.open(selectedDocUrl, '_blank', 'noopener,noreferrer')}>Open in new tab</Button>
+                    </div>
+                  )
+                ) : (
+                  <div className="p-8 text-center text-sm text-gray-500">No document selected</div>
                 )}
               </CardContent>
             </Card>

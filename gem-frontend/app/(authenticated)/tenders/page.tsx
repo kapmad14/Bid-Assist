@@ -220,6 +220,25 @@ function TendersContent() {
     return diffDays <= 7 && diffDays > 0;
   };
 
+  // NEW helper: strictly follow requested logic for non-clickable status badge
+  const getTenderStatus = (dateString?: string | null): 'Closed' | 'Closing Soon' | 'Active' => {
+    if (!dateString) {
+      // If no date, treat as Active (you can change to 'Unknown' if preferred)
+      return 'Active';
+    }
+    const end = new Date(dateString);
+    if (Number.isNaN(end.getTime())) return 'Active';
+    const now = new Date();
+    // if end date has passed -> Closed
+    if (end.getTime() < now.getTime()) return 'Closed';
+
+    // compute full-day diff using end-of-day to avoid off-by-one errors
+    const diffMs = (new Date(end)).setHours(23,59,59,999) - now.getTime();
+    const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+    if (diffDays <= 7) return 'Closing Soon';
+    return 'Active';
+  };
+
   const formatCurrency = (amount?: number | null) => {
     if (amount == null || Number.isNaN(amount)) return 'N/A';
     return new Intl.NumberFormat('en-IN', {
@@ -510,100 +529,131 @@ function TendersContent() {
         ) : (
            <div className="space-y-4">
               {tenders.map(tender => {
-                 const urgent = isClosingSoon(tender.deadline);
-                 const timeLeft = getTimeLeft(tender.deadline);
-                 const hasEmd = (tender.emdAmount ?? 0) > 0;
+                const urgent = isClosingSoon(tender.deadline);
+                const timeLeft = getTimeLeft(tender.deadline);
+                const hasEmd = (tender.emdAmount ?? 0) > 0;
 
-                 return (
-                    <div key={tender.id} className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow p-5 group relative">
-                       <div className="flex flex-col md:flex-row justify-between gap-4 mb-4">
-                          
-                          {/* Left Info */}
-                          <div className="flex-1 pr-8">
-                             <Link href={`/tenders/${tender.id}`}>
-                                <h3 className="text-lg font-bold text-[#0E121A] group-hover:text-blue-700 transition-colors line-clamp-2 mb-2 cursor-pointer">
-                                   {tender.category || tender.title || 'Untitled tender'}
-                                </h3>
-                             </Link>
-                             
-                             {/* Badges Row */}
-                             <div className="flex flex-wrap items-center gap-3 mb-3">
-                                <span className="bg-gray-100 text-gray-700 text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wide border border-gray-200">
-                                   {tender.bidNumber || 'ID N/A'}
-                                </span>
-                                <span className="flex items-center gap-1 bg-gray-50 text-gray-600 text-[10px] font-bold px-2 py-1 rounded border border-gray-200">
-                                   <FileText className="w-3 h-3" aria-hidden /> {tender.quantity ? `${tender.quantity} Qty` : 'Docs'}
-                                </span>
-                                {urgent && (
-                                   <span className="flex items-center gap-1 bg-orange-50 text-orange-700 text-[10px] font-bold px-2 py-1 rounded border border-orange-100">
-                                      <Clock className="w-3 h-3" aria-hidden /> {timeLeft}
-                                   </span>
-                                )}
-                             </div>
-                          </div>
+                // compute status for the status pill (Closed / Closing Soon / Active)
+                const computeStatus = (() => {
+                  const now = new Date();
+                  const deadline = tender.deadline ? new Date(tender.deadline) : null;
+                  if (!deadline || Number.isNaN(deadline.getTime())) {
+                    return { text: 'Active', classes: 'bg-gray-50 text-gray-700 border border-gray-200' };
+                  }
+                  if (deadline.getTime() < now.getTime()) {
+                    return { text: 'Closed', classes: 'bg-red-600 text-white border-red-600' };
+                  }
+                  const diffMs = (new Date(deadline)).setHours(23,59,59,999) - now.getTime();
+                  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+                  if (diffDays <= 7 && diffDays > 0) {
+                    return { text: 'Closing Soon', classes: 'bg-orange-50 text-orange-700 border border-orange-100' };
+                  }
+                  return { text: 'Active', classes: 'bg-green-50 text-green-700 border border-green-100' };
+                })();
 
-                          {/* Right Info (EMD & Shortlist) */}
-                          <div className="flex flex-col items-end justify-between shrink-0 gap-3 min-w-[140px]">
-                             <div className="text-right">
-                                <p className="text-xs font-bold text-gray-500 uppercase mb-0.5">EMD Amount</p>
-                                <p className="text-base font-semibold text-[#0E121A]">
-                                   {hasEmd ? formatCurrency(tender.emdAmount ?? 0) : 'N/A'}
-                                </p>
-                             </div>
+                return (
+                  <div key={tender.id} className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow p-5 group relative">
+                    <div className="flex flex-col md:flex-row justify-between gap-4 mb-4">
+                      {/* Left Info */}
+                      <div className="flex-1 pr-8">
+                        <Link href={`/tenders/${tender.id}`}>
+                          <h3 className="text-lg font-bold text-[#0E121A] group-hover:text-blue-700 transition-colors line-clamp-2 mb-2 cursor-pointer">
+                            {tender.category || tender.title || 'Untitled tender'}
+                          </h3>
+                        </Link>
 
-                             {/* Shortlist Button */}
-                             <button 
-                                onClick={(e) => void toggleShortlist(e, tender)}
-                                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg border text-xs font-bold transition-all justify-center ${tender.isShortlisted ? 'bg-yellow-50 border-[#F7C846] text-yellow-700' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}
-                                aria-pressed={!!tender.isShortlisted}
-                                aria-label={tender.isShortlisted ? 'Remove from shortlist' : 'Add to shortlist'}
-                             >
-                                <Star className={`w-3 h-3 ${tender.isShortlisted ? 'fill-yellow-500 text-yellow-500' : ''}`} aria-hidden />
-                                {tender.isShortlisted ? 'Shortlisted' : 'Shortlist'}
-                             </button>
-                          </div>
-                       </div>
-                       
-                       {/* Footer Info */}
-                       <div className="border-t border-gray-100 pt-4 grid grid-cols-1 md:grid-cols-2 gap-y-3 gap-x-6">
-                          {/* Organization */}
-                          <div className="flex items-start gap-2.5">
-                             <div className="mt-0.5 w-5 h-5 rounded bg-blue-50 flex items-center justify-center shrink-0">
-                                <Building2 className="w-3 h-3 text-blue-600" aria-hidden />
-                             </div>
-                             <div>
-                                <p className="text-sm font-bold text-gray-900 line-clamp-1">{tender.ministry || tender.authority || 'Unknown'}</p>
-                                <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5">
-                                   <MapPin className="w-3 h-3" aria-hidden />
-                                   {tender.location || 'Location not specified'}
-                                </div>
-                             </div>
-                          </div>
-                          
-                          {/* Dates & Action */}
-                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                             <div className="space-y-1">
-                                <div className="flex items-center gap-2 text-xs text-gray-500">
-                                   <Calendar className="w-3 h-3" aria-hidden />
-                                   Start: <span className="font-medium text-gray-700">{tender.publishedDate ? new Date(tender.publishedDate).toLocaleDateString() : 'N/A'}</span>
-                                </div>
-                                <div className="flex items-center gap-2 text-xs text-gray-500">
-                                   <Clock className="w-3 h-3 text-red-500" aria-hidden />
-                                   End: <span className="font-bold text-gray-900">{tender.deadline ? new Date(tender.deadline).toLocaleString() : 'N/A'}</span>
-                                </div>
-                             </div>
+                        {/* Row: Bid number + Qty + optional urgent badge */}
+                        <div className="flex items-center gap-3 mb-2">
+                          <span className="bg-gray-100 text-gray-700 text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wide border border-gray-200">
+                            {tender.bidNumber || 'ID N/A'}
+                          </span>
 
-                             <Link 
-                                href={`/tenders/${tender.id}`} 
-                                className="flex items-center justify-center gap-1 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold px-4 py-2 rounded-lg transition-colors border border-blue-100"
-                             >
-                                View Details <ChevronRight className="w-3 h-3" aria-hidden />
-                             </Link>
-                          </div>
-                       </div>
+                          <span className="flex items-center gap-1 bg-gray-50 text-gray-600 text-[10px] font-bold px-2 py-1 rounded border border-gray-200">
+                            <FileText className="w-3 h-3" aria-hidden /> {tender.quantity ? `${tender.quantity} Qty` : 'Docs'}
+                          </span>
+
+                          {urgent && (
+                            <span className="flex items-center gap-1 bg-orange-50 text-orange-700 text-[10px] font-bold px-2 py-1 rounded border border-orange-100">
+                              <Clock className="w-3 h-3" aria-hidden /> {timeLeft}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Status pill — stacked below Bid/Qty (non-clickable visual only) */}
+                        <div className="mb-3">
+                          <span
+                            className={`inline-flex items-center text-[11px] font-semibold px-3 py-1 rounded max-w-max ${computeStatus.classes}`}
+                            title={computeStatus.text}
+                            aria-hidden
+                          >
+                            {computeStatus.text}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Right Info (EMD & Shortlist) */}
+                      <div className="flex flex-col items-end justify-between shrink-0 gap-3 min-w-[140px]">
+                        <div className="text-right">
+                          <p className="text-xs font-bold text-gray-500 uppercase mb-0.5">EMD Amount</p>
+                          <p className="text-base font-semibold text-[#0E121A]">
+                            {hasEmd ? formatCurrency(tender.emdAmount ?? 0) : 'N/A'}
+                          </p>
+                        </div>
+
+                        {/* Shortlist Button */}
+                        <button 
+                          onClick={(e) => void toggleShortlist(e, tender)}
+                          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg border text-xs font-bold transition-all justify-center ${tender.isShortlisted ? 'bg-yellow-50 border-[#F7C846] text-yellow-700' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+                          aria-pressed={!!tender.isShortlisted}
+                          aria-label={tender.isShortlisted ? 'Remove from shortlist' : 'Add to shortlist'}
+                        >
+                          <Star className={`w-3 h-3 ${tender.isShortlisted ? 'fill-yellow-500 text-yellow-500' : ''}`} aria-hidden />
+                          {tender.isShortlisted ? 'Shortlisted' : 'Shortlist'}
+                        </button>
+                      </div>
                     </div>
-                 );
+
+                    {/* Footer Info — unchanged */}
+                    <div className="border-t border-gray-100 pt-4 grid grid-cols-1 md:grid-cols-2 gap-y-3 gap-x-6">
+                      {/* Organization */}
+                      <div className="flex items-start gap-2.5">
+                        <div className="mt-0.5 w-5 h-5 rounded bg-blue-50 flex items-center justify-center shrink-0">
+                          <Building2 className="w-3 h-3 text-blue-600" aria-hidden />
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-gray-900 line-clamp-1">{tender.ministry || tender.authority || 'Unknown'}</p>
+                          <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5">
+                            <MapPin className="w-3 h-3" aria-hidden />
+                            {tender.location || 'Location not specified'}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Dates & Action */}
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 text-xs text-gray-500">
+                            <Calendar className="w-3 h-3" aria-hidden />
+                            Start: <span className="font-medium text-gray-700">{tender.publishedDate ? new Date(tender.publishedDate).toLocaleDateString() : 'N/A'}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-gray-500">
+                            <Clock className="w-3 h-3 text-red-500" aria-hidden />
+                            End: <span className="font-bold text-gray-900">{tender.deadline ? new Date(tender.deadline).toLocaleString() : 'N/A'}</span>
+                          </div>
+                        </div>
+
+                        <Link 
+                          href={`/tenders/${tender.id}`} 
+                          className="flex items-center justify-center gap-1 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold px-4 py-2 rounded-lg transition-colors border border-blue-100"
+                        >
+                          View Details <ChevronRight className="w-3 h-3" aria-hidden />
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                );
               })}
+
            </div>
         )}
 
@@ -638,3 +688,4 @@ function TendersContent() {
     </div>
   );
 }
+

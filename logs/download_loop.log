@@ -12653,3 +12653,165 @@ Call log:
   saved -> data/pdfs/ra/GEM_doc_8613381_e62b2213a8.pdf
 Done. succeeded: 20 failed: 8
 === Thu Nov 20 09:44:27 UTC 2025 Finished download_from_db.py. Sleeping 3600s ===
+=== Thu Nov 20 10:44:45 UTC 2025 Starting download_from_db.py ===
+Found 33 candidates (limit): 50
+-> GEM/2025/R/578502 doc_id: 8612097 detail: https://bidplus.gem.gov.in/public-bid-other-details/8612097
+    GET https://bidplus.gem.gov.in/showbidDocument/8612097 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8612097 -> status 200 bytes=123 ctype=text/html; charset=UTF-8
+    GET https://bidplus.gem.gov.in/list-ra-schedules/8612097 -> status 200 bytes=102480 ctype=text/html; charset=UTF-8
+    Playwright fallback: no storage_state.json, creating fresh context
+  failed to download for GEM/2025/R/578502
+-> GEM/2025/R/578516 doc_id: 8612310 detail: https://bidplus.gem.gov.in/public-bid-other-details/8612310
+    GET https://bidplus.gem.gov.in/showbidDocument/8612310 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8612310 -> status 200 bytes=123 ctype=text/html; charset=UTF-8
+    GET https://bidplus.gem.gov.in/list-ra-schedules/8612310 -> status 200 bytes=101363 ctype=text/html; charset=UTF-8
+    Playwright fallback: no storage_state.json, creating fresh context
+  failed to download for GEM/2025/R/578516
+-> GEM/2025/R/578514 doc_id: 8612295 detail: https://bidplus.gem.gov.in/public-bid-other-details/8612295
+    GET https://bidplus.gem.gov.in/showbidDocument/8612295 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8612295 -> status 200 bytes=123 ctype=text/html; charset=UTF-8
+    GET https://bidplus.gem.gov.in/list-ra-schedules/8612295 -> status 200 bytes=103597 ctype=text/html; charset=UTF-8
+    Playwright fallback: no storage_state.json, creating fresh context
+  failed to download for GEM/2025/R/578514
+-> GEM/2025/R/578517 doc_id: 8612330 detail: https://bidplus.gem.gov.in/public-bid-other-details/8612330
+    GET https://bidplus.gem.gov.in/showbidDocument/8612330 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8612330 -> status 200 bytes=123 ctype=text/html; charset=UTF-8
+    GET https://bidplus.gem.gov.in/list-ra-schedules/8612330 -> status 200 bytes=105831 ctype=text/html; charset=UTF-8
+    Playwright fallback: no storage_state.json, creating fresh context
+  failed to download for GEM/2025/R/578517
+-> GEM/2025/R/578532 doc_id: 8612500 detail: https://bidplus.gem.gov.in/public-bid-other-details/8612500
+    GET https://bidplus.gem.gov.in/showbidDocument/8612500 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8612500 -> status 200 bytes=123 ctype=text/html; charset=UTF-8
+    GET https://bidplus.gem.gov.in/list-ra-schedules/8612500 -> status 200 bytes=111791 ctype=text/html; charset=UTF-8
+    Playwright fallback: no storage_state.json, creating fresh context
+  failed to download for GEM/2025/R/578532
+-> GEM/2025/R/578542 doc_id: 8612646 detail: https://bidplus.gem.gov.in/public-bid-other-details/8612646
+    GET https://bidplus.gem.gov.in/showbidDocument/8612646 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8612646 -> status 200 bytes=123 ctype=text/html; charset=UTF-8
+    GET https://bidplus.gem.gov.in/list-ra-schedules/8612646 -> status 200 bytes=111794 ctype=text/html; charset=UTF-8
+    Playwright fallback: no storage_state.json, creating fresh context
+  failed to download for GEM/2025/R/578542
+-> GEM/2025/R/578562 doc_id: 8612889 detail: https://bidplus.gem.gov.in/public-bid-other-details/8612889
+    GET https://bidplus.gem.gov.in/showbidDocument/8612889 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8612889 -> status 200 bytes=123 ctype=text/html; charset=UTF-8
+    GET https://bidplus.gem.gov.in/list-ra-schedules/8612889 -> status 200 bytes=111417 ctype=text/html; charset=UTF-8
+    Playwright fallback: no storage_state.json, creating fresh context
+  failed to download for GEM/2025/R/578562
+-> GEM/2025/R/578580 doc_id: 8613208 detail: https://bidplus.gem.gov.in/public-bid-other-details/8613208
+    GET https://bidplus.gem.gov.in/showbidDocument/8613208 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8613208 -> status 200 bytes=123 ctype=text/html; charset=UTF-8
+    GET https://bidplus.gem.gov.in/list-ra-schedules/8613208 -> status 200 bytes=101363 ctype=text/html; charset=UTF-8
+    Playwright fallback: no storage_state.json, creating fresh context
+  failed to download for GEM/2025/R/578580
+-> GEM/2025/R/578608 doc_id: 8613535 detail: https://bidplus.gem.gov.in/public-bid-other-details/8613535
+    GET https://bidplus.gem.gov.in/showbidDocument/8613535 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8613535 -> status 200 bytes=127452 ctype=application/pdf
+  saved -> data/pdfs/ra/GEM_doc_8613535_9b89203a68.pdf
+-> GEM/2025/R/578611 doc_id: 8613579 detail: https://bidplus.gem.gov.in/public-bid-other-details/8613579
+    GET https://bidplus.gem.gov.in/showbidDocument/8613579 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8613579 -> status 200 bytes=123 ctype=text/html; charset=UTF-8
+    GET https://bidplus.gem.gov.in/list-ra-schedules/8613579 -> status 200 bytes=102480 ctype=text/html; charset=UTF-8
+    Playwright fallback: no storage_state.json, creating fresh context
+  failed to download for GEM/2025/R/578611
+-> GEM/2025/R/578609 doc_id: 8613567 detail: https://bidplus.gem.gov.in/public-bid-other-details/8613567
+    GET https://bidplus.gem.gov.in/showbidDocument/8613567 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8613567 -> status 200 bytes=128670 ctype=application/pdf
+  saved -> data/pdfs/ra/GEM_doc_8613567_7e4395bb67.pdf
+-> GEM/2025/R/578620 doc_id: 8613638 detail: https://bidplus.gem.gov.in/public-bid-other-details/8613638
+    GET https://bidplus.gem.gov.in/showbidDocument/8613638 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8613638 -> status 200 bytes=128937 ctype=application/pdf
+  saved -> data/pdfs/ra/GEM_doc_8613638_7d61026c19.pdf
+-> GEM/2025/R/578619 doc_id: 8613633 detail: https://bidplus.gem.gov.in/public-bid-other-details/8613633
+    GET https://bidplus.gem.gov.in/showbidDocument/8613633 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8613633 -> status 200 bytes=127378 ctype=application/pdf
+  saved -> data/pdfs/ra/GEM_doc_8613633_91fceb3bae.pdf
+-> GEM/2025/R/578618 doc_id: 8613616 detail: https://bidplus.gem.gov.in/public-bid-other-details/8613616
+    GET https://bidplus.gem.gov.in/showbidDocument/8613616 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8613616 -> status 200 bytes=129199 ctype=application/pdf
+  saved -> data/pdfs/ra/GEM_doc_8613616_2f4e4f6954.pdf
+-> GEM/2025/R/578616 doc_id: 8613609 detail: https://bidplus.gem.gov.in/public-bid-other-details/8613609
+    GET https://bidplus.gem.gov.in/showbidDocument/8613609 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8613609 -> status 200 bytes=128841 ctype=application/pdf
+  saved -> data/pdfs/ra/GEM_doc_8613609_c4fe73f1af.pdf
+-> GEM/2025/R/578615 doc_id: 8613602 detail: https://bidplus.gem.gov.in/public-bid-other-details/8613602
+    GET https://bidplus.gem.gov.in/showbidDocument/8613602 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8613602 -> status 200 bytes=137391 ctype=application/pdf
+  saved -> data/pdfs/ra/GEM_doc_8613602_5362aadf98.pdf
+-> GEM/2025/R/578614 doc_id: 8613599 detail: https://bidplus.gem.gov.in/public-bid-other-details/8613599
+    GET https://bidplus.gem.gov.in/showbidDocument/8613599 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8613599 -> status 200 bytes=127453 ctype=application/pdf
+  saved -> data/pdfs/ra/GEM_doc_8613599_9b31651b87.pdf
+-> GEM/2025/R/578613 doc_id: 8613595 detail: https://bidplus.gem.gov.in/public-bid-other-details/8613595
+    GET https://bidplus.gem.gov.in/showbidDocument/8613595 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8613595 -> status 200 bytes=123 ctype=text/html; charset=UTF-8
+    GET https://bidplus.gem.gov.in/list-ra-schedules/8613595 -> status 200 bytes=103597 ctype=text/html; charset=UTF-8
+    Playwright fallback: no storage_state.json, creating fresh context
+  failed to download for GEM/2025/R/578613
+-> GEM/2025/R/578612 doc_id: 8613591 detail: https://bidplus.gem.gov.in/public-bid-other-details/8613591
+    GET https://bidplus.gem.gov.in/showbidDocument/8613591 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8613591 -> status 200 bytes=127510 ctype=application/pdf
+  saved -> data/pdfs/ra/GEM_doc_8613591_dbdd528c6c.pdf
+-> GEM/2025/R/578610 doc_id: 8613572 detail: https://bidplus.gem.gov.in/public-bid-other-details/8613572
+    GET https://bidplus.gem.gov.in/showbidDocument/8613572 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8613572 -> status 200 bytes=123 ctype=text/html; charset=UTF-8
+    GET https://bidplus.gem.gov.in/list-ra-schedules/8613572 -> status 200 bytes=111798 ctype=text/html; charset=UTF-8
+    Playwright fallback: no storage_state.json, creating fresh context
+  failed to download for GEM/2025/R/578610
+-> GEM/2025/R/578625 doc_id: 8613683 detail: https://bidplus.gem.gov.in/public-bid-other-details/8613683
+    GET https://bidplus.gem.gov.in/showbidDocument/8613683 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8613683 -> status 200 bytes=129217 ctype=application/pdf
+  saved -> data/pdfs/ra/GEM_doc_8613683_a01c40de9a.pdf
+-> GEM/2025/R/578626 doc_id: 8613700 detail: https://bidplus.gem.gov.in/public-bid-other-details/8613700
+    GET https://bidplus.gem.gov.in/showbidDocument/8613700 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8613700 -> status 200 bytes=128530 ctype=application/pdf
+  saved -> data/pdfs/ra/GEM_doc_8613700_7571415a10.pdf
+-> GEM/2025/R/578624 doc_id: 8613672 detail: https://bidplus.gem.gov.in/public-bid-other-details/8613672
+    GET https://bidplus.gem.gov.in/showbidDocument/8613672 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8613672 -> status 200 bytes=128499 ctype=application/pdf
+  saved -> data/pdfs/ra/GEM_doc_8613672_2e0e7fb2c6.pdf
+-> GEM/2025/R/578639 doc_id: 8613832 detail: https://bidplus.gem.gov.in/public-bid-other-details/8613832
+    GET https://bidplus.gem.gov.in/showbidDocument/8613832 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8613832 -> status 200 bytes=129010 ctype=application/pdf
+  saved -> data/pdfs/ra/GEM_doc_8613832_2077e66d56.pdf
+-> GEM/2025/R/578623 doc_id: 8613663 detail: https://bidplus.gem.gov.in/public-bid-other-details/8613663
+    GET https://bidplus.gem.gov.in/showbidDocument/8613663 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8613663 -> status 200 bytes=128888 ctype=application/pdf
+  saved -> data/pdfs/ra/GEM_doc_8613663_605f501ae0.pdf
+-> GEM/2025/R/578629 doc_id: 8613714 detail: https://bidplus.gem.gov.in/public-bid-other-details/8613714
+    GET https://bidplus.gem.gov.in/showbidDocument/8613714 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8613714 -> status 200 bytes=127545 ctype=application/pdf
+  saved -> data/pdfs/ra/GEM_doc_8613714_adf8ab22ca.pdf
+-> GEM/2025/R/578635 doc_id: 8613764 detail: https://bidplus.gem.gov.in/public-bid-other-details/8613764
+    GET https://bidplus.gem.gov.in/showbidDocument/8613764 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8613764 -> status 200 bytes=129087 ctype=application/pdf
+  saved -> data/pdfs/ra/GEM_doc_8613764_cd3c0f72dd.pdf
+-> GEM/2025/R/578621 doc_id: 8613642 detail: https://bidplus.gem.gov.in/public-bid-other-details/8613642
+    GET https://bidplus.gem.gov.in/showbidDocument/8613642 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8613642 -> status 200 bytes=127424 ctype=application/pdf
+  saved -> data/pdfs/ra/GEM_doc_8613642_af7afd8ac8.pdf
+-> GEM/2025/R/578617 doc_id: 8613612 detail: https://bidplus.gem.gov.in/public-bid-other-details/8613612
+    GET https://bidplus.gem.gov.in/showbidDocument/8613612 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8613612 -> status 200 bytes=123 ctype=text/html; charset=UTF-8
+    GET https://bidplus.gem.gov.in/list-ra-schedules/8613612 -> status 200 bytes=104714 ctype=text/html; charset=UTF-8
+    Playwright fallback: no storage_state.json, creating fresh context
+  failed to download for GEM/2025/R/578617
+-> GEM/2025/R/578656 doc_id: 8613995 detail: https://bidplus.gem.gov.in/public-bid-other-details/8613995
+    GET https://bidplus.gem.gov.in/showbidDocument/8613995 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8613995 -> status 200 bytes=127495 ctype=application/pdf
+  saved -> data/pdfs/ra/GEM_doc_8613995_f3cf10fe5d.pdf
+-> GEM/2025/R/578657 doc_id: 8613998 detail: https://bidplus.gem.gov.in/public-bid-other-details/8613998
+    GET https://bidplus.gem.gov.in/showbidDocument/8613998 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8613998 -> status 200 bytes=127510 ctype=application/pdf
+  saved -> data/pdfs/ra/GEM_doc_8613998_ffcc811a4a.pdf
+-> GEM/2025/R/578662 doc_id: 8614040 detail: https://bidplus.gem.gov.in/public-bid-other-details/8614040
+    GET https://bidplus.gem.gov.in/showbidDocument/8614040 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8614040 -> status 200 bytes=123 ctype=text/html; charset=UTF-8
+    GET https://bidplus.gem.gov.in/list-ra-schedules/8614040 -> status 200 bytes=101363 ctype=text/html; charset=UTF-8
+    Playwright fallback: no storage_state.json, creating fresh context
+  failed to download for GEM/2025/R/578662
+-> GEM/2025/R/578661 doc_id: 8614031 detail: https://bidplus.gem.gov.in/public-bid-other-details/8614031
+    GET https://bidplus.gem.gov.in/showbidDocument/8614031 -> status 200 bytes=0 ctype=application/pdf
+    GET https://bidplus.gem.gov.in/showradocumentPdf/8614031 -> status 200 bytes=129434 ctype=application/pdf
+  saved -> data/pdfs/ra/GEM_doc_8614031_25d8e2fd63.pdf
+Done. succeeded: 20 failed: 13
+=== Thu Nov 20 10:45:59 UTC 2025 Finished download_from_db.py. Sleeping 3600s ===
