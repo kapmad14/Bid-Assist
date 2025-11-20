@@ -1,4 +1,6 @@
 // services/tenderStore.ts
+'use client';
+
 import { createClient } from '../lib/supabase-client';
 import { Tender, TenderStatus } from '../types';
 
@@ -46,15 +48,7 @@ class TenderStore {
 
   /*******************************
    * Server-backed shortlist APIs
-   *
-   * Behavior:
-   * - If the user is authenticated, toggleShortlist will attempt to persist to DB.
-   * - If unauthenticated, it falls back to localStorage only and still updates the local set.
-   *
-   * The UI is expected to use optimistic updates and handle rollbacks on failure.
    *******************************/
-
-  // Insert a shortlist record server-side (throws on error)
   async addShortlistServer(userId: string, tenderId: number | string) {
     const payload = { user_id: userId, tender_id: Number(tenderId) };
     const { error } = await supabase.from('user_shortlists').insert(payload).maybeSingle();
@@ -65,7 +59,6 @@ class TenderStore {
     }
   }
 
-  // Remove a shortlist server-side (throws on error)
   async removeShortlistServer(userId: string, tenderId: number | string) {
     const { error } = await supabase
       .from('user_shortlists')
@@ -75,8 +68,7 @@ class TenderStore {
     if (error) throw error;
   }
 
-  // Fetch shortlist tender ids for the authenticated user from server
-  async getShortlistedTenderIdsForUser() {
+  async getShortlistedTenderIdsForUser(): Promise<number[]> {
     try {
       const userResp = await supabase.auth.getUser();
       const user = userResp?.data?.user;
@@ -98,9 +90,7 @@ class TenderStore {
     }
   }
 
-  // Sync local shortlistedIds with server (fetch user's shortlist and cache locally)
-  // Call this after login or when you want to refresh the local cache
-  async syncShortlistFromServer() {
+  async syncShortlistFromServer(): Promise<void> {
     try {
       const ids = await this.getShortlistedTenderIdsForUser();
       this.shortlistedIds = new Set(ids.map(String));
@@ -110,13 +100,7 @@ class TenderStore {
     }
   }
 
-  /**
-   * Toggle shortlist locally AND attempt to persist to server if authenticated.
-   * Returns a result object: { persisted: boolean, reason?: string }
-   * - persisted true => change persisted server-side (or already present)
-   * - persisted false => not persisted (likely unauthenticated). Local cache still updated.
-   */
-  async toggleShortlist(id: string) {
+  async toggleShortlist(id: string): Promise<{ persisted: boolean; reason?: string }> {
     if (!id) return { persisted: false, reason: 'invalid-id' };
 
     // optimistic local flip
@@ -142,7 +126,6 @@ class TenderStore {
         return { persisted: false, reason: 'unauthenticated' };
       }
 
-      // If we just added it locally -> ensure server has it
       const numericId = Number(id);
       if (this.shortlistedIds.has(id)) {
         try {
@@ -156,7 +139,6 @@ class TenderStore {
           return { persisted: false, reason: 'server-error-add' };
         }
       } else {
-        // we just removed it locally -> remove from server
         try {
           await this.removeShortlistServer(user.id, numericId);
           return { persisted: true };
@@ -177,7 +159,7 @@ class TenderStore {
   /*******************************
    * Recommendations helper (existing)
    *******************************/
-  async getRecommendedTenderIds() {
+  async getRecommendedTenderIds(): Promise<number[]> {
     try {
       const userResp = await supabase.auth.getUser();
       const user = userResp?.data?.user;
@@ -260,7 +242,7 @@ class TenderStore {
     sortBy?: 'newest' | 'oldest' | 'closing-soon' | 'closing-latest';
     recommendationsOnly?: boolean;
     source?: 'gem' | 'all';
-  }) {
+  }): Promise<{ data: Tender[]; total: number; totalPages: number }> {
     try {
       // 1) recommendationsOnly branch (existing combined RPC)
       if (params.recommendationsOnly) {
@@ -377,10 +359,48 @@ class TenderStore {
       // 3) Fallback: build standard supabase query for tenders
       let query: any = supabase.from('tenders').select('*', { count: 'exact' });
 
-      // Search
+      /*****************************************************
+       * SEARCH: broadened to match multiple text columns
+       *
+       * Matches (ILIKE %term%) against columns that exist in your schema:
+       * - title (text)
+       * - bid_number (text)
+       * - gem_bid_id (text)
+       * - item_category_parsed (text)
+       * - b_category_name (text)
+       * - organisation_name (text)
+       * - organization_name_parsed (text)
+       * - buyer_ministry (text)
+       * - buyer_department (text)
+       * - ministry (text)
+       * - department (text)
+       * - pincode (text)
+       * - state (text)
+       * - city (text)
+       *
+       * Note: We avoid numeric columns (e.g., total_quantity, estimated_value) to prevent type errors with ilike.
+       *****************************************************/
       if (params.search && params.search.trim()) {
-        const term = params.search.trim();
-        query = query.or(`title.ilike.%${term}%,gem_bid_id.ilike.%${term}%,item_category_parsed.ilike.%${term}%`);
+        const term = params.search.trim().replace(/[%_]/g, ''); // sanitize wildcard chars
+
+        const orConditions = [
+            `title.ilike.%${term}%`,
+            `bid_number.ilike.%${term}%`,
+            `gem_bid_id.ilike.%${term}%`,
+            `item_category_parsed.ilike.%${term}%`,
+            `b_category_name.ilike.%${term}%`,
+            `organisation_name.ilike.%${term}%`,
+            `organization_name_parsed.ilike.%${term}%`,
+            `buyer_ministry.ilike.%${term}%`,
+            `buyer_department.ilike.%${term}%`,
+            `ministry.ilike.%${term}%`,
+            `department.ilike.%${term}%`,
+            `pincode.ilike.%${term}%`,
+            `organization_address.ilike.%${term}%`
+            ];
+
+
+        query = query.or(orConditions.join(','));
       }
 
       // Status filters (open/closed/urgent)
@@ -395,7 +415,7 @@ class TenderStore {
       } else if (params.statusFilter === 'all' || !params.statusFilter) {
         // nothing
       } else {
-        // If statusFilter was 'shortlisted' we already handled above. For any other unknown value, do nothing.
+        // handled earlier shortlisted branch
       }
 
       // EMD filter
@@ -446,7 +466,7 @@ class TenderStore {
     return this.shortlistedIds.has(String(id));
   }
 
-  async getTenderById(id: string) {
+  async getTenderById(id: string): Promise<Tender | undefined> {
     try {
       const { data, error } = await supabase
         .from('tenders')
@@ -506,3 +526,15 @@ class TenderStore {
 }
 
 export const tenderStore = new TenderStore();
+
+/*
+Optional DB performance suggestion (run in Supabase SQL editor if you want to speed up text searches):
+
+-- Create trigram / GIN indexes on the richest text fields (optional & helpful)
+-- CREATE EXTENSION IF NOT EXISTS pg_trgm;
+-- CREATE INDEX IF NOT EXISTS trgm_tenders_title ON public.tenders USING gin (title gin_trgm_ops);
+-- CREATE INDEX IF NOT EXISTS trgm_tenders_item_category_parsed ON public.tenders USING gin (item_category_parsed gin_trgm_ops);
+-- CREATE INDEX IF NOT EXISTS trgm_tenders_organisation_name ON public.tenders USING gin (organisation_name gin_trgm_ops);
+
+Rationale: these GIN trgm indexes make ILIKE '%term%' queries much faster for large tables.
+*/

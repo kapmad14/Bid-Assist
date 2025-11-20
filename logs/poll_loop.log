@@ -8649,3 +8649,10 @@ Saved capture -> page1_capture_20251120T110327Z.json
 Poll result: total_docs=10 added_new=8 DB=2025-11-20.db
 Done. New rows added: 8 DB: data/db/2025-11-20.db
 === 2025-11-20T11:03:30Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-20T11:13:30Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 98cb8545...
+Saved capture -> page1_capture_20251120T111330Z.json
+Poll result: total_docs=10 added_new=8 DB=2025-11-20.db
+Done. New rows added: 8 DB: data/db/2025-11-20.db
+=== 2025-11-20T11:13:34Z Finished poll_page1.py. Sleeping 600s ===
