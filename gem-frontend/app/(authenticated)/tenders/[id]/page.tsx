@@ -402,23 +402,26 @@ export default function TenderDetailPage() {
                   </div>
 
                   {/* Shortlist toggle in bottom-right of Tender Details card */}
+                                    {/* Shortlist toggle in bottom-right of Tender Details card */}
                   <div className="ml-4 self-end">
                     <button
                       onClick={handleShortlistToggle}
                       aria-pressed={isShortlisted}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-semibold transition ${
-                        isShortlisted ? 'bg-black text-white border border-black' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-                      }`}
                       aria-label={isShortlisted ? 'Remove from shortlist' : 'Add to shortlist'}
+                      className={`flex items-center gap-1.5 px-4 py-2 rounded-lg border text-xs font-bold transition-all justify-center ${
+                        isShortlisted
+                          ? 'bg-yellow-50 border-[#F7C846] text-yellow-700'
+                          : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                      }`}
                     >
-                      <Star className={`w-4 h-4 ${isShortlisted ? 'fill-current' : ''}`} aria-hidden />
-                      {isShortlisted ? 'Shortlisted' : 'Shortlist'}
+                      <Star className={`w-3 h-3 ${isShortlisted ? 'fill-yellow-500 text-yellow-500' : ''}`} aria-hidden />
+                      <span className="ml-1">{isShortlisted ? 'Shortlisted' : 'Shortlist'}</span>
                     </button>
                   </div>
+
                 </div>
               </CardContent>
             </Card>
-
             {/* Actions Card */}
             <Card className="border-2 border-gray-200">
               <CardHeader>
@@ -452,7 +455,7 @@ export default function TenderDetailPage() {
                 <Button
                   className="
                     w-full
-                    bg-blue-600 hover:bg-blue-700
+                    bg-black hover:bg-neutral-900
                     !text-white font-bold
                     rounded-full
                     py-4
@@ -461,6 +464,7 @@ export default function TenderDetailPage() {
                 >
                   Analyze Tender with AI
                 </Button>
+
 
 
                 {/* removed Mark as Submitted & Mark as Won/Lost per request */}
