@@ -173,83 +173,57 @@ def fetch_all_users_with_catalogs() -> List[Dict[str, Any]]:
 # ----------------------------
 def upsert_recommendation(row: dict, dry_run: bool = False):
     """
-    Try upsert via supabase client. If the PostgREST server complains about ON CONFLICT
-    (in some client+server combinations), fall back to a safe insert-or-update:
-      - try INSERT
-      - if INSERT fails due to unique violation, run UPDATE ... WHERE user_id=... AND tender_id=...
+    Use DB-side RPC usp_upsert_recommendation to atomically insert/update a recommendation.
+    Expects row keys: user_id (uuid), catalog_item_id (uuid), tender_id (bigint), score (int),
+    catalog_text (text), tender_text (text), matched_at (ISO timestamp string).
+
+    If dry_run=True, prints the intended payload and returns without writing.
     """
     if dry_run:
         if VERBOSE:
-            print("[DRY] upsert:", row)
+            print("[DRY] rpc upsert:", row)
         return
 
+    # Prepare RPC payload matching the function parameters
+    payload = {
+        "p_user_id": row.get("user_id"),
+        "p_catalog_item_id": row.get("catalog_item_id"),
+        "p_tender_id": int(row.get("tender_id")) if row.get("tender_id") is not None else None,
+        "p_score": int(row.get("score")) if row.get("score") is not None else None,
+        "p_catalog_text": row.get("catalog_text"),
+        "p_tender_text": row.get("tender_text"),
+        "p_matched_at": row.get("matched_at"),
+    }
+
+    # Call RPC
     try:
-        # Try the direct upsert (fast, atomic if supported)
-        resp = supabase.table("recommendations").upsert(row, on_conflict=["user_id", "tender_id"]).execute()
-        data = getattr(resp, "data", None) or (resp.get("data") if isinstance(resp, dict) else None)
-        meta_error = getattr(resp, "error", None) or (resp.get("error") if isinstance(resp, dict) else None)
-        status = getattr(resp, "status_code", None) or (resp.get("status") if isinstance(resp, dict) else None)
-        if meta_error:
-            # raise to be handled below
-            raise RuntimeError(f"Upsert error: {meta_error}")
-        if status and status >= 400:
-            raise RuntimeError(f"Upsert failed: status={status}")
-        return data
+        resp = supabase.rpc("usp_upsert_recommendation", payload).execute()
     except Exception as e:
-        # If the exception message from the underlying postgrest client indicates the ON CONFLICT mismatch,
-        # we fallback to insert-or-update approach. Otherwise re-raise.
-        msg = str(e).lower()
-        if "no unique or exclusion constraint" in msg or "on conflict" in msg or "42p10" in msg:
-            if VERBOSE:
-                print("Upsert via on_conflict failed, falling back to insert->update strategy. Error:", e)
+        # Defensive: try to extract message and re-raise a clear error
+        raise RuntimeError(f"RPC call failed: {e}") from e
 
-            # Try INSERT
-            try:
-                insert_resp = supabase.table("recommendations").insert(row).execute()
-                insert_data = getattr(insert_resp, "data", None) or (insert_resp.get("data") if isinstance(insert_resp, dict) else None)
-                insert_err = getattr(insert_resp, "error", None) or (insert_resp.get("error") if isinstance(insert_resp, dict) else None)
-                insert_status = getattr(insert_resp, "status_code", None) or (insert_resp.get("status") if isinstance(insert_resp, dict) else None)
-                if insert_err:
-                    # If insert failed due to conflict, proceed to update; else raise
-                    if "unique" in str(insert_err).lower() or (insert_status and insert_status >= 400 and "unique" in str(insert_err).lower()):
-                        if VERBOSE:
-                            print("Insert conflict detected, performing UPDATE instead.")
-                    else:
-                        raise RuntimeError(f"Insert failed: {insert_err}")
-                else:
-                    return insert_data
-            except Exception as exc_insert:
-                # proceed to update if insert failed due to unique constraint
-                if VERBOSE:
-                    print("Insert raised, proceeding to UPDATE. Insert error:", exc_insert)
-                # continue to update path
+    # Safe response handling (different client versions)
+    resp_data = getattr(resp, "data", None)
+    resp_error = getattr(resp, "error", None)
+    status = getattr(resp, "status_code", None)
 
-            # UPDATE path (update existing row matching user_id & tender_id)
-            try:
-                upd = {
-                    "catalog_item_id": row.get("catalog_item_id"),
-                    "score": row.get("score"),
-                    "catalog_text": row.get("catalog_text"),
-                    "tender_text": row.get("tender_text"),
-                    "matched_at": row.get("matched_at"),
-                }
-                # remove None keys
-                upd = {k: v for k, v in upd.items() if v is not None}
-                update_resp = supabase.table("recommendations").update(upd).eq("user_id", row["user_id"]).eq("tender_id", row["tender_id"]).execute()
-                update_data = getattr(update_resp, "data", None) or (update_resp.get("data") if isinstance(update_resp, dict) else None)
-                update_err = getattr(update_resp, "error", None) or (update_resp.get("error") if isinstance(update_resp, dict) else None)
-                update_status = getattr(update_resp, "status_code", None) or (update_resp.get("status") if isinstance(update_resp, dict) else None)
-                if update_err:
-                    raise RuntimeError(f"Update failed: {update_err}")
-                if update_status and update_status >= 400:
-                    raise RuntimeError(f"Update failed: status={update_status}")
-                return update_data
-            except Exception as exc_upd:
-                # Last resort: raise so caller knows we failed
-                raise RuntimeError(f"Fallback upsert (update) failed: {exc_upd}") from exc_upd
-        else:
-            # Not the specific ON CONFLICT error — re-raise so it's visible
-            raise
+    # fallback for dict-like response
+    if resp_data is None and isinstance(resp, dict):
+        resp_data = resp.get("data")
+        resp_error = resp.get("error") or resp.get("message")
+        status = resp.get("status")
+
+    if resp_error:
+        # RPC returned error object
+        raise RuntimeError(f"RPC error: {resp_error}")
+    if status and status >= 400:
+        raise RuntimeError(f"RPC failed: status={status}")
+
+    # The function returns void, so resp_data may be None or empty — treat success if no error
+    if VERBOSE:
+        print("RPC upsert succeeded for tender_id:", payload["p_tender_id"], "user:", payload["p_user_id"])
+    return resp_data
+
 
 
 
