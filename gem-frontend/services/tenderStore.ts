@@ -150,63 +150,59 @@ class TenderStore {
   }): Promise<{ data: Tender[]; total: number; totalPages: number }> {
     try {
       // If recommendationsOnly: use server-side RPC to fetch paged recommended tenders + count
-      if (params.recommendationsOnly) {
+      // --- inside getTenders, replace the recommendationsOnly block with this ---
+        if (params.recommendationsOnly) {
         try {
-          const userResp = await supabase.auth.getUser();
-          const user = userResp?.data?.user;
-          if (!user || !user.id) {
-            // Not logged in -> no recommendations
+            const userResp = await supabase.auth.getUser();
+            const user = userResp?.data?.user;
+            if (!user || !user.id) {
+            // not authenticated -> return empty
             return { data: [], total: 0, totalPages: 0 };
-          }
+            }
 
-          const from = (params.page - 1) * params.limit;
+            const from = (params.page - 1) * params.limit;
 
-          // Fetch recommended tender rows via RPC (paged)
-          const { data: rpcRows, error: rpcErr } = await supabase
-            .rpc('get_recommended_tenders', {
-              p_user: user.id,
-              p_limit: params.limit,
-              p_offset: from
+            const { data: rpcRows, error: rpcErr } = await supabase
+            .rpc('get_recommended_tenders_with_count', {
+                p_user: user.id,
+                p_limit: params.limit,
+                p_offset: from,
             });
 
-          if (rpcErr) {
-            console.error('RPC get_recommended_tenders error:', rpcErr);
+            if (rpcErr) {
+            console.error('RPC get_recommended_tenders_with_count error:', rpcErr);
             return { data: [], total: 0, totalPages: 0 };
-          }
-
-          // Fetch count via RPC
-          const { data: cntData, error: cntErr } = await supabase
-            .rpc('get_recommended_tenders_count', { p_user: user.id });
-
-          if (cntErr) {
-            console.error('RPC get_recommended_tenders_count error:', cntErr);
-          }
-
-          // Normalize count result
-          let total = 0;
-          if (Array.isArray(cntData)) {
-            if (cntData.length > 0) {
-              const key = Object.keys(cntData[0])[0];
-              total = Number((cntData[0] as any)[key]) || 0;
-            } else {
-              total = 0;
             }
-          } else if (typeof cntData === 'number') {
-            total = Number(cntData);
-          } else if (cntData && typeof cntData === 'object') {
-            const key = Object.keys(cntData)[0];
-            total = Number((cntData as any)[key]) || 0;
-          }
 
-          const mapped = (rpcRows || []).map((r: any) => this.mapRowToTender(r));
-          const totalPages = Math.ceil((total || 0) / params.limit);
+            // rpcRows may be null or [] when no recommendations
+            if (!rpcRows || (Array.isArray(rpcRows) && rpcRows.length === 0)) {
+            return { data: [], total: 0, totalPages: 0 };
+            }
 
-          return { data: mapped, total: total || 0, totalPages };
+            // Normalize total_count: it should exist on the first row
+            let total = 0;
+            if (Array.isArray(rpcRows) && rpcRows.length > 0) {
+            const first = rpcRows[0] as any;
+            total = Number(first.total_count) || 0;
+            } else if (rpcRows && typeof rpcRows === 'object' && 'total_count' in rpcRows) {
+            total = Number((rpcRows as any).total_count) || 0;
+            }
+
+            // Remove the extra total_count property and map rows to Tender model
+            const rows = (rpcRows as any[]).map(r => {
+            // create a shallow copy without total_count to feed mapRowToTender
+            const { total_count, ...tenderRow } = r;
+            return this.mapRowToTender(tenderRow);
+            });
+
+            const totalPages = Math.ceil((total || 0) / params.limit);
+            return { data: rows, total, totalPages };
         } catch (err) {
-          console.error('Error fetching recommended tenders via RPC:', err);
-          return { data: [], total: 0, totalPages: 0 };
+            console.error('Error fetching recommended tenders via combined RPC:', err);
+            return { data: [], total: 0, totalPages: 0 };
         }
-      }
+        }
+
 
       // Build a Supabase query for tenders
       let query = supabase.from('tenders').select('*', { count: 'exact' });
