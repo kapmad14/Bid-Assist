@@ -497,3 +497,37 @@ Found 8 PDFs in /bids folder
 ============================================================
 
 === 2025-11-20T07:59:59Z Finished. Sleeping 21600s (6 hours) ===
+=== 2025-11-21T05:28:01Z Starting BID parser ===
+
+============================================================
+🤖 Direct Supabase Parser (Cloud-to-Cloud)
+============================================================
+
+Found 8 PDFs in /bids folder
+
+📄 Processing: GeM-Bidding-7454004.pdf
+  ❌ Error: 'list' object has no attribute 'get'
+📄 Processing: GeM-Bidding-7457138.pdf
+  ❌ Error: 'list' object has no attribute 'get'
+📄 Processing: GeM-Bidding-7479857.pdf
+  ❌ Error: 'list' object has no attribute 'get'
+📄 Processing: GeM-Bidding-7479897.pdf
+  ❌ Error: 'list' object has no attribute 'get'
+📄 Processing: GeM-Bidding-7555029.pdf
+  ❌ Error: 'list' object has no attribute 'get'
+📄 Processing: GeM-Bidding-7556449.pdf
+  ❌ Error: 'list' object has no attribute 'get'
+📄 Processing: GeM-Bidding-7582916.pdf
+  ❌ Error: 'list' object has no attribute 'get'
+📄 Processing: GeM-Bidding-7585086.pdf
+  ❌ Error: 'list' object has no attribute 'get'
+
+============================================================
+📊 COMPLETE
+============================================================
+✅ Success: 0
+⏭️  Skipped: 0
+❌ Failed: 8
+============================================================
+
+=== 2025-11-21T05:28:09Z Finished. Sleeping 21600s (6 hours) ===
