@@ -2,20 +2,24 @@
 """
 worker_matcher.py
 - Claim jobs from `match_jobs`
-- For each job (single catalog_item_id): run matching or delete/pause
+- For each job (single catalog_item_id): run matching or delete/pause/update/resume
 - Uses Supabase admin client for safe DB writes (service-role)
 - Uses psycopg2 for atomic claiming if DATABASE_URL is provided (recommended)
 - Supports --worker-loop and --dry-run
 
-Key points:
-- DELETE jobs:
-    * Do NOT try to read catalog_items (it’s already deleted).
-    * Select recommendations for that catalog_item_id, log how many, then delete them.
-    * Treat "0 rows" / PGRST116 as success (idempotent delete).
-- PAUSE jobs:
-    * Same delete behavior as above, but the catalog item still exists.
-- CREATE / UPDATE / RESUME:
-    * Only compute matches if catalog item status == 'active'.
+Key behavior:
+- DELETE:
+    * Do NOT read catalog_items (row is already gone).
+    * Delete recommendations for that catalog_item_id (idempotent).
+- PAUSE:
+    * Delete recommendations for that catalog_item_id (but keep catalog row).
+- CREATE:
+    * Compute matches and upsert recommendations (no pre-delete needed).
+- UPDATE (Modify):
+    * First delete recommendations for that catalog_item_id.
+    * Then recompute matches and insert them again.
+- RESUME:
+    * Same as UPDATE: clear recs for safety, then recompute (only if status='active').
 """
 
 import os
@@ -113,7 +117,7 @@ def _is_zero_rows_error(err_text: Optional[str]) -> bool:
 # Claim job
 # ---------------------------------------
 def claim_job_psycopg2(conn) -> Optional[Dict[str, Any]]:
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+    with conn.cursor(cursor_factory=psyccopg2.extras.RealDictCursor) as cur:
         cur.execute("""
             BEGIN;
             WITH candidate AS (
@@ -167,17 +171,16 @@ def claim_job_supabase() -> Optional[Dict[str, Any]]:
 
 
 # ---------------------------------------
-# Core: process single job
+# Delete recommendations helper
 # ---------------------------------------
 def _delete_recommendations_for_catalog(cid: str, dry_run: bool) -> Dict[str, Any]:
     """
-    Helper used by both 'delete' and 'pause' actions.
-    It:
-      1) Counts current recommendations for this catalog_item_id (just a select of ids).
-      2) Deletes them.
-      3) Logs before/after counts.
+    Helper used by delete, pause, and also before update/resume.
+    1) Count existing recs for this catalog_item_id.
+    2) Delete them (unless dry_run).
+    3) Count again afterwards.
     """
-    # 1) Check existing recommendations
+    # BEFORE
     before_resp = (
         supabase_admin.from_("recommendations")
         .select("id")
@@ -188,13 +191,13 @@ def _delete_recommendations_for_catalog(cid: str, dry_run: bool) -> Dict[str, An
         before_resp.get("data") if isinstance(before_resp, dict) else None
     )
     before_count = len(before_data or [])
-    logger.info("DELETE/Pause: catalog_item_id=%s has %d recommendation(s) BEFORE delete", cid, before_count)
+    logger.info("Cleanup: catalog_item_id=%s has %d recommendation(s) BEFORE delete", cid, before_count)
 
     if dry_run:
         logger.info("[DRY] Would delete %d recommendations for catalog_item_id=%s", before_count, cid)
         return {"deleted": True, "before": before_count, "after": before_count}
 
-    # 2) Perform delete
+    # DELETE
     del_resp = (
         supabase_admin.from_("recommendations")
         .delete()
@@ -203,10 +206,9 @@ def _delete_recommendations_for_catalog(cid: str, dry_run: bool) -> Dict[str, An
     )
     err_text = _resp_error_text(del_resp)
     if err_text and not _is_zero_rows_error(err_text):
-        # Only treat non-0-rows errors as fatal
         raise RuntimeError(f"Error deleting recommendations: {err_text}")
 
-    # 3) Check again after delete (just to be 100% sure)
+    # AFTER
     after_resp = (
         supabase_admin.from_("recommendations")
         .select("id")
@@ -217,11 +219,14 @@ def _delete_recommendations_for_catalog(cid: str, dry_run: bool) -> Dict[str, An
         after_resp.get("data") if isinstance(after_resp, dict) else None
     )
     after_count = len(after_data or [])
-    logger.info("DELETE/Pause: catalog_item_id=%s has %d recommendation(s) AFTER delete", cid, after_count)
+    logger.info("Cleanup: catalog_item_id=%s has %d recommendation(s) AFTER delete", cid, after_count)
 
     return {"deleted": True, "before": before_count, "after": after_count}
 
 
+# ---------------------------------------
+# Core: process single job
+# ---------------------------------------
 def process_single_catalog_item(job: Dict[str, Any], dry_run: bool = True):
     """
     job: { id, user_id, catalog_item_id, action, payload }
@@ -235,7 +240,7 @@ def process_single_catalog_item(job: Dict[str, Any], dry_run: bool = True):
     logger.info("Processing job id=%s action=%s catalog_item_id=%s", jid, action, cid)
 
     # -------------------------
-    # 1) DELETE: do NOT read catalog_items (row is already gone).
+    # 1) DELETE: do NOT read catalog_items
     # -------------------------
     if action == "delete":
         res = _delete_recommendations_for_catalog(cid, dry_run=dry_run)
@@ -243,7 +248,7 @@ def process_single_catalog_item(job: Dict[str, Any], dry_run: bool = True):
         return res
 
     # -------------------------
-    # 2) For non-delete actions, we DO need the catalog_items row
+    # 2) For non-delete actions, we need catalog_items row
     # -------------------------
     cat_resp = (
         supabase_admin
@@ -257,7 +262,18 @@ def process_single_catalog_item(job: Dict[str, Any], dry_run: bool = True):
     cat_data = cat_resp.data if hasattr(cat_resp, "data") else (
         cat_resp.get("data") if isinstance(cat_resp, dict) else None
     )
+
     if not cat_data:
+        # If the item is missing for update/resume, treat as "just clean recs and move on"
+        if action in ("update", "resume"):
+            logger.info(
+                "Catalog item %s not found for action=%s; cleaning up any stray recommendations and skipping match.",
+                cid,
+                action,
+            )
+            res = _delete_recommendations_for_catalog(cid, dry_run=dry_run)
+            return res
+        # For create/pause: missing row is unexpected
         raise RuntimeError(f"Catalog item {cid} not found")
 
     # Ensure item belongs to that user
@@ -265,7 +281,7 @@ def process_single_catalog_item(job: Dict[str, Any], dry_run: bool = True):
         raise RuntimeError("Ownership mismatch: aborting")
 
     # -------------------------
-    # 3) PAUSE: delete recs but keep catalog row
+    # 3) PAUSE: delete recs, keep item
     # -------------------------
     if action == "pause":
         res = _delete_recommendations_for_catalog(cid, dry_run=dry_run)
@@ -273,8 +289,7 @@ def process_single_catalog_item(job: Dict[str, Any], dry_run: bool = True):
         return res
 
     # -------------------------
-    # 4) CREATE / UPDATE / RESUME -> matching
-    #    Only run if status == 'active'
+    # 4) CREATE / UPDATE / RESUME -> matching (for active items only)
     # -------------------------
     if action in ("create", "update", "resume"):
         status = (cat_data.get("status") or "").lower()
@@ -286,6 +301,15 @@ def process_single_catalog_item(job: Dict[str, Any], dry_run: bool = True):
                 status,
             )
             return {"matches": 0}
+
+        # For UPDATE and RESUME, clear existing recs first so we don't leave stale ones
+        if action in ("update", "resume"):
+            logger.info(
+                "Action %s: clearing existing recommendations for catalog_item_id=%s before re-matching",
+                action,
+                cid,
+            )
+            _delete_recommendations_for_catalog(cid, dry_run=dry_run)
 
     # Normalize catalog text (use payload.norm if provided)
     if payload and isinstance(payload, dict) and payload.get("norm"):

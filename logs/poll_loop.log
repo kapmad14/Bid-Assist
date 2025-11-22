@@ -9160,3 +9160,17 @@ Saved capture -> page1_capture_20251122T084841Z.json
 Poll result: total_docs=10 added_new=4 DB=2025-11-22.db
 Done. New rows added: 4 DB: data/db/2025-11-22.db
 === 2025-11-22T08:48:44Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-22T08:59:36Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: c3bb5516...
+Saved capture -> page1_capture_20251122T085936Z.json
+Poll result: total_docs=10 added_new=2 DB=2025-11-22.db
+Done. New rows added: 2 DB: data/db/2025-11-22.db
+=== 2025-11-22T08:59:40Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-22T09:09:40Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 2a55551e...
+Saved capture -> page1_capture_20251122T090940Z.json
+Poll result: total_docs=10 added_new=6 DB=2025-11-22.db
+Done. New rows added: 6 DB: data/db/2025-11-22.db
+=== 2025-11-22T09:09:44Z Finished poll_page1.py. Sleeping 600s ===
