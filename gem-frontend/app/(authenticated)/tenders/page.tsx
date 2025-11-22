@@ -23,9 +23,14 @@ import {
 
 import { tenderStore } from '@/services/tenderStore';
 import { Tender } from '@/types';
+import { createClient } from '@/lib/supabase-client';
+
+const supabase = createClient();
+
 
 type SortOption = 'newest' | 'oldest' | 'closing-soon' | 'closing-latest';
 type TabOption = 'All' | 'Active' | 'Closing Soon' | 'Shortlisted' | 'Archived';
+
 
 // --- Sub-Component: Filter Accordion ---
 const FilterSection: React.FC<{ 
@@ -179,34 +184,37 @@ function TendersContent() {
   };
 
   // Recommended toggle with login prompt behavior
+    // Recommended toggle with auth-based login prompt
   const handleToggleRecommended = async () => {
-    // If already on recommendedOnly, simply turn off
-    if (recommendedOnly) {
-      setRecommendedOnly(false);
-      setCurrentPage(1);
-      return;
-    }
-
-    // Check for recommended IDs (tenderStore helper returns [] if unauthenticated)
-    try {
-      const recIds = await tenderStore.getRecommendedTenderIds();
-      if (!recIds || recIds.length === 0) {
-        // Show a non-blocking login prompt/hint to user and don't toggle on
-        setShowLoginPrompt(true);
-        // auto-hide after 6s
-        window.setTimeout(() => setShowLoginPrompt(false), 6000);
+      // If already on Recommended, just turn it off
+      if (recommendedOnly) {
+        setRecommendedOnly(false);
+        setCurrentPage(1);
         return;
       }
 
-      // If there are recommendations, enable the mode
-      setRecommendedOnly(true);
-      setCurrentPage(1);
-    } catch (err) {
-      console.error('Error checking recommendations', err);
-      setShowLoginPrompt(true);
-      window.setTimeout(() => setShowLoginPrompt(false), 6000);
-    }
-  };
+      try {
+        // Only check whether the user is authenticated
+        const { data, error } = await supabase.auth.getUser();
+        const user = data?.user;
+
+        if (error || !user) {
+          // Not authenticated → show login hint and do NOT enable filter
+          setShowLoginPrompt(true);
+          window.setTimeout(() => setShowLoginPrompt(false), 6000);
+          return;
+        }
+
+        // User is authenticated → turn Recommended mode ON
+        setRecommendedOnly(true);
+        setCurrentPage(1);
+      } catch (err) {
+        console.error('Error checking auth for recommended view', err);
+        setShowLoginPrompt(true);
+        window.setTimeout(() => setShowLoginPrompt(false), 6000);
+      }
+    };
+
 
   // Helpers
   const isClosingSoon = (dateString?: string | null) => {

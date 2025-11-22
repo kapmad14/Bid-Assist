@@ -23,7 +23,7 @@ export default function CatalogPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Add Product modal state (you already had this)
+  // Add Product modal state
   const [showAddModal, setShowAddModal] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newCategory, setNewCategory] = useState('');
@@ -47,6 +47,58 @@ export default function CatalogPage() {
   const [selectedRadioId, setSelectedRadioId] = useState<string | null>(null);
 
   const PAGE_SIZE = 10;
+
+  // --- Helper: enqueue match jobs for one or more catalog items ---
+    // --- Helper: enqueue match jobs for one or more catalog items ---
+    // --- Helper: enqueue match jobs for one or more catalog items ---
+  async function enqueueMatchJobs(
+    action: 'create' | 'update' | 'pause' | 'resume' | 'delete',
+    ids: string[]
+  ) {
+    if (!ids.length) return;
+    try {
+      // 👇 Get current session and access token from Supabase JS client
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session?.access_token) {
+        console.error('No access token available for match-jobs call:', sessionError);
+        toast.error('Not authenticated for matching');
+        return;
+      }
+
+      const accessToken = sessionData.session.access_token;
+
+      const res = await fetch('/api/match-jobs', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          // 👇 Send token to backend
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          action,
+          catalog_item_ids: ids,
+        }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        console.error('Failed to enqueue match jobs: ', {
+          status: res.status,
+          statusText: res.statusText,
+          body: text,
+        });
+        toast.error('Failed to queue matching job(s)');
+        return;
+      }
+
+      const data = await res.json().catch(() => null);
+      console.log('Enqueued match jobs:', data);
+    } catch (err) {
+      console.error('enqueueMatchJobs exception:', err);
+      toast.error('Failed to queue matching job(s)');
+    }
+  }
+
 
   useEffect(() => {
     fetchProducts();
@@ -106,7 +158,7 @@ export default function CatalogPage() {
     }
   }
 
-  // ---------- ADD PRODUCT (unchanged behavior, only added toast) ----------
+  // ---------- ADD PRODUCT ----------
   async function handleAddProduct(e: React.FormEvent) {
     e.preventDefault();
     if (!newTitle.trim() || !newCategory.trim()) return;
@@ -140,6 +192,13 @@ export default function CatalogPage() {
         toast.error('Failed to add product');
       } else {
         toast.success('Product added');
+
+        // get the new catalog item id and enqueue a "create" match job
+        const newItem = res.data?.[0];
+        if (newItem?.id) {
+          enqueueMatchJobs('create', [newItem.id]);
+        }
+
         setCurrentPage(1);
         await fetchProducts(1);
       }
@@ -203,6 +262,10 @@ export default function CatalogPage() {
         toast.error('Failed to update product');
       } else {
         toast.success('Product updated');
+
+        // enqueue an "update" match job for this item
+        enqueueMatchJobs('update', [editId]);
+
         await fetchProducts(currentPage);
       }
     } catch (err) {
@@ -236,7 +299,9 @@ export default function CatalogPage() {
   }
 
   function getSelectedIdList() {
-    return Object.entries(selectedIds).filter(([, v]) => v).map(([k]) => k);
+    return Object.entries(selectedIds)
+      .filter(([, v]) => v)
+      .map(([k]) => k);
   }
 
   async function applyPauseResume(status: 'paused' | 'active') {
@@ -266,6 +331,11 @@ export default function CatalogPage() {
         toast.error('Failed to update items');
       } else {
         toast.success(`Updated ${ids.length} item(s)`);
+
+        // enqueue "pause" or "resume" jobs for these items
+        const action = status === 'paused' ? 'pause' : 'resume';
+        enqueueMatchJobs(action, ids);
+
         await fetchProducts(currentPage);
       }
     } catch (err) {
@@ -300,22 +370,28 @@ export default function CatalogPage() {
         return;
       }
 
+      const ids = deleteTargetIds;
+
+      // 👈 FIRST: enqueue deletion job
+      await enqueueMatchJobs("delete", ids);
+
+      // 👇 THEN: delete from catalog_items
       const { error } = await supabase
         .from('catalog_items')
         .delete()
-        .in('id', deleteTargetIds)
+        .in('id', ids)
         .eq('user_id', user.id);
 
       if (error) {
-        console.error('Delete error:', error);
-        toast.error('Failed to delete items');
+        console.error("Delete error:", error);
+        toast.error("Failed to delete items");
       } else {
-        toast.success(`Deleted ${deleteTargetIds.length} item(s)`);
+        toast.success(`Deleted ${ids.length} item(s)`);
         await fetchProducts(currentPage);
       }
     } catch (err) {
-      console.error('performDeleteConfirmed exception:', err);
-      toast.error('Failed to delete items');
+      console.error("performDeleteConfirmed exception:", err);
+      toast.error("Failed to delete items");
     } finally {
       setProcessingBulk(false);
       setShowDeleteConfirm(false);
@@ -324,7 +400,8 @@ export default function CatalogPage() {
     }
   }
 
-  // ---------- Pagination & Search handlers (unchanged) ----------
+
+  // ---------- Pagination & Search handlers ----------
   function handlePrevPage() {
     if (currentPage > 1) setCurrentPage(currentPage - 1);
   }
@@ -373,7 +450,9 @@ export default function CatalogPage() {
       <div className="flex gap-3 items-center mb-4 flex-wrap">
         {/* Outline buttons */}
         <button
-          className={`px-3 py-2 rounded-lg font-medium border border-gray-300 bg-white hover:bg-gray-50 transition ${actionMode === 'modify' ? 'ring-2 ring-[#F7C846]' : ''}`}
+          className={`px-3 py-2 rounded-lg font-medium border border-gray-300 bg-white hover:bg-gray-50 transition ${
+            actionMode === 'modify' ? 'ring-2 ring-[#F7C846]' : ''
+          }`}
           onClick={startModifyFlow}
           type="button"
         >
@@ -381,7 +460,9 @@ export default function CatalogPage() {
         </button>
 
         <button
-          className={`px-3 py-2 rounded-lg font-medium border border-gray-300 bg-white hover:bg-gray-50 transition ${actionMode === 'bulk-pause' ? 'ring-2 ring-[#F7C846]' : ''}`}
+          className={`px-3 py-2 rounded-lg font-medium border border-gray-300 bg-white hover:bg-gray-50 transition ${
+            actionMode === 'bulk-pause' ? 'ring-2 ring-[#F7C846]' : ''
+          }`}
           onClick={() => startBulk('bulk-pause')}
           type="button"
         >
@@ -389,7 +470,9 @@ export default function CatalogPage() {
         </button>
 
         <button
-          className={`px-3 py-2 rounded-lg font-medium border border-gray-300 bg-white hover:bg-gray-50 transition ${actionMode === 'bulk-resume' ? 'ring-2 ring-[#F7C846]' : ''}`}
+          className={`px-3 py-2 rounded-lg font-medium border border-gray-300 bg-white hover:bg-gray-50 transition ${
+            actionMode === 'bulk-resume' ? 'ring-2 ring-[#F7C846]' : ''
+          }`}
           onClick={() => startBulk('bulk-resume')}
           type="button"
         >
@@ -397,7 +480,9 @@ export default function CatalogPage() {
         </button>
 
         <button
-          className={`px-3 py-2 rounded-lg font-medium border border-gray-300 bg-white hover:bg-gray-50 transition ${actionMode === 'bulk-delete' ? 'ring-2 ring-[#F7C846]' : ''}`}
+          className={`px-3 py-2 rounded-lg font-medium border border-gray-300 bg-white hover:bg-gray-50 transition ${
+            actionMode === 'bulk-delete' ? 'ring-2 ring-[#F7C846]' : ''
+          }`}
           onClick={() => startBulk('bulk-delete')}
           type="button"
         >
@@ -455,7 +540,8 @@ export default function CatalogPage() {
         </div>
       ) : products.length === 0 ? (
         <p className="mt-6 text-lg text-gray-700 font-semibold">
-          No products found. Click <span className="text-[#F7C846] font-semibold">'Add Product'</span> to get started.
+          No products found. Click{' '}
+          <span className="text-[#F7C846] font-semibold">'Add Product'</span> to get started.
         </p>
       ) : (
         <>
@@ -482,7 +568,9 @@ export default function CatalogPage() {
                         onChange={() => onSelectRadio(product.id)}
                         className="mr-2"
                       />
-                    ) : actionMode === 'bulk-pause' || actionMode === 'bulk-resume' || actionMode === 'bulk-delete' ? (
+                    ) : actionMode === 'bulk-pause' ||
+                      actionMode === 'bulk-resume' ||
+                      actionMode === 'bulk-delete' ? (
                       <input
                         type="checkbox"
                         checked={!!selectedIds[product.id]}
@@ -490,7 +578,9 @@ export default function CatalogPage() {
                         className="mr-2"
                       />
                     ) : (
-                      <span className="text-sm text-gray-500">{(currentPage - 1) * PAGE_SIZE + idx + 1}</span>
+                      <span className="text-sm text-gray-500">
+                        {(currentPage - 1) * PAGE_SIZE + idx + 1}
+                      </span>
                     )}
                   </td>
 
@@ -538,7 +628,7 @@ export default function CatalogPage() {
         </>
       )}
 
-      {/* ADD PRODUCT MODAL (keeps your existing styling) */}
+      {/* ADD PRODUCT MODAL */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 bg-black bg-opacity-30 flex items-center justify-center">
           <div className="bg-white rounded-lg shadow-lg p-8 min-w-[350px]">
@@ -635,7 +725,10 @@ export default function CatalogPage() {
         <div className="fixed inset-0 z-60 bg-black bg-opacity-30 flex items-center justify-center">
           <div className="bg-white rounded-lg shadow-lg p-8 min-w-[320px]">
             <h3 className="text-lg font-semibold mb-4 text-[#0E121A]">Confirm Delete</h3>
-            <p className="mb-6 text-sm text-gray-700">Are you sure you want to permanently delete {deleteTargetIds.length} item(s)? This action cannot be undone.</p>
+            <p className="mb-6 text-sm text-gray-700">
+              Are you sure you want to permanently delete {deleteTargetIds.length} item(s)? This
+              action cannot be undone.
+            </p>
             <div className="flex justify-end gap-2">
               <button
                 type="button"

@@ -1,9 +1,8 @@
 // app/api/match-jobs/route.ts
 import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
-import { cookies } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { createClient } from "@supabase/supabase-js";
+import { cookies as nextCookies } from "next/headers";
 
 /**
  * Server-only admin client (uses service-role key).
@@ -14,6 +13,7 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.");
 }
+
 const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
 });
@@ -24,23 +24,48 @@ const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 const ALLOWED_ACTIONS = new Set(["create", "update", "pause", "resume", "delete"]);
 
 /**
- * Helper: get authenticated user from request using Supabase auth cookie
+ * Try to get an authenticated user in two ways:
+ * 1) Cookie-based session
+ * 2) Authorization: Bearer <access_token> header
  */
 async function requireAuthUser(req: NextRequest) {
-  const supabase = createRouteHandlerClient({ cookies });
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
+  try {
+    // 1) Cookie-based session using auth-helpers
+    // Inside requireAuthUser()
+    const supabaseClient = createRouteHandlerClient({ cookies: () => nextCookies() });
+    const { data: cookieUserData, error: cookieErr } =
+    await supabaseClient.auth.getUser();
+    if (!cookieErr && cookieUserData?.user) {
+    return cookieUserData.user;
+    }
 
-  if (error) {
-    console.error("Error fetching auth user:", error);
-    throw new Error("Not authenticated");
+  } catch (e) {
+    // ignore and try fallback
   }
-  if (!user) {
-    throw new Error("Not authenticated");
+
+  // 2) Bearer token fallback
+  try {
+    const authHeader =
+      req.headers.get("authorization") || req.headers.get("Authorization");
+
+    if (authHeader && authHeader.toLowerCase().startsWith("bearer ")) {
+      const token = authHeader.substring(7).trim();
+      if (token) {
+        const { data: userData, error: tokenErr } =
+          await supabaseAdmin.auth.getUser(token);
+
+        if (!tokenErr && userData?.user) {
+          return userData.user;
+        } else {
+          console.error("Token verify error:", tokenErr);
+        }
+      }
+    }
+  } catch (e) {
+    console.error("Bearer token auth error:", e);
   }
-  return user; // contains user.id
+
+  throw new Error("Not authenticated");
 }
 
 /**
@@ -66,9 +91,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "invalid_action" }, { status: 400 });
     }
 
-    // Normalize ids: accept single id or array
+    // Normalize ids
     const ids: string[] = [];
     if (catalog_item_id && typeof catalog_item_id === "string") ids.push(catalog_item_id);
+
     if (Array.isArray(catalog_item_ids)) {
       for (const v of catalog_item_ids) {
         if (typeof v === "string") ids.push(v);
@@ -76,10 +102,13 @@ export async function POST(req: NextRequest) {
     }
 
     if (ids.length === 0) {
-      return NextResponse.json({ error: "no_catalog_item_ids_provided" }, { status: 400 });
+      return NextResponse.json(
+        { error: "no_catalog_item_ids_provided" },
+        { status: 400 }
+      );
     }
 
-    // SECURITY: verify ownership. Ensure all provided ids belong to the authenticated user.
+    // SECURITY: Verify ownership
     const { data: ownedRows, error: fetchErr } = await supabaseAdmin
       .from("catalog_items")
       .select("id")
@@ -93,11 +122,15 @@ export async function POST(req: NextRequest) {
 
     const ownedIds = new Set((ownedRows || []).map((r: any) => r.id));
     const notOwned = ids.filter((i) => !ownedIds.has(i));
+
     if (notOwned.length > 0) {
-      return NextResponse.json({ error: "forbidden: you do not own some items", notOwned }, { status: 403 });
+      return NextResponse.json(
+        { error: "forbidden: you do not own some items", notOwned },
+        { status: 403 }
+      );
     }
 
-    // Build job rows: one job per catalog item (simple, retry-friendly)
+    // Build job rows
     const jobsToInsert = ids.map((cid) => ({
       user_id: user.id,
       catalog_item_id: cid,
@@ -109,11 +142,14 @@ export async function POST(req: NextRequest) {
     const { data: insertData, error: insertErr } = await supabaseAdmin
       .from("match_jobs")
       .insert(jobsToInsert)
-      .select(); // return inserted rows
+      .select();
 
     if (insertErr) {
       console.error("Error inserting match_jobs:", insertErr);
-      return NextResponse.json({ error: "failed_to_create_jobs" }, { status: 500 });
+      return NextResponse.json(
+        { error: "failed_to_create_jobs" },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({ ok: true, jobs: insertData }, { status: 200 });
