@@ -36,3 +36,21 @@ services:
       - ./logs:/app/logs
     env_file: .env
     restart: on-failure
+
+  matcher_worker:
+    build: .
+    command: ["/app/docker/run_matcher_loop.sh"]
+    volumes:
+      - ./:/app
+      - ./logs:/app/logs
+    env_file: .env
+    restart: unless-stopped
+
+  pdf_uploader:
+    build: .
+    command: ["/app/docker/run_pdf_upload_loop.sh"]
+    volumes:
+      - ./:/app
+      - ./logs:/app/logs
+    env_file: .env
+    restart: unless-stopped
