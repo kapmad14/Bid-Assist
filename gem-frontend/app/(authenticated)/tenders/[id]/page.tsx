@@ -38,6 +38,9 @@ interface Tender {
   city: string | null;
   product_description?: string | null;
 
+  // BoQ items from tenders table
+  boq_items?: any | null;
+
   // PDF-related fields
   pdf_storage_path: string | null;
   pdf_public_url: string | null;
@@ -108,8 +111,7 @@ export default function TenderDetailPage() {
     // 2️⃣ Fallback: derive from pdf_storage_path via supabase.storage.getPublicUrl
     if (row.pdf_storage_path) {
       try {
-        const { data } = supabase
-          .storage
+        const { data } = supabase.storage
           .from('gem-pdfs')
           .getPublicUrl(String(row.pdf_storage_path));
 
@@ -218,8 +220,14 @@ export default function TenderDetailPage() {
     // optimistic update
     setIsShortlisted(prev => !prev);
     try {
-      const result = await (tenderStore.toggleShortlist(String(tender.id)) as any);
-      if (result && result.persisted === false && result.reason?.startsWith('server-error')) {
+      const result = (await tenderStore.toggleShortlist(
+        String(tender.id),
+      )) as any;
+      if (
+        result &&
+        result.persisted === false &&
+        result.reason?.startsWith('server-error')
+      ) {
         // rollback
         setIsShortlisted(prev => !prev);
       }
@@ -263,7 +271,10 @@ export default function TenderDetailPage() {
       try {
         data = await response.json();
       } catch {
-        setExtractionLogs(prev => [...prev, 'Invalid JSON from extraction API']);
+        setExtractionLogs(prev => [
+          ...prev,
+          'Invalid JSON from extraction API',
+        ]);
         setIsExtracting(false);
         return;
       }
@@ -341,7 +352,10 @@ export default function TenderDetailPage() {
     return (
       <div className="container mx-auto px-4 py-8">
         <div className="flex items-center justify-center">
-          <Loader2 className="w-8 h-8 text-[#F7C846] animate-spin" aria-hidden />
+          <Loader2
+            className="w-8 h-8 text-[#F7C846] animate-spin"
+            aria-hidden
+          />
         </div>
       </div>
     );
@@ -536,6 +550,91 @@ export default function TenderDetailPage() {
               </CardContent>
             </Card>
 
+            {/* BoQ Items Placeholder Card */}
+            {/* BoQ Items Placeholder Card */}
+            {/* BoQ Items Card */}
+            <Card className="border-2 border-gray-200">
+              <CardHeader>
+                <CardTitle className="text-base font-bold text-gray-900">
+                  BoQ Items
+                </CardTitle>
+                <p className="text-xs text-gray-600 mt-1">
+                  Bill of Quantities from this tender.
+                </p>
+              </CardHeader>
+
+              <CardContent className="space-y-2 text-sm">
+                {(() => {
+                  let boqArray: any[] | null = null;
+
+                  if (tender.boq_items) {
+                    try {
+                      // Handle both JSON string and already-parsed JSON
+                      boqArray =
+                        typeof tender.boq_items === 'string'
+                          ? JSON.parse(tender.boq_items)
+                          : tender.boq_items;
+                    } catch (err) {
+                      console.error('BoQ parse failed:', err);
+                    }
+                  }
+
+                  if (!boqArray || boqArray.length === 0) {
+                    return (
+                      <p className="text-gray-500">
+                        BoQ items are not available for this tender yet.
+                      </p>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-3">
+                      {boqArray.slice(0, 5).map((item: any, i: number) => (
+                        <div
+                          key={i}
+                          className="p-3 border border-gray-200 rounded-xl bg-white"
+                        >
+                          <p className="font-bold text-sm text-gray-900">
+                            {item.item_title || `Item ${i + 1}`}
+                          </p>
+
+                          {item.category && (
+                            <p className="text-[10px] font-semibold text-blue-700 mt-1">
+                              {item.category}
+                            </p>
+                          )}
+
+                          {item.quantity && (
+                            <p className="text-xs text-gray-600">
+                              Qty: {item.quantity} {item.unit || ''}
+                            </p>
+                          )}
+
+                          {item.delivery_days && (
+                            <p className="text-xs text-gray-600">
+                              Delivery: {item.delivery_days} days
+                            </p>
+                          )}
+
+                          {item.specifications && (
+                            <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+                              {item.specifications}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+
+                      {boqArray.length > 5 && (
+                        <p className="text-xs font-medium text-blue-600">
+                          +{boqArray.length - 5} more items…
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+
             {/* Extraction Logs */}
             {extractionLogs.length > 0 && (
               <Card className="border-2 border-gray-200">
@@ -659,9 +758,9 @@ export default function TenderDetailPage() {
 
             {/* Bid Document Preview */}
             <Card className="border-2 border-gray-200">
-              <CardHeader className="border-b">
+              <CardHeader className="border-b py-2">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-base font-bold text-gray-900">
+                  <CardTitle className="text-sm font-bold text-gray-900">
                     Bid Document Preview
                   </CardTitle>
                   <div className="flex gap-2">
