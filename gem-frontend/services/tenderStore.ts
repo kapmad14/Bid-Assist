@@ -1,4 +1,3 @@
-// services/tenderStore.ts
 'use client';
 
 import { createClient } from '../lib/supabase-client';
@@ -49,6 +48,8 @@ class TenderStore {
   /*******************************
    * Server-backed shortlist APIs
    *******************************/
+
+  // Insert a shortlist record server-side (throws on error)
   async addShortlistServer(userId: string, tenderId: number | string) {
     const payload = { user_id: userId, tender_id: Number(tenderId) };
     const { error } = await supabase.from('user_shortlists').insert(payload).maybeSingle();
@@ -59,6 +60,7 @@ class TenderStore {
     }
   }
 
+  // Remove a shortlist server-side (throws on error)
   async removeShortlistServer(userId: string, tenderId: number | string) {
     const { error } = await supabase
       .from('user_shortlists')
@@ -68,6 +70,7 @@ class TenderStore {
     if (error) throw error;
   }
 
+  // Fetch shortlist tender ids for the authenticated user from server
   async getShortlistedTenderIdsForUser(): Promise<number[]> {
     try {
       const userResp = await supabase.auth.getUser();
@@ -90,6 +93,8 @@ class TenderStore {
     }
   }
 
+  // Sync local shortlistedIds with server (fetch user's shortlist and cache locally)
+  // Call this after login or when you want to refresh the local cache
   async syncShortlistFromServer(): Promise<void> {
     try {
       const ids = await this.getShortlistedTenderIdsForUser();
@@ -100,6 +105,10 @@ class TenderStore {
     }
   }
 
+  /**
+   * Toggle shortlist locally AND attempt to persist to server if authenticated.
+   * Returns a result object: { persisted: boolean, reason?: string }
+   */
   async toggleShortlist(id: string): Promise<{ persisted: boolean; reason?: string }> {
     if (!id) return { persisted: false, reason: 'invalid-id' };
 
@@ -127,7 +136,9 @@ class TenderStore {
       }
 
       const numericId = Number(id);
+
       if (this.shortlistedIds.has(id)) {
+        // we just added it locally -> ensure server has it
         try {
           await this.addShortlistServer(user.id, numericId);
           return { persisted: true };
@@ -139,6 +150,7 @@ class TenderStore {
           return { persisted: false, reason: 'server-error-add' };
         }
       } else {
+        // we just removed it locally -> remove from server
         try {
           await this.removeShortlistServer(user.id, numericId);
           return { persisted: true };
@@ -201,17 +213,21 @@ class TenderStore {
       id: rowId,
       bidNumber: row?.bid_number || row?.gem_bid_id,
       title: row?.title || row?.b_category_name || 'Untitled Tender',
-      authority: row?.organisation_name || 'GeM Portal',
+      // organisation_name → organization_name
+      authority: row?.organization_name || 'GeM Portal',
       ministry: row?.buyer_ministry || row?.ministry,
       department: row?.buyer_department || row?.department,
       description: row?.product_description || row?.title || 'No description available',
       budget: row?.estimated_value ? `₹ ${row.estimated_value}` : 'Refer to Doc',
-      emdAmount: row?.emd_amount_parsed != null
-        ? (typeof row.emd_amount_parsed === 'number' ? row.emd_amount_parsed : parseFloat(row.emd_amount_parsed))
-        : (row?.emd_amount ? parseFloat(row.emd_amount) : 0),
+      // emd_amount_parsed → emd_amount (parsed as number if string)
+      emdAmount: row?.emd_amount != null
+        ? (typeof row.emd_amount === 'number' ? row.emd_amount : parseFloat(row.emd_amount))
+        : 0,
       deadline: row?.bid_end_datetime || row?.final_end_date || new Date().toISOString(),
       status,
-      category: row?.item_category_parsed || row?.b_category_name || 'Goods',
+      // item_category → item_category
+      category: row?.item_category || row?.b_category_name || 'Goods',
+      // city/state are not DB columns, but leaving them doesn’t break anything if undefined
       location: `${row?.city || ''} ${row?.state || ''}`.trim() || row?.pincode || 'India',
       city: row?.city,
       state: row?.state,
@@ -223,7 +239,8 @@ class TenderStore {
       pdfPath: row?.pdf_path,
       pdfStoragePath: row?.pdf_storage_path,
       pdfPublicUrl: row?.pdf_public_url,
-      quantity: row?.total_quantity?.toString() || row?.total_quantity_parsed?.toString(),
+      // total_quantity_parsed → total_quantity
+      quantity: row?.total_quantity?.toString(),
       isShortlisted: rowId ? this.shortlistedIds.has(rowId) : false,
       boqItems: row?.boq_items || []
     } as Tender;
@@ -231,7 +248,6 @@ class TenderStore {
 
   /**
    * Main listing method used by the UI.
-   * Supports search, statusFilter, emdFilter, sortBy, pagination, recommendationsOnly and server-backed shortlisted fetch.
    */
   async getTenders(params: {
     page: number;
@@ -244,7 +260,7 @@ class TenderStore {
     source?: 'gem' | 'all';
   }): Promise<{ data: Tender[]; total: number; totalPages: number }> {
     try {
-      // 1) recommendationsOnly branch (existing combined RPC)
+      // 1) recommendationsOnly branch (combined RPC)
       if (params.recommendationsOnly) {
         try {
           const userResp = await supabase.auth.getUser();
@@ -255,7 +271,6 @@ class TenderStore {
 
           const from = (params.page - 1) * params.limit;
 
-          // NOTE: this assumes you already have a suitable RPC created for recommendations.
           const { data: rpcRows, error: rpcErr } = await supabase
             .rpc('get_recommended_tenders_with_count', {
               p_user: user.id,
@@ -293,8 +308,9 @@ class TenderStore {
         }
       }
 
-      // 2) If statusFilter === 'shortlisted' use server-backed JSON RPC (robust)
-      const now = new Date().toISOString();
+      const nowIso = new Date().toISOString();
+
+      // 2) statusFilter === 'shortlisted' (server-backed JSON RPC)
       if (params.statusFilter === 'shortlisted') {
         try {
           const userResp = await supabase.auth.getUser();
@@ -305,7 +321,6 @@ class TenderStore {
 
           const from = (params.page - 1) * params.limit;
 
-          // This RPC should return a json object: { total: <int>, rows: [ ... tender rows ... ] }
           const { data: rpcData, error: rpcErr } = await supabase.rpc('get_shortlisted_tenders_json', {
             p_user: user.id,
             p_limit: params.limit,
@@ -322,12 +337,10 @@ class TenderStore {
           if (!rpcData) {
             payload = null;
           } else if (Array.isArray(rpcData) && rpcData.length > 0 && typeof rpcData[0] === 'object' && Object.keys(rpcData[0]).length === 1) {
-            // shape: [{ get_shortlisted_tenders_json: { total:..., rows: [...] } }]
             const val = rpcData[0];
             const key = Object.keys(val)[0];
             payload = (val as any)[key];
           } else {
-            // shape likely: { total:..., rows: [...] }
             payload = rpcData as any;
           }
 
@@ -336,14 +349,12 @@ class TenderStore {
           const total = Number(payload.total || 0);
           const rows = Array.isArray(payload.rows) ? payload.rows : [];
 
-          // Update local shortlist cache with returned row ids (optional, keeps local cache fresh)
+          // Update local shortlist cache with returned row ids (optional)
           try {
             const idsFromServer = rows.map((r: any) => String(r.id));
-            // merge server ids into local set (do not clear local completely because user may have local-only shortlists)
             idsFromServer.forEach((x: string) => this.shortlistedIds.add(x));
             this.saveShortlist();
           } catch (e) {
-            // non-fatal
             console.warn('Failed to merge shortlist ids from server into local cache', e);
           }
 
@@ -356,73 +367,56 @@ class TenderStore {
         }
       }
 
-      // 3) Fallback: build standard supabase query for tenders
+      // 3) Standard query
       let query: any = supabase.from('tenders').select('*', { count: 'exact' });
 
-      /*****************************************************
-       * SEARCH: broadened to match multiple text columns
-       *
-       * Matches (ILIKE %term%) against columns that exist in your schema:
-       * - title (text)
-       * - bid_number (text)
-       * - gem_bid_id (text)
-       * - item_category_parsed (text)
-       * - b_category_name (text)
-       * - organisation_name (text)
-       * - organization_name_parsed (text)
-       * - buyer_ministry (text)
-       * - buyer_department (text)
-       * - ministry (text)
-       * - department (text)
-       * - pincode (text)
-       * - state (text)
-       * - city (text)
-       *
-       * Note: We avoid numeric columns (e.g., total_quantity, estimated_value) to prevent type errors with ilike.
-       *****************************************************/
+      // Search (updated to only use existing columns, but still broad)
       if (params.search && params.search.trim()) {
-        const term = params.search.trim().replace(/[%_]/g, ''); // sanitize wildcard chars
+        const term = params.search.trim();
+        const like = `%${term}%`;
 
-        const orConditions = [
-            `title.ilike.%${term}%`,
-            `bid_number.ilike.%${term}%`,
-            `gem_bid_id.ilike.%${term}%`,
-            `item_category_parsed.ilike.%${term}%`,
-            `b_category_name.ilike.%${term}%`,
-            `organisation_name.ilike.%${term}%`,
-            `organization_name_parsed.ilike.%${term}%`,
-            `buyer_ministry.ilike.%${term}%`,
-            `buyer_department.ilike.%${term}%`,
-            `ministry.ilike.%${term}%`,
-            `department.ilike.%${term}%`,
-            `pincode.ilike.%${term}%`,
-            `organization_address.ilike.%${term}%`
-            ];
-
-
-        query = query.or(orConditions.join(','));
+        // IMPORTANT: only columns that actually exist in your schema
+        query = query.or(
+          [
+            `title.ilike.${like}`,
+            `gem_bid_id.ilike.${like}`,
+            `bid_number.ilike.${like}`,
+            `item_category.ilike.${like}`,
+            `b_category_name.ilike.${like}`,
+            `buyer_ministry.ilike.${like}`,
+            `buyer_department.ilike.${like}`,
+            `ministry.ilike.${like}`,
+            `department.ilike.${like}`,
+            `organization_name.ilike.${like}`,
+            `organization_address.ilike.${like}`,
+            `pincode.ilike.${like}`,
+            `local_content_requirement.ilike.${like}`,
+            `payment_terms.ilike.${like}`,
+            `warranty_period.ilike.${like}`,
+            `past_performance.ilike.${like}`,
+            `detail_url.ilike.${like}`
+          ].join(',')
+        );
       }
 
       // Status filters (open/closed/urgent)
       if (params.statusFilter === 'closed') {
-        query = query.lt('bid_end_datetime', now);
+        query = query.lt('bid_end_datetime', nowIso);
       } else if (params.statusFilter === 'open') {
-        query = query.or(`bid_end_datetime.gte.${now},bid_end_datetime.is.null`);
+        query = query.or(`bid_end_datetime.gte.${nowIso},bid_end_datetime.is.null`);
       } else if (params.statusFilter === 'urgent' || params.statusFilter === 'closing-soon') {
         const nextWeek = new Date();
         nextWeek.setDate(nextWeek.getDate() + 7);
-        query = query.gte('bid_end_datetime', now).lte('bid_end_datetime', nextWeek.toISOString());
-      } else if (params.statusFilter === 'all' || !params.statusFilter) {
-        // nothing
-      } else {
-        // handled earlier shortlisted branch
+        query = query
+          .gte('bid_end_datetime', nowIso)
+          .lte('bid_end_datetime', nextWeek.toISOString());
       }
 
-      // EMD filter
+      // EMD filter (emd_amount_parsed → emd_amount)
       if (params.emdFilter === 'yes') {
-        query = query.gt('emd_amount_parsed', 0);
+        query = query.gt('emd_amount', 0);
       } else if (params.emdFilter === 'no') {
-        query = query.or('emd_amount_parsed.is.null,emd_amount_parsed.eq.0');
+        query = query.or('emd_amount.is.null,emd_amount.eq.0');
       }
 
       // Sorting
@@ -490,7 +484,10 @@ class TenderStore {
     try {
       const { count: total } = await supabase.from('tenders').select('*', { count: 'exact', head: true });
       const now = new Date().toISOString();
-      const { count: active } = await supabase.from('tenders').select('*', { count: 'exact', head: true }).gte('bid_end_datetime', now);
+      const { count: active } = await supabase
+        .from('tenders')
+        .select('*', { count: 'exact', head: true })
+        .gte('bid_end_datetime', now);
 
       return {
         total: total || 0,
@@ -526,15 +523,3 @@ class TenderStore {
 }
 
 export const tenderStore = new TenderStore();
-
-/*
-Optional DB performance suggestion (run in Supabase SQL editor if you want to speed up text searches):
-
--- Create trigram / GIN indexes on the richest text fields (optional & helpful)
--- CREATE EXTENSION IF NOT EXISTS pg_trgm;
--- CREATE INDEX IF NOT EXISTS trgm_tenders_title ON public.tenders USING gin (title gin_trgm_ops);
--- CREATE INDEX IF NOT EXISTS trgm_tenders_item_category_parsed ON public.tenders USING gin (item_category_parsed gin_trgm_ops);
--- CREATE INDEX IF NOT EXISTS trgm_tenders_organisation_name ON public.tenders USING gin (organisation_name gin_trgm_ops);
-
-Rationale: these GIN trgm indexes make ILIKE '%term%' queries much faster for large tables.
-*/

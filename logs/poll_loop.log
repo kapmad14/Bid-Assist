@@ -9461,3 +9461,416 @@ Saved capture -> page1_capture_20251124T064848Z.json
 Poll result: total_docs=10 added_new=10 DB=2025-11-24.db
 Done. New rows added: 10 DB: data/db/2025-11-24.db
 === 2025-11-24T06:48:53Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T06:58:53Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 13fde21a...
+Saved capture -> page1_capture_20251124T065853Z.json
+Poll result: total_docs=10 added_new=2 DB=2025-11-24.db
+Done. New rows added: 2 DB: data/db/2025-11-24.db
+=== 2025-11-24T06:58:57Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T07:15:16Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 422584ff...
+Saved capture -> page1_capture_20251124T071516Z.json
+Poll result: total_docs=10 added_new=0 DB=2025-11-24.db
+Done. New rows added: 0 DB: data/db/2025-11-24.db
+=== 2025-11-24T07:15:20Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T07:25:20Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: a00f0036...
+Saved capture -> page1_capture_20251124T072520Z.json
+Poll result: total_docs=10 added_new=1 DB=2025-11-24.db
+Done. New rows added: 1 DB: data/db/2025-11-24.db
+=== 2025-11-24T07:25:24Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T08:01:27Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: a57f1591...
+Saved capture -> page1_capture_20251124T080127Z.json
+Poll result: total_docs=10 added_new=10 DB=2025-11-24.db
+Done. New rows added: 10 DB: data/db/2025-11-24.db
+=== 2025-11-24T08:01:32Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T08:11:32Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: f03d0f30...
+Saved capture -> page1_capture_20251124T081132Z.json
+Poll result: total_docs=10 added_new=3 DB=2025-11-24.db
+Done. New rows added: 3 DB: data/db/2025-11-24.db
+=== 2025-11-24T08:11:36Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T08:21:36Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: e118557c...
+Saved capture -> page1_capture_20251124T082136Z.json
+Poll result: total_docs=10 added_new=10 DB=2025-11-24.db
+Done. New rows added: 10 DB: data/db/2025-11-24.db
+=== 2025-11-24T08:21:41Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T08:31:41Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 5f8fce44...
+Saved capture -> page1_capture_20251124T083141Z.json
+Poll result: total_docs=10 added_new=1 DB=2025-11-24.db
+Done. New rows added: 1 DB: data/db/2025-11-24.db
+=== 2025-11-24T08:31:46Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T08:41:46Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 444660e7...
+Saved capture -> page1_capture_20251124T084146Z.json
+Poll result: total_docs=10 added_new=2 DB=2025-11-24.db
+Done. New rows added: 2 DB: data/db/2025-11-24.db
+=== 2025-11-24T08:41:51Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T08:51:51Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: c9e1bae4...
+Saved capture -> page1_capture_20251124T085151Z.json
+Poll result: total_docs=10 added_new=10 DB=2025-11-24.db
+Done. New rows added: 10 DB: data/db/2025-11-24.db
+=== 2025-11-24T08:51:55Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T09:01:55Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: b3250e1a...
+Saved capture -> page1_capture_20251124T090155Z.json
+Poll result: total_docs=10 added_new=9 DB=2025-11-24.db
+Done. New rows added: 9 DB: data/db/2025-11-24.db
+=== 2025-11-24T09:01:59Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T09:11:59Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: e61c20cb...
+Saved capture -> page1_capture_20251124T091159Z.json
+Poll result: total_docs=10 added_new=4 DB=2025-11-24.db
+Done. New rows added: 4 DB: data/db/2025-11-24.db
+=== 2025-11-24T09:12:03Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T09:22:43Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 8857d228...
+Saved capture -> page1_capture_20251124T092243Z.json
+Poll result: total_docs=10 added_new=2 DB=2025-11-24.db
+Done. New rows added: 2 DB: data/db/2025-11-24.db
+=== 2025-11-24T09:22:47Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T09:32:47Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: eb63ee92...
+Saved capture -> page1_capture_20251124T093248Z.json
+Poll result: total_docs=10 added_new=1 DB=2025-11-24.db
+Done. New rows added: 1 DB: data/db/2025-11-24.db
+=== 2025-11-24T09:32:51Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T09:42:51Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: b5530c7e...
+Saved capture -> page1_capture_20251124T094251Z.json
+Poll result: total_docs=10 added_new=1 DB=2025-11-24.db
+Done. New rows added: 1 DB: data/db/2025-11-24.db
+=== 2025-11-24T09:42:55Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T09:52:55Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: c7b409e8...
+Saved capture -> page1_capture_20251124T095255Z.json
+Poll result: total_docs=10 added_new=10 DB=2025-11-24.db
+Done. New rows added: 10 DB: data/db/2025-11-24.db
+=== 2025-11-24T09:53:00Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T10:10:12Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: a9a6338b...
+Saved capture -> page1_capture_20251124T101012Z.json
+Poll result: total_docs=10 added_new=1 DB=2025-11-24.db
+Done. New rows added: 1 DB: data/db/2025-11-24.db
+=== 2025-11-24T10:10:16Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T10:20:16Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: e8a785f3...
+Saved capture -> page1_capture_20251124T102016Z.json
+Poll result: total_docs=10 added_new=9 DB=2025-11-24.db
+Done. New rows added: 9 DB: data/db/2025-11-24.db
+=== 2025-11-24T10:20:20Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T10:30:20Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: cb030679...
+Saved capture -> page1_capture_20251124T103020Z.json
+Poll result: total_docs=10 added_new=1 DB=2025-11-24.db
+Done. New rows added: 1 DB: data/db/2025-11-24.db
+=== 2025-11-24T10:30:30Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T10:40:30Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: af66ba10...
+Saved capture -> page1_capture_20251124T104030Z.json
+Poll result: total_docs=10 added_new=1 DB=2025-11-24.db
+Done. New rows added: 1 DB: data/db/2025-11-24.db
+=== 2025-11-24T10:40:34Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T10:50:34Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 64345376...
+Saved capture -> page1_capture_20251124T105034Z.json
+Poll result: total_docs=10 added_new=10 DB=2025-11-24.db
+Done. New rows added: 10 DB: data/db/2025-11-24.db
+=== 2025-11-24T10:50:38Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T11:00:38Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 165a732f...
+Saved capture -> page1_capture_20251124T110038Z.json
+Poll result: total_docs=10 added_new=10 DB=2025-11-24.db
+Done. New rows added: 10 DB: data/db/2025-11-24.db
+=== 2025-11-24T11:00:43Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T11:29:10Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 08d8cdc4...
+Saved capture -> page1_capture_20251124T112910Z.json
+Poll result: total_docs=10 added_new=6 DB=2025-11-24.db
+Done. New rows added: 6 DB: data/db/2025-11-24.db
+=== 2025-11-24T11:29:14Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T11:39:14Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 7d5e707a...
+Saved capture -> page1_capture_20251124T113914Z.json
+Poll result: total_docs=10 added_new=1 DB=2025-11-24.db
+Done. New rows added: 1 DB: data/db/2025-11-24.db
+=== 2025-11-24T11:39:19Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T11:49:19Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 10c51427...
+Saved capture -> page1_capture_20251124T114919Z.json
+Poll result: total_docs=10 added_new=10 DB=2025-11-24.db
+Done. New rows added: 10 DB: data/db/2025-11-24.db
+=== 2025-11-24T11:49:23Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T11:59:23Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: ac115803...
+Saved capture -> page1_capture_20251124T115923Z.json
+Poll result: total_docs=10 added_new=3 DB=2025-11-24.db
+Done. New rows added: 3 DB: data/db/2025-11-24.db
+=== 2025-11-24T11:59:28Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T12:09:28Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: c5ef780d...
+Saved capture -> page1_capture_20251124T120928Z.json
+Poll result: total_docs=10 added_new=9 DB=2025-11-24.db
+Done. New rows added: 9 DB: data/db/2025-11-24.db
+=== 2025-11-24T12:09:33Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T12:19:33Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 6a66b644...
+Saved capture -> page1_capture_20251124T121933Z.json
+Poll result: total_docs=10 added_new=1 DB=2025-11-24.db
+Done. New rows added: 1 DB: data/db/2025-11-24.db
+=== 2025-11-24T12:19:38Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T12:33:03Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 55691890...
+Saved capture -> page1_capture_20251124T123303Z.json
+Poll result: total_docs=10 added_new=0 DB=2025-11-24.db
+Done. New rows added: 0 DB: data/db/2025-11-24.db
+=== 2025-11-24T12:33:07Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T12:43:07Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 02f99a4e...
+Saved capture -> page1_capture_20251124T124307Z.json
+Poll result: total_docs=10 added_new=0 DB=2025-11-24.db
+Done. New rows added: 0 DB: data/db/2025-11-24.db
+=== 2025-11-24T12:43:12Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T13:01:59Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: c4115b3e...
+Saved capture -> page1_capture_20251124T130159Z.json
+Poll result: total_docs=10 added_new=10 DB=2025-11-24.db
+Done. New rows added: 10 DB: data/db/2025-11-24.db
+=== 2025-11-24T13:02:04Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T13:12:04Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 94879f7b...
+Saved capture -> page1_capture_20251124T131204Z.json
+Poll result: total_docs=10 added_new=3 DB=2025-11-24.db
+Done. New rows added: 3 DB: data/db/2025-11-24.db
+=== 2025-11-24T13:12:08Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T13:22:08Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 7adb8984...
+Saved capture -> page1_capture_20251124T132208Z.json
+Poll result: total_docs=10 added_new=8 DB=2025-11-24.db
+Done. New rows added: 8 DB: data/db/2025-11-24.db
+=== 2025-11-24T13:22:12Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T13:48:47Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 36f35257...
+Saved capture -> page1_capture_20251124T134847Z.json
+Poll result: total_docs=10 added_new=7 DB=2025-11-24.db
+Done. New rows added: 7 DB: data/db/2025-11-24.db
+=== 2025-11-24T13:48:52Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T17:22:19Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 69206c4e...
+Saved capture -> page1_capture_20251124T172220Z.json
+Poll result: total_docs=10 added_new=10 DB=2025-11-24.db
+Done. New rows added: 10 DB: data/db/2025-11-24.db
+=== 2025-11-24T17:22:23Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-24T22:54:18Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 3c22c9c9...
+Saved capture -> page1_capture_20251124T225418Z.json
+Poll result: total_docs=10 added_new=1 DB=2025-11-24.db
+Done. New rows added: 1 DB: data/db/2025-11-24.db
+=== 2025-11-24T22:54:23Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-25T03:32:33Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 929328e5...
+Saved capture -> page1_capture_20251125T033233Z.json
+Poll result: total_docs=10 added_new=10 DB=2025-11-25.db
+Done. New rows added: 10 DB: data/db/2025-11-25.db
+=== 2025-11-25T03:32:38Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-25T05:06:27Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 612ff0f4...
+Saved capture -> page1_capture_20251125T050627Z.json
+Poll result: total_docs=10 added_new=10 DB=2025-11-25.db
+Done. New rows added: 10 DB: data/db/2025-11-25.db
+=== 2025-11-25T05:06:31Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-25T05:16:31Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: a07b8de5...
+Saved capture -> page1_capture_20251125T051631Z.json
+Poll result: total_docs=10 added_new=10 DB=2025-11-25.db
+Done. New rows added: 10 DB: data/db/2025-11-25.db
+=== 2025-11-25T05:16:36Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-25T05:26:36Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 87f411e5...
+Saved capture -> page1_capture_20251125T052636Z.json
+Poll result: total_docs=10 added_new=1 DB=2025-11-25.db
+Done. New rows added: 1 DB: data/db/2025-11-25.db
+=== 2025-11-25T05:26:41Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-25T05:43:05Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 93ace4b2...
+Saved capture -> page1_capture_20251125T054305Z.json
+Poll result: total_docs=10 added_new=4 DB=2025-11-25.db
+Done. New rows added: 4 DB: data/db/2025-11-25.db
+=== 2025-11-25T05:43:09Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-25T05:53:09Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 2a404b3e...
+Saved capture -> page1_capture_20251125T055309Z.json
+Poll result: total_docs=10 added_new=7 DB=2025-11-25.db
+Done. New rows added: 7 DB: data/db/2025-11-25.db
+=== 2025-11-25T05:53:14Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-25T06:03:14Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 6bdaef2c...
+Saved capture -> page1_capture_20251125T060314Z.json
+Poll result: total_docs=10 added_new=9 DB=2025-11-25.db
+Done. New rows added: 9 DB: data/db/2025-11-25.db
+=== 2025-11-25T06:03:18Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-25T06:13:18Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 76639d7e...
+Saved capture -> page1_capture_20251125T061318Z.json
+Poll result: total_docs=10 added_new=0 DB=2025-11-25.db
+Done. New rows added: 0 DB: data/db/2025-11-25.db
+=== 2025-11-25T06:13:22Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-25T06:23:22Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 9052e159...
+Saved capture -> page1_capture_20251125T062323Z.json
+Poll result: total_docs=10 added_new=6 DB=2025-11-25.db
+Done. New rows added: 6 DB: data/db/2025-11-25.db
+=== 2025-11-25T06:23:27Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-25T06:35:15Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 5bf16f3a...
+Saved capture -> page1_capture_20251125T063515Z.json
+Poll result: total_docs=10 added_new=1 DB=2025-11-25.db
+Done. New rows added: 1 DB: data/db/2025-11-25.db
+=== 2025-11-25T06:35:20Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-25T06:47:13Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 95619371...
+Saved capture -> page1_capture_20251125T064713Z.json
+Poll result: total_docs=10 added_new=10 DB=2025-11-25.db
+Done. New rows added: 10 DB: data/db/2025-11-25.db
+=== 2025-11-25T06:47:18Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-25T07:08:57Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 971b4c04...
+Saved capture -> page1_capture_20251125T070857Z.json
+Poll result: total_docs=10 added_new=10 DB=2025-11-25.db
+Done. New rows added: 10 DB: data/db/2025-11-25.db
+=== 2025-11-25T07:09:02Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-25T07:19:02Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 6a231d5d...
+Saved capture -> page1_capture_20251125T071902Z.json
+Poll result: total_docs=10 added_new=1 DB=2025-11-25.db
+Done. New rows added: 1 DB: data/db/2025-11-25.db
+=== 2025-11-25T07:19:06Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-25T07:29:06Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 3ef9183d...
+Saved capture -> page1_capture_20251125T072906Z.json
+Poll result: total_docs=10 added_new=1 DB=2025-11-25.db
+Done. New rows added: 1 DB: data/db/2025-11-25.db
+=== 2025-11-25T07:29:11Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-25T07:44:05Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 9b149f28...
+Saved capture -> page1_capture_20251125T074405Z.json
+Poll result: total_docs=10 added_new=2 DB=2025-11-25.db
+Done. New rows added: 2 DB: data/db/2025-11-25.db
+=== 2025-11-25T07:44:10Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-25T07:54:10Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 79779962...
+Saved capture -> page1_capture_20251125T075410Z.json
+Poll result: total_docs=10 added_new=6 DB=2025-11-25.db
+Done. New rows added: 6 DB: data/db/2025-11-25.db
+=== 2025-11-25T07:54:14Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-25T08:19:20Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 5a8c4afd...
+Saved capture -> page1_capture_20251125T081921Z.json
+Poll result: total_docs=10 added_new=3 DB=2025-11-25.db
+Done. New rows added: 3 DB: data/db/2025-11-25.db
+=== 2025-11-25T08:19:25Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-25T08:29:25Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: ef4b1ef4...
+Saved capture -> page1_capture_20251125T082925Z.json
+Poll result: total_docs=10 added_new=2 DB=2025-11-25.db
+Done. New rows added: 2 DB: data/db/2025-11-25.db
+=== 2025-11-25T08:29:29Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-25T08:39:29Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: d6c09b44...
+Saved capture -> page1_capture_20251125T083929Z.json
+Poll result: total_docs=10 added_new=5 DB=2025-11-25.db
+Done. New rows added: 5 DB: data/db/2025-11-25.db
+=== 2025-11-25T08:39:34Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-25T08:49:34Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 6430c1e5...
+Saved capture -> page1_capture_20251125T084934Z.json
+Poll result: total_docs=10 added_new=10 DB=2025-11-25.db
+Done. New rows added: 10 DB: data/db/2025-11-25.db
+=== 2025-11-25T08:49:38Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-25T08:59:38Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 906ed059...
+Saved capture -> page1_capture_20251125T085938Z.json
+Poll result: total_docs=10 added_new=1 DB=2025-11-25.db
+Done. New rows added: 1 DB: data/db/2025-11-25.db
+=== 2025-11-25T08:59:43Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-25T09:09:43Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 524cc756...
+Saved capture -> page1_capture_20251125T090943Z.json
+Poll result: total_docs=10 added_new=8 DB=2025-11-25.db
+Done. New rows added: 8 DB: data/db/2025-11-25.db
+=== 2025-11-25T09:09:47Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-25T09:19:47Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 7305201e...
+Saved capture -> page1_capture_20251125T091947Z.json
+Poll result: total_docs=10 added_new=1 DB=2025-11-25.db
+Done. New rows added: 1 DB: data/db/2025-11-25.db
+=== 2025-11-25T09:19:52Z Finished poll_page1.py. Sleeping 600s ===
+=== 2025-11-25T09:23:35Z Starting poll_page1.py ===
+Launching shared Chromium browser for polling (one-time)...
+CSRF from cookie: 8bc69523...
+Saved capture -> page1_capture_20251125T092335Z.json
+Poll result: total_docs=10 added_new=2 DB=2025-11-25.db
+Done. New rows added: 2 DB: data/db/2025-11-25.db
+=== 2025-11-25T09:23:41Z Finished poll_page1.py. Sleeping 600s ===

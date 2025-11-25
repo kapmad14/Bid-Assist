@@ -331,8 +331,8 @@ def process_single_catalog_item(job: Dict[str, Any], dry_run: bool = True):
     for tok in cat_tokens[:6]:
         q = (
             supabase_admin.from_("tenders")
-            .select("id, item_category_parsed, title, bid_date, bid_end_datetime")
-            .ilike("item_category_parsed", f"%{tok}%")
+            .select("id, item_category, title, bid_date, bid_end_datetime")
+            .ilike("item_category", f"%{tok}%")
             .limit(500)
             .execute()
         )
@@ -344,7 +344,7 @@ def process_single_catalog_item(job: Dict[str, Any], dry_run: bool = True):
         logger.info("No token-filtered tenders found, falling back to latest 200 tenders")
         qall = (
             supabase_admin.from_("tenders")
-            .select("id, item_category_parsed, title, bid_date, bid_end_datetime")
+            .select("id, item_category, title, bid_date, bid_end_datetime")
             .order("id", desc=True)
             .limit(200)
             .execute()
@@ -362,7 +362,7 @@ def process_single_catalog_item(job: Dict[str, Any], dry_run: bool = True):
             chunk = tender_ids[i : i + chunk_size]
             q = (
                 supabase_admin.from_("tenders")
-                .select("id, item_category_parsed, title, bid_date, bid_end_datetime")
+                .select("id, item_category, title, bid_date, bid_end_datetime")
                 .in_("id", chunk)
                 .execute()
             )
@@ -374,7 +374,7 @@ def process_single_catalog_item(job: Dict[str, Any], dry_run: bool = True):
     # Score each tender
     matches = []
     for tender in tender_list:
-        tender_text = normalize_text_simple(tender.get("item_category_parsed") or tender.get("title"))
+        tender_text = normalize_text_simple(tender.get("item_category") or tender.get("title"))
         score = fuzz.token_set_ratio(catalog_text, tender_text)
         if score >= THRESHOLD:
             matches.append((tender, int(score)))
@@ -391,7 +391,7 @@ def process_single_catalog_item(job: Dict[str, Any], dry_run: bool = True):
             "p_score": int(score),
             "p_catalog_text": catalog_text,
             "p_tender_text": normalize_text_simple(
-                tender.get("item_category_parsed") or tender.get("title")
+                tender.get("item_category") or tender.get("title")
             ),
             "p_matched_at": now_iso(),
         }
