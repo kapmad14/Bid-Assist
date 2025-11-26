@@ -31,6 +31,19 @@ const supabase = createClient();
 type SortOption = 'newest' | 'oldest' | 'closing-soon' | 'closing-latest';
 type TabOption = 'All' | 'Active' | 'Closing Soon' | 'Shortlisted' | 'Archived';
 
+// Simple hover tooltip icon
+const InfoTooltip = ({ text }: { text: string }) => (
+  <div className="relative group inline-block ml-1 cursor-pointer">
+    <span className="text-black text-[10px] font-bold border border-black/50 rounded-full px-[4px] leading-none">
+      i
+    </span>
+    <div className="absolute left-1/2 -translate-x-1/2 mt-1 hidden group-hover:block whitespace-nowrap z-20
+      bg-black text-white text-[10px] px-2 py-1 rounded shadow-lg">
+      {text}
+    </div>
+  </div>
+);
+
 
 // --- Sub-Component: Filter Accordion ---
 const FilterSection: React.FC<{ 
@@ -369,34 +382,34 @@ function TendersContent() {
                    </label>
                 </div>
              </FilterSection>
-             
-             <FilterSection title="Category">
-                <div className="space-y-2">
-                   <label className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 cursor-pointer">
-                      <input type="checkbox" className="rounded border-gray-300 text-[#F7C846] focus:ring-[#F7C846] accent-[#F7C846]" />
-                      Goods
-                   </label>
-                   <label className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 cursor-pointer">
-                      <input type="checkbox" className="rounded border-gray-300 text-[#F7C846] focus:ring-[#F7C846] accent-[#F7C846]" />
-                      Services
-                   </label>
-                </div>
-             </FilterSection>
-
-             <FilterSection title="State">
-                <div className="relative mb-2">
-                   <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" aria-hidden />
-                   <input type="text" placeholder="Search State" className="w-full pl-7 py-1.5 text-xs border border-gray-200 rounded bg-gray-50" />
-                </div>
-             </FilterSection>
-
-             <FilterSection title="Ministry">
-                <input type="text" placeholder="Search Ministry" className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded bg-gray-50" />
-             </FilterSection>
           </div>
+          {/* --- Guidance Banner for New Users --- */}
+          <div className="mt-4 bg-gray-50 border border-gray-100 rounded-lg p-3 text-xs leading-relaxed text-gray-600">
+            <p className="font-semibold text-gray-900">New here?</p>
+            <ul className="list-disc pl-4 mt-1 space-y-1">
+              <li>
+                <span className="font-semibold">Shortlist</span> ⭐ — Save tenders to revisit later.
+              </li>
+              <li>
+                <span className="font-semibold">Recommended for Me</span> 🔶 — Shows tenders based on items you’ve added in your <span className="underline font-medium">Catalogue</span>.
+              </li>
+            </ul>
+
+            {/* Optional subtle CTA */}
+            <div className="mt-2">
+              <Link 
+                href="/catalog"
+                className="text-[11px] font-semibold text-[#0E121A] underline hover:text-black"
+              >
+                Add items to Catalogue →
+              </Link>
+            </div>
+          </div>
+
         </div>
       </div>
 
+      
       {/* --- MAIN CONTENT AREA --- */}
       <div className="flex-1 min-w-0" aria-busy={isLoading}>
         
@@ -452,9 +465,9 @@ function TendersContent() {
 
         {/* Alert Banner / Sync */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
-           <div className="flex items-center gap-3">
-             {/* RECOMMENDED Toggle (replaces Save Free Alert) */}
-            <div>
+          <div className="flex items-center gap-3">
+            {/* RECOMMENDED Toggle (replaces Save Free Alert) */}
+            <div className="flex items-center gap-1.5">
               <button
                 onClick={() => void handleToggleRecommended()}
                 aria-pressed={recommendedOnly}
@@ -468,21 +481,37 @@ function TendersContent() {
                 {recommendedOnly ? 'Showing Recommended' : 'Recommended for Me'}
               </button>
 
-              {showLoginPrompt && (
-                <div role="alert" className="mt-2 text-xs text-gray-700 bg-yellow-50 border border-yellow-100 p-2 rounded">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm">Sign in to see your personalized recommendations.</span>
-                    <Link href="/login" className="ml-2 text-sm font-semibold text-[#0E121A] underline">Sign in</Link>
-                  </div>
-                </div>
-              )}
+              {/* Tooltip for Recommended */}
+              <InfoTooltip text="Shows tenders based on products in your Catalogue" />
             </div>
+
+            {showLoginPrompt && (
+              <div
+                role="alert"
+                className="mt-2 text-xs text-gray-700 bg-yellow-50 border border-yellow-100 p-2 rounded"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-sm">
+                    Sign in to see your personalized recommendations.
+                  </span>
+                  <Link
+                    href="/login"
+                    className="ml-2 text-sm font-semibold text-[#0E121A] underline"
+                  >
+                    Sign in
+                  </Link>
+                </div>
+              </div>
+            )}
 
             {/* optional small hint when recommendedOnly is active */}
             {recommendedOnly && (
-              <div className="text-xs text-gray-500 ml-2">Showing only tenders recommended for you</div>
+              <div className="text-xs text-gray-500 ml-2">
+                Showing only tenders recommended for you
+              </div>
             )}
-           </div>
+          </div>
+
 
            <div className="flex items-center gap-2">
              <button
