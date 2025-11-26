@@ -819,14 +819,11 @@ export default function TenderDetailPage() {
                     <div className="p-6 text-center text-sm text-gray-600">
                       Preview unavailable for this document type.{' '}
                       <Button
-                        variant="link"
+                        variant="ghost"                     // allowed
                         onClick={() =>
-                          window.open(
-                            selectedDocUrl,
-                            '_blank',
-                            'noopener,noreferrer',
-                          )
+                          window.open(selectedDocUrl!, "_blank", "noopener,noreferrer")
                         }
+                        className="p-0 h-auto text-blue-600 underline underline-offset-4"
                       >
                         Open in new tab
                       </Button>
