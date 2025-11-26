@@ -11,6 +11,7 @@ import {
   LogOut,
   Menu,
   X,
+  LifeBuoy,
 } from 'lucide-react';
 
 /**
@@ -31,6 +32,7 @@ const menuItems = [
   { label: 'Tenders', icon: FileText, path: '/tenders' },
   // changed to Box to visually differentiate Catalog
   { label: 'Catalog', icon: Box, path: '/catalog' },
+  { label: 'Help & Support', icon: LifeBuoy, path: '/help' },
 ];
 
 function SidebarItem({ item, isCollapsed, isActive }) {
