@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<Response> {
   try {
     const { tenderId } = await request.json();
     
@@ -29,7 +29,8 @@ export async function POST(request: NextRequest) {
       error += data.toString();
     });
     
-    return new Promise((resolve) => {
+    // 👇 Explicitly type the Promise as Promise<Response>
+    return new Promise<Response>((resolve) => {
       pythonProcess.on('close', (code) => {
         if (code === 0) {
           try {
@@ -48,10 +49,10 @@ export async function POST(request: NextRequest) {
         }
       });
     });
-    
+
   } catch (error: any) {
     return NextResponse.json(
-      { error: error.message },
+      { error: error.message ?? 'Unknown error' },
       { status: 500 }
     );
   }
