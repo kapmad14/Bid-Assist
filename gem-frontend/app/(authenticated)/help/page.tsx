@@ -13,8 +13,11 @@ import {
   AlertTriangle,
   ArrowRight,
 } from 'lucide-react';
+import { createClient } from '@/lib/supabase-client';
 
 export default function HelpSupportPage() {
+  const supabase = createClient();
+
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [subject, setSubject] = useState('');
@@ -35,13 +38,37 @@ export default function HelpSupportPage() {
 
     setLoading(true);
     try {
+      // 🔑 Get logged-in user from Supabase Auth
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (userError) {
+        console.error('Error fetching user:', userError);
+      }
+      const user_id = userData?.user?.id ?? null;
+
+      // If your DB has user_id NOT NULL, enforce this:
+      if (!user_id) {
+        setErrorMsg('You must be logged in to submit a support request.');
+        setLoading(false);
+        return;
+      }
+
       const res = await fetch('/api/support', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, subject, message }),
+        body: JSON.stringify({ name, email, subject, message, user_id }),
       });
 
-      const data = await res.json();
+      const contentType = res.headers.get('content-type') || '';
+      let data: any = null;
+
+      if (contentType.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        console.error('Non-JSON response from /api/support:', text);
+        throw new Error('Server returned non-JSON response');
+      }
+
       if (!res.ok || !data?.success) {
         setErrorMsg(data?.error || 'Failed to submit request');
       } else {
