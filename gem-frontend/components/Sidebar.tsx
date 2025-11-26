@@ -31,7 +31,7 @@ const menuItems = [
   { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
   { label: 'Tenders', icon: FileText, path: '/tenders' },
   // changed to Box to visually differentiate Catalog
-  { label: 'Catalog', icon: Box, path: '/catalog' },
+  { label: 'Catalogue', icon: Box, path: '/catalog' },
   { label: 'Help & Support', icon: LifeBuoy, path: '/help' },
 ];
 

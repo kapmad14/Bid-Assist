@@ -82,56 +82,43 @@ export default function DashboardPage() {
         const nowIso = now.toISOString();
         const sevenDaysLaterIso = sevenDaysLater.toISOString();
 
-        // 2) Build all queries (run in parallel)
-
-        // Total tenders: total rows in tenders table
+        // ======================= Queries ==========================
         const tendersTotalQuery = supabase
           .from('tenders')
           .select('id', { count: 'exact', head: true });
 
-        // Active: bid_end_datetime > now
         const tendersActiveQuery = supabase
           .from('tenders')
           .select('id', { count: 'exact', head: true })
           .gt('bid_end_datetime', nowIso);
 
-        // Closing Soon:
-        // Today = 22 Nov
-        // - tender ending 28 Nov -> included
-        // - tender ending 30 Nov -> NOT included
-        // => bid_end_datetime > now AND < now + 7 days
         const tendersClosingSoonQuery = supabase
           .from('tenders')
           .select('id', { count: 'exact', head: true })
           .gt('bid_end_datetime', nowIso)
           .lt('bid_end_datetime', sevenDaysLaterIso);
 
-        // Archived: bid_end_datetime < now
         const tendersArchivedQuery = supabase
           .from('tenders')
           .select('id', { count: 'exact', head: true })
           .lt('bid_end_datetime', nowIso);
 
-        // Recommended: total rows in recommendations for this user
         const recommendedQuery = supabase
           .from('recommendations')
           .select('id', { count: 'exact', head: true })
           .eq('user_id', currentUser.id);
 
-        // Shortlisted: total rows in user_shortlists for this user
         const shortlistQuery = supabase
           .from('user_shortlists')
           .select('id', { count: 'exact', head: true })
           .eq('user_id', currentUser.id);
 
-        // Catalogue: active items for this user
         const catalogActiveQuery = supabase
           .from('catalog_items')
           .select('id', { count: 'exact', head: true })
           .eq('user_id', currentUser.id)
           .eq('status', 'active');
 
-        // Catalogue: total products for this user
         const catalogTotalQuery = supabase
           .from('catalog_items')
           .select('id', { count: 'exact', head: true })
@@ -157,7 +144,6 @@ export default function DashboardPage() {
           catalogTotalQuery,
         ]);
 
-        // 3) Handle errors (log but keep going where possible)
         const allErrors = [
           tendersTotalRes.error,
           tendersActiveRes.error,
@@ -205,6 +191,7 @@ export default function DashboardPage() {
     };
   }, [router, supabase]);
 
+  // ================== LOADING UI ====================
   if (loading) {
     return (
       <div className="min-h-screen bg-[#F5F5F7] p-6">
@@ -224,20 +211,47 @@ export default function DashboardPage() {
     );
   }
 
+  // ================== MAIN UI ====================
   return (
     <div className="min-h-screen bg-[#F5F5F7] p-6">
-      {/* Top yellow header bar */}
+
+      {/* Top yellow header */}
       <div className="mb-6 rounded-3xl bg-[#F7C846] px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between shadow-md">
         <div>
           <h1 className="text-2xl font-bold text-black">Dashboard</h1>
-          <p className="text-sm text-black/80">
-            Plan, Prioritize and Accomplish with ease
-          </p>
+          <p className="text-sm text-black/80">Plan, Prioritize and Accomplish with ease</p>
         </div>
         <div className="mt-3 sm:mt-0 text-sm text-black/80">
           Welcome back{userEmail ? `, ${userEmail}` : ''}!
         </div>
       </div>
+
+      {/* 📌 CTA now triggers when catalogTotal < 4 */}
+      {stats.catalogTotal < 4 && (
+        <div className="mb-6 rounded-3xl bg-white p-5 shadow-lg border border-black/5">
+          <p className="font-bold text-lg mb-1 text-black">Quick Start Guide 🚀</p>
+          <p className="text-black/70 mb-4">
+            Browse tenders and add products in Catalogue page to unlock personalized recommendations.
+          </p>
+
+          <div className="flex flex-wrap gap-4">
+            <button
+              onClick={() => router.push('/tenders')}
+              className="flex-1 min-w-[140px] rounded-2xl bg-black !text-white py-3 font-semibold hover:opacity-85 transition"
+            >
+              🔍 Browse Tenders
+            </button>
+
+
+            <button
+              onClick={() => router.push('/catalog')}
+              className="flex-1 min-w-[140px] rounded-2xl bg-[#F7C846] text-black py-3 font-semibold hover:brightness-95 transition"
+            >
+              📦 Add Products to Catalogue
+            </button>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="mb-6 p-4 bg-[#FC574E]/10 border-2 border-[#FC574E]/20 rounded-2xl">
@@ -245,101 +259,60 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Main cards layout */}
+      {/* ===================== CARDS ======================= */}
       <div className="grid gap-4 lg:grid-cols-4 mb-6">
-        {/* Column 1 - yellow cards */}
+
         <div className="space-y-4">
-          {/* Total Tenders */}
           <div className="rounded-3xl bg-[#F7C846] px-5 py-6 shadow-lg min-h-[140px] flex flex-col justify-center">
-            <p className="text-sm font-semibold text-black/80 mb-1">
-              Total Tenders
-            </p>
-            <p className="text-3xl font-bold text-black">
-              {stats.totalTenders}
-            </p>
+            <p className="text-sm font-semibold text-black/80 mb-1">Total Tenders</p>
+            <p className="text-3xl font-bold text-black">{stats.totalTenders}</p>
           </div>
-
-          {/* Recommended */}
           <div className="rounded-3xl bg-[#F7C846] px-5 py-6 shadow-lg min-h-[140px] flex flex-col justify-center">
-            <p className="text-sm font-semibold text-black/80 mb-1">
-              Recommended
-            </p>
-            <p className="text-3xl font-bold text-black">
-              {stats.recommended}
-            </p>
+            <p className="text-sm font-semibold text-black/80 mb-1">Recommended</p>
+            <p className="text-3xl font-bold text-black">{stats.recommended}</p>
           </div>
         </div>
 
-        {/* Column 2 - black cards */}
         <div className="space-y-4">
-          {/* Active */}
           <div className="rounded-3xl bg-black px-5 py-6 shadow-lg min-h-[140px] flex flex-col justify-center">
-            <p className="text-sm font-semibold text-[#F7C846] mb-1">
-              Active
-            </p>
-            <p className="text-3xl font-bold text-white">
-              {stats.activeTenders}
-            </p>
+            <p className="text-sm font-semibold text-[#F7C846] mb-1">Active</p>
+            <p className="text-3xl font-bold text-white">{stats.activeTenders}</p>
           </div>
-
-          {/* Shortlisted */}
           <div className="rounded-3xl bg-black px-5 py-6 shadow-lg min-h-[140px] flex flex-col justify-center">
-            <p className="text-sm font-semibold text-[#F7C846] mb-1">
-              Shortlisted
-            </p>
-            <p className="text-3xl font-bold text-white">
-              {stats.shortlisted}
-            </p>
+            <p className="text-sm font-semibold text-[#F7C846] mb-1">Shortlisted</p>
+            <p className="text-3xl font-bold text-white">{stats.shortlisted}</p>
           </div>
         </div>
 
-        {/* Column 3 - black cards */}
         <div className="space-y-4">
-          {/* Closing Soon */}
           <div className="rounded-3xl bg-black px-5 py-6 shadow-lg min-h-[140px] flex flex-col justify-center">
-            <p className="text-sm font-semibold text-[#F7C846] mb-1">
-              Closing Soon
-            </p>
-            <p className="text-3xl font-bold text-white">
-              {stats.closingSoon}
-            </p>
+            <p className="text-sm font-semibold text-[#F7C846] mb-1">Closing Soon</p>
+            <p className="text-3xl font-bold text-white">{stats.closingSoon}</p>
           </div>
-
-          {/* Archived */}
           <div className="rounded-3xl bg-black px-5 py-6 shadow-lg min-h-[140px] flex flex-col justify-center">
-            <p className="text-sm font-semibold text-[#F7C846] mb-1">
-              Archived
-            </p>
-            <p className="text-3xl font-bold text-white">
-              {stats.archived}
-            </p>
+            <p className="text-sm font-semibold text-[#F7C846] mb-1">Archived</p>
+            <p className="text-3xl font-bold text-white">{stats.archived}</p>
           </div>
         </div>
 
-        {/* Column 4 - catalogue card */}
         <div className="rounded-3xl bg-white px-5 py-6 shadow-lg flex flex-col justify-between min-h-[140px]">
           <div>
-            <p className="text-sm font-semibold text-black/70 mb-1">
-              Catalogue
-            </p>
-            <p className="text-3xl font-bold text-black">
-              {stats.catalogActive}
-            </p>
+            <p className="text-sm font-semibold text-black/70 mb-1">Catalogue</p>
+            <p className="text-3xl font-bold text-black">{stats.catalogActive}</p>
             <p className="text-sm text-black/70">Active</p>
           </div>
           <div className="mt-4">
-            <p className="text-sm text-black/60">
-              / {stats.catalogTotal} Products
-            </p>
+            <p className="text-sm text-black/60">/ {stats.catalogTotal} Products</p>
           </div>
         </div>
+
       </div>
 
-      {/* Chart area (Recharts dummy chart styled like reference) */}
+      {/* ===================== CHART ======================= */}
       <div className="rounded-3xl bg-black px-6 py-5 shadow-lg flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div className="relative w-full sm:w-3/4 h-28 sm:h-36">
-          {/* Yellow baseline bar */}
           <div className="absolute bottom-2 left-[4%] right-[8%] h-[3px] bg-[#F7C846]" />
+
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
               data={chartData}
@@ -348,29 +321,15 @@ export default function DashboardPage() {
             >
               <XAxis dataKey="name" hide />
               <YAxis hide domain={[0, 12]} />
-              <Tooltip
-                cursor={{ fill: 'transparent' }}
-                content={() => null}
-              />
-              {/* White bars (Published) */}
-              <Bar
-                dataKey="published"
-                fill="#FFFFFF"
-                barSize={20}
-                radius={[4, 4, 0, 0]}
-              />
-              {/* Yellow bars (Recommended) */}
-              <Bar
-                dataKey="recommended"
-                fill="#F7C846"
-                barSize={16}
-                radius={[4, 4, 0, 0]}
-              />
+              <Tooltip cursor={{ fill: 'transparent' }} content={() => null} />
+
+              <Bar dataKey="published" fill="#FFFFFF" barSize={20} radius={[4, 4, 0, 0]} />
+              <Bar dataKey="recommended" fill="#F7C846" barSize={16} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Legend on the right */}
+        {/* Legend */}
         <div className="mt-4 sm:mt-0 sm:ml-6 flex flex-col gap-3 text-xs text-white/80">
           <div className="flex items-center gap-2">
             <span className="inline-block h-3 w-3 rounded-full bg-white" />
@@ -382,6 +341,7 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
     </div>
   );
 }

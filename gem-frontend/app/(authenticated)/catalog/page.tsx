@@ -424,7 +424,7 @@ export default function CatalogPage() {
       <Toaster position="top-right" />
 
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold text-[#0E121A]">My Product Catalog</h1>
+        <h1 className="text-3xl font-bold text-[#0E121A]">My Product Catalogue</h1>
         <div className="flex items-center gap-4">
           {/* Primary Add button (yellow) */}
           <button
