@@ -645,12 +645,11 @@ export default function TenderDetailPage() {
                     </CardTitle>
                     <Button
                       variant="ghost"
-                      size="sm"
                       onClick={() => setExtractionLogs([])}
-                      className="font-semibold"
+                      className="font-semibold text-xs px-2 py-1"
                       aria-label="Clear extraction logs"
                     >
-                      Clear
+                      Clear extraction logs
                     </Button>
                   </div>
                 </CardHeader>

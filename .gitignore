@@ -43,3 +43,5 @@ git push
 #database
 data/
 logs/
+*.db
+*.log
