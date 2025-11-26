@@ -705,7 +705,6 @@ export default function TenderDetailPage() {
                       <div className="flex gap-2">
                         <Button
                           variant="ghost"
-                          size="sm"
                           onClick={() => handleDownload(doc.storageUrl)}
                           className="font-semibold"
                           aria-label={`Download ${doc.filename}`}
@@ -714,7 +713,6 @@ export default function TenderDetailPage() {
                         </Button>
                         <Button
                           variant="ghost"
-                          size="sm"
                           onClick={() =>
                             handleDocumentAction(
                               doc.id,
@@ -765,7 +763,6 @@ export default function TenderDetailPage() {
                   <div className="flex gap-2">
                     <Button
                       variant="outline"
-                      size="sm"
                       onClick={() =>
                         selectedDocUrl
                           ? window.open(
@@ -784,7 +781,6 @@ export default function TenderDetailPage() {
                     </Button>
                     <Button
                       variant="outline"
-                      size="sm"
                       onClick={() => {
                         if (!selectedDocUrl) return;
                         const link = document.createElement('a');
