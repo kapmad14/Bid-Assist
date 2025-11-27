@@ -2,6 +2,8 @@
 import express from "express";
 import cors from "cors";
 import extractionRoutes from "./routes/extractionRoutes";
+import extractDocumentsRoutes from "./routes/extractDocumentsRoutes";
+
 
 const app = express();
 
@@ -20,6 +22,7 @@ app.get("/health", (_req, res) => {
 });
 
 app.use("/api/extractions", extractionRoutes);
+app.use("/api/extract-documents", extractDocumentsRoutes); // instant extraction (now)
 
 const PORT = parseInt(process.env.PORT || "10000", 10);
 
