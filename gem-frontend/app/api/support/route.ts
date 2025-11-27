@@ -5,7 +5,12 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import nodemailer from 'nodemailer';
-import type { Transporter } from "nodemailer";
+
+// ⬇️ ADD THIS HERE
+type EmailResult = {
+  ok: boolean;
+  reason?: string;
+};
 
 // Allow fallback to NEXT_PUBLIC_* so dev works even if server-only vars are missing
 const SUPABASE_URL =
@@ -151,7 +156,7 @@ export async function POST(req: NextRequest) {
     `;
     const text = `Name: ${name}\nEmail: ${email}\n\nMessage:\n${message}\n\nAttachment: ${debugAttachmentPath}`;
 
-    let emailResult = { ok: false, reason: 'not-attempted' };
+    let emailResult: EmailResult = { ok: false, reason: 'not-attempted' };
 
     try {
       const sendResult = await sendSupportEmail({
