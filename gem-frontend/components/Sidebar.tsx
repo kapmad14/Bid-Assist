@@ -14,6 +14,12 @@ import {
   LifeBuoy,
 } from 'lucide-react';
 
+type SidebarMenuItem = {
+  label: string;
+  icon: React.ComponentType<any>;
+  path: string;
+};
+
 /**
  * Sidebar: Black theme + best-practice updates
  *
@@ -35,25 +41,31 @@ const menuItems = [
   { label: 'Help & Support', icon: LifeBuoy, path: '/help' },
 ];
 
-function SidebarItem({ item, isCollapsed, isActive }) {
-  const Icon = item.icon;
-  // Use Link for semantic navigation; keeps client navigation and prefetch benefits
-  return (
-    <Link
-      href={item.path}
-      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all
-        ${isActive ? 'bg-[#F7C846] text-black shadow-md' : 'text-white hover:bg-gray-800'}
-        ${isCollapsed ? 'justify-center' : 'justify-start'}`}
-      aria-current={isActive ? 'page' : undefined}
-      title={isCollapsed ? item.label : undefined}
-    >
-      <Icon className="w-5 h-5 flex-shrink-0" aria-hidden="true" />
-      {!isCollapsed && <span>{item.label}</span>}
-      {isCollapsed && <span className="sr-only">{item.label}</span>}
-    </Link>
-  );
+function SidebarItem({
+    item,
+    isCollapsed,
+    isActive,
+  }: {
+    item: SidebarMenuItem;
+    isCollapsed: boolean;
+    isActive: boolean;
+  }) {
+    const Icon = item.icon;
+    return (
+      <Link
+        href={item.path}
+        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all
+          ${isActive ? 'bg-[#F7C846] text-black shadow-md' : 'text-white hover:bg-gray-800'}
+          ${isCollapsed ? 'justify-center' : 'justify-start'}`}
+        aria-current={isActive ? 'page' : undefined}
+        title={isCollapsed ? item.label : undefined}
+      >
+        <Icon className="w-5 h-5 flex-shrink-0" aria-hidden="true" />
+        {!isCollapsed && <span>{item.label}</span>}
+        {isCollapsed && <span className="sr-only">{item.label}</span>}
+      </Link>
+    );
 }
-
 export default function Sidebar() {
   const router = useRouter();
   const pathname = usePathname() || '/dashboard';
