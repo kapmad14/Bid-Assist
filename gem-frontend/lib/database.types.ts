@@ -78,7 +78,7 @@ export interface BOQLine {
   parsed_at: string;
   catalog_id: string;
   tender_id: string | null;
-  meta Record<string, any>;
+  meta: Record<string, any>;
 }
 
 export interface MatchingJob {
