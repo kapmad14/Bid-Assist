@@ -4,20 +4,20 @@ import extractionRoutes from "./routes/extractionRoutes";
 
 const app = express();
 
-// Allow JSON bodies
 app.use(express.json());
 
-// Health check (optional)
+// Simple health endpoint
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
-// Mount our extraction routes under /api/extractions
+// Extraction routes
 app.use("/api/extractions", extractionRoutes);
 
-// Port: choose whatever you like (we used 4000 in Docker earlier)
-const PORT = process.env.PORT || 4000;
+// ✅ IMPORTANT: use Render's PORT env var, default 10000
+const PORT = parseInt(process.env.PORT || "10000", 10);
 
-app.listen(PORT, () => {
+// Bind to 0.0.0.0 so Render can reach it
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`Backend listening on port ${PORT}`);
 });
