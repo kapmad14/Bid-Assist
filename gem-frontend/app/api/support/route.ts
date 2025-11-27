@@ -21,7 +21,7 @@ const SUPPORT_EMAIL_TO =
   process.env.SUPPORT_EMAIL_TO || process.env.NEXT_PUBLIC_SUPPORT_EMAIL || '';
 
 
-const transporter: Transporter = nodemailer.createTransport({
+const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST!,
   port: 587,
   auth: {
