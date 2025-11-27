@@ -1,9 +1,8 @@
-// src/routes/extractDocumentsRoutes.ts
 import { Router } from "express";
+import { spawn } from "child_process";
 
 const router = Router();
 
-// POST /api/extract-documents
 router.post("/", async (req, res) => {
   const { tenderId } = req.body || {};
 
@@ -15,32 +14,54 @@ router.post("/", async (req, res) => {
     });
   }
 
-  // For now: return demo documents only (no Python, no DB writes)
-  const documents = [
-    {
-      order: 0,
-      filename: "Sample-Additional-Doc-1.pdf",
-      url: "https://www.example.com/sample-doc-1.pdf",
-      size: 123456,
-    },
-    {
-      order: 1,
-      filename: "Sample-Additional-Doc-2.xlsx",
-      url: "https://www.example.com/sample-doc-2.xlsx",
-      size: 98765,
-    },
-  ];
+  // 👇 Adjust this if your script lives somewhere else in the repo
+  const scriptPath = "extract_document_urls.py";
 
-  const logs = [
-    `Demo extraction for tender ${tenderId}`,
-    `Returning ${documents.length} mock document(s) from backend only.`,
-    "No data was written to Supabase. This is a stateless preview.",
-  ];
+  // Call: python extract_document_urls.py --tender-id <id>
+  const child = spawn("python", [scriptPath, "--tender-id", String(tenderId)], {
+    // Optional: set cwd if needed
+    // cwd: "/app",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
 
-  return res.json({
-    success: true,
-    documents,
-    logs,
+  let stdout = "";
+  let stderr = "";
+
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk.toString();
+  });
+
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk.toString();
+  });
+
+  child.on("close", (code) => {
+    if (code !== 0) {
+      console.error("extract_document_urls.py failed:", code, stderr);
+      return res.status(500).json({
+        success: false,
+        error: "Extractor failed",
+        logs: stderr
+          .split("\n")
+          .filter(Boolean)
+          .concat([`Exit code: ${code}`]),
+      });
+    }
+
+    try {
+      const parsed = JSON.parse(stdout);
+
+      // We expect the Python script to return:
+      // { success: true, documents: [...], logs: [...] }
+      return res.json(parsed);
+    } catch (e: any) {
+      console.error("Invalid JSON from extractor:", e, stdout);
+      return res.status(500).json({
+        success: false,
+        error: "Invalid JSON from extractor",
+        logs: ["Raw output:", stdout],
+      });
+    }
   });
 });
 
