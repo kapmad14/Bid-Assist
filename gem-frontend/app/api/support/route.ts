@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import nodemailer from 'nodemailer';
+import type { Transporter } from "nodemailer";
 
 // Allow fallback to NEXT_PUBLIC_* so dev works even if server-only vars are missing
 const SUPABASE_URL =
@@ -18,6 +19,16 @@ const SUPABASE_SERVICE_KEY =
 
 const SUPPORT_EMAIL_TO =
   process.env.SUPPORT_EMAIL_TO || process.env.NEXT_PUBLIC_SUPPORT_EMAIL || '';
+
+
+const transporter: Transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST!,
+  port: 587,
+  auth: {
+    user: process.env.SMTP_USER!,
+    pass: process.env.SMTP_PASS!,
+  },
+});
 
 // SMTP settings (optional)
 const SMTP_HOST = process.env.SMTP_HOST || '';
