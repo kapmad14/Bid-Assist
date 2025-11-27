@@ -1,0 +1,16 @@
+node_modules
+npm-debug.log
+Dockerfile
+Dockerfile.backend
+.dockerignore
+.git
+.gitignore
+.env
+.env.*
+dist-coverage
+.vscode
+.idea
+data
+logs
+__pycache__
+*.pyc
