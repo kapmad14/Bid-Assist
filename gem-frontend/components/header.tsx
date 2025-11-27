@@ -21,7 +21,11 @@ export function Header() {
         <h1 className="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
           Gem Assist
         </h1>
-        <Button variant="ghost" size="sm" onClick={handleLogout}>
+        <Button
+          variant="ghost"
+          onClick={handleLogout}
+          className="text-sm px-2 py-1"
+        >
           <LogOut className="h-4 w-4 mr-2" />
           Logout
         </Button>
