@@ -34,7 +34,7 @@ COPY --from=builder /app/dist ./dist
 COPY extract_document_urls.py ./extract_document_urls.py
 
 # 5) Install Python packages needed by extract_document_urls.py
-RUN pip3 install --no-cache-dir PyPDF2 supabase python-dotenv
+RUN pip3 install --break-system-packages --no-cache-dir PyPDF2 supabase python-dotenv
 
 # 6) Environment / port
 ENV NODE_ENV=production
