@@ -1,9 +1,17 @@
-import { Router } from "express";
+// src/routes/extractDocumentsRoutes.ts
+import { Router, Request, Response } from "express";
 import { spawn } from "child_process";
 
 const router = Router();
 
-router.post("/", async (req, res) => {
+/**
+ * POST /api/extract-documents
+ * Body: { tenderId: number }
+ *
+ * Calls the Python extractor script and returns its JSON output.
+ * No DB writes are performed here; everything is ephemeral.
+ */
+router.post("/", async (req: Request, res: Response) => {
   const { tenderId } = req.body || {};
 
   if (!tenderId) {
@@ -14,55 +22,66 @@ router.post("/", async (req, res) => {
     });
   }
 
-  // 👇 Adjust this if your script lives somewhere else in the repo
   const scriptPath = "extract_document_urls.py";
 
-  // Call: python extract_document_urls.py --tender-id <id>
-  const child = spawn("python", [scriptPath, "--tender-id", String(tenderId)], {
-    // Optional: set cwd if needed
-    // cwd: "/app",
+  // Use python3 in Alpine; this binary definitely exists
+  const child = spawn("python3", [scriptPath, "--tender-id", String(tenderId)], {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
   let stdout = "";
   let stderr = "";
 
-  child.on("close", (code) => {
-  // If the script failed, try to read JSON from stdout first
-  if (code !== 0) {
-    console.error("extract_document_urls.py failed:", code, stderr, stdout);
+  child.stdout.on("data", (chunk: Buffer) => {
+    stdout += chunk.toString();
+  });
 
-    // Many of our "handled" errors print JSON to stdout even with non-zero exit
-    try {
-      const parsed = JSON.parse(stdout);
-      // Forward Python's own error object so the frontend can see it
-      return res.status(500).json(parsed);
-    } catch {
-      // Fallback: generic error + stderr/stdout logs
-      return res.status(500).json({
-        success: false,
-        error: "Extractor failed",
-        logs: []
-          .concat(stderr ? stderr.split("\n").filter(Boolean) : [])
-          .concat(stdout ? ["stdout:", stdout] : [])
-          .concat([`Exit code: ${code}`]),
-      });
-    }
-  }
+  child.stderr.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString();
+  });
 
-  // Normal success path
-  try {
-    const parsed = JSON.parse(stdout);
-    return res.json(parsed);
-  } catch (e: any) {
-    console.error("Invalid JSON from extractor:", e, stdout);
+  child.on("error", (err) => {
+    console.error("Failed to start extractor process:", err);
     return res.status(500).json({
       success: false,
-      error: "Invalid JSON from extractor",
-      logs: ["Raw output:", stdout],
+      error: "Failed to start extractor process",
+      logs: [String(err)],
     });
-  }
-});
+  });
 
+  child.on("close", (code) => {
+    // Non-zero exit: try to forward Python's own JSON error if present
+    if (code !== 0) {
+      console.error("extract_document_urls.py failed:", code, stderr, stdout);
+
+      try {
+        const parsed = JSON.parse(stdout);
+        return res.status(500).json(parsed);
+      } catch {
+        return res.status(500).json({
+          success: false,
+          error: "Extractor failed",
+          logs: []
+            .concat(stderr ? stderr.split("\n").filter(Boolean) : [])
+            .concat(stdout ? ["stdout:", stdout] : [])
+            .concat([`Exit code: ${code}`]),
+        });
+      }
+    }
+
+    // Normal success path
+    try {
+      const parsed = JSON.parse(stdout);
+      return res.json(parsed);
+    } catch (e) {
+      console.error("Invalid JSON from extractor:", e, stdout);
+      return res.status(500).json({
+        success: false,
+        error: "Invalid JSON from extractor",
+        logs: ["Raw output:", stdout],
+      });
+    }
+  });
+});
 
 export default router;
