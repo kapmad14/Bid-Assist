@@ -54,17 +54,27 @@ router.post("/", async (req: Request, res: Response) => {
     if (code !== 0) {
       console.error("extract_document_urls.py failed:", code, stderr, stdout);
 
+      // 1) Try to parse stdout as JSON and forward it directly
       try {
         const parsed = JSON.parse(stdout);
         return res.status(500).json(parsed);
       } catch {
+        // 2) Fallback: build a simple logs array manually
+        const logs: string[] = [];
+
+        if (stderr) {
+          logs.push(...stderr.split("\n").filter(Boolean));
+        }
+        if (stdout) {
+          logs.push("stdout:");
+          logs.push(stdout);
+        }
+        logs.push(`Exit code: ${code}`);
+
         return res.status(500).json({
           success: false,
           error: "Extractor failed",
-          logs: []
-            .concat(stderr ? stderr.split("\n").filter(Boolean) : [])
-            .concat(stdout ? ["stdout:", stdout] : [])
-            .concat([`Exit code: ${code}`]),
+          logs,
         });
       }
     }
