@@ -1,33 +1,4 @@
 services:
-  streamlit:
-    build: .
-    command: ["streamlit", "run", "streamlit_prototype.py", "--server.port", "8501", "--server.address", "0.0.0.0"]
-    ports:
-      - "8501:8501"
-    volumes:
-      - ./:/app
-      - ./logs:/app/logs
-    env_file: .env
-    restart: unless-stopped
-
-  scheduler:
-    build: .
-    command: ["/app/docker/run_scheduler.sh"]
-    volumes:
-      - ./:/app
-      - ./logs:/app/logs
-    env_file: .env
-    restart: unless-stopped
-
-  downloader:
-    build: .
-    command: ["/app/docker/run_downloader_loop.sh"]
-    volumes:
-      - ./:/app
-      - ./logs:/app/logs
-    env_file: .env
-    restart: on-failure
-
   bid_parser:
     build: .
     command: ["/app/docker/run_parser_loop.sh"]
@@ -46,9 +17,10 @@ services:
     env_file: .env
     restart: unless-stopped
 
-  pdf_uploader:
+  # ✅ new unified daily scraper service
+  gem_daily_scraper:
     build: .
-    command: ["/app/docker/run_pdf_upload_loop.sh"]
+    command: ["/app/docker/run_daily_gem_scraper.sh"]
     volumes:
       - ./:/app
       - ./logs:/app/logs
