@@ -14,32 +14,38 @@ COPY src ./src
 # Build TypeScript -> dist
 RUN npm run build
 
+
 # ---------- 2. Runtime stage ----------
-FROM node:20-alpine AS runner
+# Use Playwright's official Python image so browsers and required OS deps are present.
+FROM mcr.microsoft.com/playwright/python:latest AS runner
+
+# Install Node 20 (NodeSource) so we can run the built Node app in this image.
+# We install minimal tools required for NodeSource and then Node itself.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
+ && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+ && apt-get install -y --no-install-recommends nodejs \
+ && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# 1) Install Python in the runtime container
-RUN apk add --no-cache python3 py3-pip
-
-# 2) Copy Node files and install production deps
+# Copy package files and install production Node deps
 COPY package*.json ./
 RUN npm install --omit=dev
 
-# 3) Copy built JS from builder
+# Copy built JS from builder
 COPY --from=builder /app/dist ./dist
 
-# 4) Copy the Python extractor script into the container
-#    (this assumes extract_document_urls.py is in the project root)
+# Copy the Python extractor script into the container
 COPY extract_document_urls.py ./extract_document_urls.py
 
-# 5) Install Python packages needed by extract_document_urls.py
-RUN pip3 install --break-system-packages --no-cache-dir PyPDF2 supabase python-dotenv
+# Install Python packages needed by extract_document_urls.py (playwright already installed in base image)
+RUN pip3 install --no-cache-dir PyPDF2 supabase python-dotenv
 
-# 6) Environment / port
+# Environment / port
 ENV NODE_ENV=production
 
 EXPOSE 10000
 
-# 7) Start the backend
+# Start the backend
 CMD ["node", "dist/index.js"]
