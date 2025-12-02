@@ -1,60 +1,98 @@
-# ---------- 1. Build stage ----------
-FROM node:20-alpine AS builder
+#!/usr/bin/env bash
+# docker/start.sh
+# Robust startup for Render / container runtime
+# - Starts node backend
+# - Starts parse_supabase_bids.py (background) if present
+# - Starts matcher loop (background) if present
+# - Starts daily scraper script if gem-scraper exists
+# - Tails logs at the end so container stays alive and Render displays logs
 
-WORKDIR /app
+set -o pipefail
 
-# Install Node dependencies for build
-COPY package*.json ./
-RUN npm install
+APP_DIR="/app"
+LOG_DIR="${APP_DIR}/logs"
+DOCKER_SCRIPTS_DIR="${APP_DIR}/docker"
 
-# Copy TypeScript source
-COPY tsconfig.json ./tsconfig.json
-COPY src ./src
+mkdir -p "${LOG_DIR}"
 
-# Build TypeScript -> dist
-RUN npm run build
+# helper for logging with timestamp
+log() {
+  echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') $*"
+}
 
+log "=== STARTUP: $(date -u) ==="
+cd "${APP_DIR}" || log "WARNING: could not cd to ${APP_DIR}"
 
-# ---------- 2. Runtime stage ----------
-# Use Playwright's official Python image so browsers and required OS deps are present.
-FROM mcr.microsoft.com/playwright/python:latest AS runner
+# ---------- 1) Start node backend ----------
+if [ -f "${APP_DIR}/dist/index.js" ]; then
+  log "=== starting node backend ==="
+  node dist/index.js >> "${LOG_DIR}/node.log" 2>&1 &
+else
+  log "WARNING: node dist/index.js not found; skipping node start" >> "${LOG_DIR}/node.log"
+fi
 
-# Install minimal utilities + Node 20 so we can run the built Node app in this image.
-# (Playwright image already includes Python and browsers.)
-RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
- && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
- && apt-get install -y --no-install-recommends nodejs \
- && rm -rf /var/lib/apt/lists/*
+sleep 0.2
 
-WORKDIR /app
+# ---------- 2) parse_supabase_bids.py (optional) ----------
+if [ -f "${APP_DIR}/parse_supabase_bids.py" ]; then
+  log "=== starting /app/parse_supabase_bids.py (background) ==="
+  # run in background and restart on failure? current script appears to be a loop; keep it simple
+  python3 "${APP_DIR}/parse_supabase_bids.py" >> "${LOG_DIR}/parser_loop.log" 2>&1 &
+else
+  log "NOTICE: /app/parse_supabase_bids.py not found; skipping parser_loop" >> "${LOG_DIR}/parser_loop.log"
+fi
 
-# Copy package files and install production Node deps
-COPY package*.json ./
-RUN npm install --omit=dev
+sleep 0.2
 
-# Copy built JS from builder
-COPY --from=builder /app/dist ./dist
+# ---------- 3) worker_matcher.py loop ----------
+# Prefer direct file if present; otherwise fall back to docker helper script if it exists.
+if [ -f "${APP_DIR}/worker_matcher.py" ]; then
+  log "=== starting worker_matcher.py (loop) ==="
+  # run in background as a simple loop wrapper that ensures it restarts after non-zero exit
+  (
+    while true; do
+      log "=== $(date -u) Starting worker_matcher.py ===" >> "${LOG_DIR}/matcher_worker.log"
+      python3 "${APP_DIR}/worker_matcher.py" >> "${LOG_DIR}/matcher_worker.log" 2>&1 || true
+      log "=== $(date -u) worker_matcher.py exited; sleeping 5s ===" >> "${LOG_DIR}/matcher_worker.log"
+      sleep 5
+    done
+  ) &
+elif [ -x "${DOCKER_SCRIPTS_DIR}/run_matcher_loop.sh" ]; then
+  log "=== starting ${DOCKER_SCRIPTS_DIR}/run_matcher_loop.sh ==="
+  bash "${DOCKER_SCRIPTS_DIR}/run_matcher_loop.sh" >> "${LOG_DIR}/matcher_worker.log" 2>&1 &
+else
+  log "NOTICE: worker_matcher.py and run_matcher_loop.sh not found; skipping matcher." >> "${LOG_DIR}/matcher_worker.log"
+fi
 
-# Copy repo-root python scripts, scraper folder and the docker/ folder (loops + start script)
-COPY extract_document_urls.py ./extract_document_urls.py
-COPY parse_supabase_bids.py ./parse_supabase_bids.py
-COPY worker_matcher.py ./worker_matcher.py
-COPY gem-scraper ./gem-scraper
-COPY docker/ /app/docker/
+sleep 0.2
 
-# Make the docker scripts executable (including start.sh and your loop scripts)
-RUN chmod +x /app/docker/*.sh || true \
- && chmod +x /app/docker/start.sh || true
+# ---------- 4) daily scraper (gem-scraper) ----------
+# Your old script attempted `cd /app/gem-scraper` and failed.
+# Only launch the docker wrapper if the directory actually exists.
+if [ -d "${APP_DIR}/gem-scraper" ]; then
+  if [ -x "${DOCKER_SCRIPTS_DIR}/run_daily_gem_scraper.sh" ]; then
+    log "=== starting ${DOCKER_SCRIPTS_DIR}/run_daily_gem_scraper.sh ==="
+    bash "${DOCKER_SCRIPTS_DIR}/run_daily_gem_scraper.sh" >> "${LOG_DIR}/daily_scraper.log" 2>&1 &
+  else
+    # try to run a plausible script inside gem-scraper if present (fall-back)
+    if [ -x "${APP_DIR}/gem-scraper/run.sh" ]; then
+      log "=== starting /app/gem-scraper/run.sh ==="
+      bash "${APP_DIR}/gem-scraper/run.sh" >> "${LOG_DIR}/daily_scraper.log" 2>&1 &
+    else
+      log "NOTICE: docker wrapper run_daily_gem_scraper.sh not executable and no gem-scraper/run.sh found; skipping daily scraper" >> "${LOG_DIR}/daily_scraper.log"
+    fi
+  fi
+else
+  log "NOTICE: /app/gem-scraper directory not found; skipping daily scraper" >> "${LOG_DIR}/daily_scraper.log"
+fi
 
-# Install Python packages needed by extract_document_urls.py / parser (playwright already present)
-RUN pip3 install --no-cache-dir PyPDF2 supabase python-dotenv openai
+sleep 0.2
 
-# Environment / port
-ENV NODE_ENV=production
+log "=== background processes started ==="
+# show short process list once
+ps -eo pid,etime,cmd --sort=pid | sed -n '1,200p'
 
-EXPOSE 10000
-
-# Use the orchestrator startup script which launches node + loops and tails logs
-# (start.sh must exist at docker/start.sh in your repo)
-CMD ["/app/docker/start.sh"]
+log "=== tailing logs (${LOG_DIR}/*.log) ==="
+# Tail logs so that the container stays alive and Render surfaces logs in the console.
+# Use -F so tail follows recreated files.
+tail -F "${LOG_DIR}"/*.log
