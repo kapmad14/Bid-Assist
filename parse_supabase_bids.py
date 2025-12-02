@@ -79,13 +79,35 @@ def list_bid_pdfs() -> list[dict]:
 
 def extract_gem_bid_id_from_filename(filename: str) -> str | None:
     """
-    Given a filename like 'GeM-Bidding-7556449.pdf', extract the numeric part (7556449).
-    Returns the ID as a string or None if no digits found.
+    Extract the gem_bid_id from filenames like:
+      - GeM_301125_B_6775977.pdf  -> 6775977
+      - GeM-Bidding-7556449.pdf   -> 7556449
+      - GEM_doc_8549908_87dbe7adf6.pdf -> 8549908
+
+    Strategy:
+    1) find all digit groups with re.findall()
+    2) prefer the last group (most filenames put the bid id at the end)
+    3) fallback: choose the longest digit group (defensive)
     """
-    m = re.search(r"(\d+)", filename)
-    if not m:
+    if not filename:
         return None
-    return m.group(1)
+
+    # find all digit sequences
+    groups = re.findall(r"(\d+)", filename)
+    if not groups:
+        return None
+
+    # Preferred heuristic: the last group is most likely the bid id
+    candidate = groups[-1]
+
+    # Defensive check: if the last group seems too short (e.g., 4 digits),
+    # consider the longest group instead (common case: date = 6 digits vs bid id = 7+)
+    if len(candidate) < 6:
+        # find the longest group
+        candidate = max(groups, key=len)
+
+    return candidate
+
 
 
 def fetch_tender_row(gem_bid_id: str) -> dict | None:
