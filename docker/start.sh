@@ -1,66 +1,60 @@
-#!/usr/bin/env bash
-# docker/start.sh — start node + docker/*.sh loops and tail logs for Render
-set -euo pipefail
+# ---------- 1. Build stage ----------
+FROM node:20-alpine AS builder
 
-# run from /app (where Dockerfile sets WORKDIR)
-cd /app || true
+WORKDIR /app
 
-mkdir -p /app/logs
+# Install Node dependencies for build
+COPY package*.json ./
+RUN npm install
 
-echo "=== STARTUP: $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+# Copy TypeScript source
+COPY tsconfig.json ./tsconfig.json
+COPY src ./src
 
-# 1) Start Node backend (if built)
-if [ -f /app/dist/index.js ]; then
-  echo "=== starting node backend ==="
-  node dist/index.js >> /app/logs/node.log 2>&1 &
-else
-  echo "=== node dist/index.js not found; skipping node start ==="
-fi
+# Build TypeScript -> dist
+RUN npm run build
 
-# 2) Start run_daily_gem_scraper.sh from docker/ if present
-if [ -x /app/docker/run_daily_gem_scraper.sh ]; then
-  echo "=== starting /app/docker/run_daily_gem_scraper.sh ==="
-  /app/docker/run_daily_gem_scraper.sh >> /app/logs/daily_scraper.log 2>&1 &
-elif [ -f /app/docker/run_daily_gem_scraper.sh ]; then
-  echo "=== making /app/docker/run_daily_gem_scraper.sh executable and starting ==="
-  chmod +x /app/docker/run_daily_gem_scraper.sh
-  /app/docker/run_daily_gem_scraper.sh >> /app/logs/daily_scraper.log 2>&1 &
-else
-  echo "=== /app/docker/run_daily_gem_scraper.sh not found; skipping daily scraper ==="
-fi
 
-# 3) Start run_matcher_loop.sh from docker/ if present
-if [ -x /app/docker/run_matcher_loop.sh ]; then
-  echo "=== starting /app/docker/run_matcher_loop.sh ==="
-  /app/docker/run_matcher_loop.sh >> /app/logs/matcher_worker.log 2>&1 &
-elif [ -f /app/docker/run_matcher_loop.sh ]; then
-  echo "=== making /app/docker/run_matcher_loop.sh executable and starting ==="
-  chmod +x /app/docker/run_matcher_loop.sh
-  /app/docker/run_matcher_loop.sh >> /app/logs/matcher_worker.log 2>&1 &
-else
-  echo "=== /app/docker/run_matcher_loop.sh not found; skipping matcher loop ==="
-fi
+# ---------- 2. Runtime stage ----------
+# Use Playwright's official Python image so browsers and required OS deps are present.
+FROM mcr.microsoft.com/playwright/python:latest AS runner
 
-# 4) Start parse_supabase_bids.py (try docker/ then repo root)
-if [ -f /app/docker/parse_supabase_bids.py ]; then
-  echo "=== starting /app/docker/parse_supabase_bids.py (background) ==="
-  python3 /app/docker/parse_supabase_bids.py >> /app/logs/parser_loop.log 2>&1 &
-elif [ -f /app/parse_supabase_bids.py ]; then
-  echo "=== starting /app/parse_supabase_bids.py (background) ==="
-  python3 /app/parse_supabase_bids.py >> /app/logs/parser_loop.log 2>&1 &
-else
-  echo "=== parse_supabase_bids.py not found in /app/docker or /app; skipping parser ==="
-fi
+# Install minimal utilities + Node 20 so we can run the built Node app in this image.
+# (Playwright image already includes Python and browsers.)
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
+ && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+ && apt-get install -y --no-install-recommends nodejs \
+ && rm -rf /var/lib/apt/lists/*
 
-# small pause to let processes initialize
-sleep 1
+WORKDIR /app
 
-echo "=== background processes started ==="
-ps -eo pid,etime,cmd --sort=pid | sed -n '1,200p' || true
+# Copy package files and install production Node deps
+COPY package*.json ./
+RUN npm install --omit=dev
 
-# ensure log files exist so tail doesn't immediately exit
-touch /app/logs/node.log /app/logs/daily_scraper.log /app/logs/matcher_worker.log /app/logs/parser_loop.log
+# Copy built JS from builder
+COPY --from=builder /app/dist ./dist
 
-echo "=== tailing logs (/app/logs/*.log) ==="
-# follow logs (blocks)
-tail -n +1 -F /app/logs/*.log
+# Copy repo-root python scripts, scraper folder and the docker/ folder (loops + start script)
+COPY extract_document_urls.py ./extract_document_urls.py
+COPY parse_supabase_bids.py ./parse_supabase_bids.py
+COPY worker_matcher.py ./worker_matcher.py
+COPY gem-scraper ./gem-scraper
+COPY docker/ /app/docker/
+
+# Make the docker scripts executable (including start.sh and your loop scripts)
+RUN chmod +x /app/docker/*.sh || true \
+ && chmod +x /app/docker/start.sh || true
+
+# Install Python packages needed by extract_document_urls.py / parser (playwright already present)
+RUN pip3 install --no-cache-dir PyPDF2 supabase python-dotenv openai
+
+# Environment / port
+ENV NODE_ENV=production
+
+EXPOSE 10000
+
+# Use the orchestrator startup script which launches node + loops and tails logs
+# (start.sh must exist at docker/start.sh in your repo)
+CMD ["/app/docker/start.sh"]

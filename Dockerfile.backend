@@ -46,7 +46,7 @@ RUN chmod +x /app/docker/*.sh || true \
  && chmod +x /app/docker/start.sh || true
 
 # Install Python packages needed by extract_document_urls.py / parser (playwright already present)
-RUN pip3 install --no-cache-dir PyPDF2 supabase python-dotenv
+RUN pip3 install --no-cache-dir PyPDF2 supabase python-dotenv openai
 
 # Environment / port
 ENV NODE_ENV=production
