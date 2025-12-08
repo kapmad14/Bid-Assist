@@ -1,162 +1,514 @@
 #!/usr/bin/env python3
 """
-Backfill missing rows in the Supabase `tenders` table
-based on PDFs present in Supabase Storage (`gem-pdfs/bids`).
+Simplified backfill script — consumes scraper-produced run-level JSON
+and upserts rows into `tenders` table in Supabase.
 
-Usage:
-    python backfill_tenders_from_storage.py
-
-What it does:
-- Connects to Supabase using SUPABASE_URL + SUPABASE_KEY_SERVICE (or SUPABASE_KEY).
-- Lists all files under the `bids/` prefix in the SUPABASE_BUCKET (default: gem-pdfs).
-- For each *.pdf file:
-    - Extracts gem_bid_id from the filename (e.g. GeM-Bidding-7555029.pdf -> 7555029).
-    - Checks if a row with that gem_bid_id already exists in `tenders`.
-    - If it does not exist, inserts a minimal stub row:
-        - gem_bid_id
-        - bid_number = "GEM/UNKNOWN/B/<gem_bid_id>"
-        - documents_extracted = False
-        - extraction_status = NULL (or "pending" if you prefer)
-- Prints a summary of how many rows were created / already existed / skipped.
+Behavior (per our agreement):
+- Deterministic target date (CLI positional arg or yesterday)
+- Fetch run JSON from `daily_meta/gem_bids_<YYYY-MM-DD>_no_ra_meta.json` in Supabase storage;
+  fallback to local `daily_data/` file.
+- Treat run JSON `bids` array as the sole source of truth.
+- Key records by bid_number / gem_bid_id. Do not use basenames.
+- Trust all fields from run JSON except `pdf_sha256` when missing — then try HEAD, then bounded GET.
+- Idempotent: INSERT if not found, PATCH minimally when present.
+- --dry-run supported; verbose logging if requested.
 """
 
+from __future__ import annotations
+
 import os
-import re
-from typing import Optional
+import sys
+import json
+import time
+import argparse
+import logging
+import hashlib
+import random
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any, List, Tuple
+from urllib.parse import quote
 
-from dotenv import load_dotenv
-from supabase import create_client, Client
+import requests
 
-load_dotenv()
+# ------------------------- Configuration & env -------------------------
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY")
+SUPABASE_BUCKET = os.environ.get("SUPABASE_BUCKET_NAME", "gem-pdfs")
+TENDERS_TABLE = os.environ.get("TENDERS_TABLE", "tenders")
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-# Prefer a service role key if available, otherwise fall back to SUPABASE_KEY
-SUPABASE_KEY_SERVICE = (
-    os.getenv("SUPABASE_KEY_SERVICE")
-    or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-    or os.getenv("SUPABASE_KEY")
-)
-SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET", "gem-pdfs")
-TENDERS_TABLE = os.getenv("TENDERS_TABLE", "tenders")
+# timeouts / retries
+STORAGE_HEAD_TIMEOUT = int(os.environ.get("BACKFILL_HEAD_TIMEOUT", 15))
+DOWNLOAD_TIMEOUT = int(os.environ.get("BACKFILL_DOWNLOAD_TIMEOUT", 60))
+DB_TIMEOUT = int(os.environ.get("BACKFILL_DB_TIMEOUT", 30))
+DB_RETRY_ATTEMPTS = int(os.environ.get("BACKFILL_DB_RETRY_ATTEMPTS", 3))
+MAX_DOWNLOAD_BYTES = int(os.environ.get("BACKFILL_MAX_DOWNLOAD_BYTES", 200 * 1024 * 1024))
 
-if not SUPABASE_URL or not SUPABASE_KEY_SERVICE:
-    raise RuntimeError(
-        "SUPABASE_URL and SUPABASE_KEY_SERVICE (or SUPABASE_KEY) must be set in your .env"
-    )
+# local paths
+SCRIPT_DIR = os.path.dirname(__file__)
+DAILY_DATA_DIR = os.path.join(SCRIPT_DIR, "daily_data")
+LOCAL_META_DIR = DAILY_DATA_DIR
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY_SERVICE)
+# ------------------------- Logging & session -------------------------
+root_logger = logging.getLogger("backfill")
+handler = logging.StreamHandler(sys.stdout)
+formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s", "%Y-%m-%d %H:%M:%S")
+handler.setFormatter(formatter)
+root_logger.addHandler(handler)
+
+SESSION = requests.Session()
+
+AUTH_HEADERS = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"} if SUPABASE_KEY else {}
+
+# ------------------------- Helpers -------------------------
+
+def ensure_env():
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in environment")
 
 
-def extract_gem_bid_id_from_filename(filename: str) -> Optional[int]:
-    """
-    Extract numeric gem_bid_id from filenames like:
-      - GeM-Bidding-7555029.pdf
-      - GEM_doc_8549908_87dbe7adf6.pdf
-    Returns int or None if no digits found.
-    """
-    m = re.search(r"(\d+)", filename)
-    if not m:
-        return None
+def parse_args():
+    p = argparse.ArgumentParser(description="Backfill tenders from scraper run JSON (daily_meta)")
+    p.add_argument("date", nargs="?", help="Target date YYYY-MM-DD (defaults to yesterday)")
+    p.add_argument("--dry-run", action="store_true", help="Do not write to DB")
+    p.add_argument("--verbose", action="store_true", help="Enable debug logging")
+    p.add_argument("--max-download-bytes", type=int, default=MAX_DOWNLOAD_BYTES, help="Max bytes when streaming PDFs")
+    p.add_argument("--max-candidates", type=int, default=0, help="Process at most N candidates (0 = all)")
+    p.add_argument("--table", default=TENDERS_TABLE, help="Supabase table name (overrides TENDERS_TABLE env)")
+    return p.parse_args()
+
+
+def effective_target_date(arg_date: Optional[str]) -> datetime.date:
+    if arg_date:
+        try:
+            return datetime.strptime(arg_date, "%Y-%m-%d").date()
+        except Exception:
+            raise SystemExit(f"Invalid date format: {arg_date} (expected YYYY-MM-DD)")
+    return (datetime.now().date() - timedelta(days=1))
+
+
+def run_meta_filename(date: datetime.date) -> str:
+    return f"gem_bids_{date.strftime('%Y-%m-%d')}_no_ra_meta.json"
+
+
+# ------------------------- Load run JSON -------------------------
+
+def fetch_run_json_from_storage(object_name: str) -> Optional[dict]:
+    """Try to GET the run JSON from Supabase storage public object endpoint using Service key headers."""
+    ensure_env()
+    url = f"{SUPABASE_URL.rstrip('/')}/storage/v1/object/{SUPABASE_BUCKET}/{quote(object_name, safe='/')}"
     try:
-        return int(m.group(1))
-    except ValueError:
+        resp = SESSION.get(url, headers=AUTH_HEADERS, timeout=DB_TIMEOUT)
+        if resp.status_code == 200:
+            return resp.json()
+        # treat 404 as missing
+        if resp.status_code in (404, 400):
+            root_logger.debug("Run JSON not found in storage: %s (status %s)", object_name, resp.status_code)
+            return None
+        root_logger.warning("Unexpected status fetching run JSON %s: %s", object_name, resp.status_code)
+        return None
+    except Exception as e:
+        root_logger.warning("Failed to fetch run JSON from storage %s: %s", object_name, e)
         return None
 
 
-def list_bid_pdfs() -> list[dict]:
+def load_run_json(target_date: datetime.date) -> dict:
+    filename = run_meta_filename(target_date)
+    storage_path = f"daily_meta/{filename}"
+
+    # 1) try storage
+    js = fetch_run_json_from_storage(storage_path)
+    if js:
+        root_logger.info("Loaded run JSON from storage: %s", storage_path)
+        return js
+
+    # 2) try local file
+    local_path = os.path.join(LOCAL_META_DIR, filename)
+    if os.path.exists(local_path):
+        try:
+            with open(local_path, "r", encoding="utf-8") as fh:
+                js_local = json.load(fh)
+            root_logger.info("Loaded run JSON from local file: %s", local_path)
+            return js_local
+        except Exception as e:
+            raise RuntimeError(f"Failed to parse local run JSON {local_path}: {e}")
+
+    raise RuntimeError(f"Run JSON not found in storage ({storage_path}) or locally ({local_path})")
+
+
+# ------------------------- gem_bid_id extraction -------------------------
+
+def extract_gem_bid_id_from_bid_number(bid_number: str) -> Optional[int]:
+    """Extract the numeric gem_bid_id from a bid_number like 'GEM/2025/B/6967173'.
+    Prefer the final numeric token of the bid_number.
     """
-    List PDF files in Supabase Storage under `bids/` in the given bucket.
-    NOTE: This uses a single-page list; if you ever have >1000 files,
-    you may want to add pagination.
-    """
-    files = supabase.storage.from_(SUPABASE_BUCKET).list("bids")
-    pdf_files = [f for f in files if f.get("name", "").lower().endswith(".pdf")]
-    return pdf_files
+    if not bid_number or not isinstance(bid_number, str):
+        return None
+    parts = [p for p in bid_number.replace('\\\u00A0', ' ').replace('\\u200b', '').split('/') if p]
+    # reverse find a numeric token >=5 digits
+    for token in reversed(parts):
+        if token.isdigit() and len(token) >= 5:
+            try:
+                return int(token)
+            except Exception:
+                continue
+    # fallback: any numeric substring of length >=5
+    import re
+    m = re.search(r"(\d{5,})", bid_number)
+    if m:
+        try:
+            return int(m.group(1))
+        except Exception:
+            return None
+    return None
 
 
-def tender_exists(gem_bid_id: int) -> bool:
-    """
-    Check if a row for this gem_bid_id already exists in the `tenders` table.
-    """
-    resp = (
-        supabase.table(TENDERS_TABLE)
-        .select("id")
-        .eq("gem_bid_id", gem_bid_id)
-        .limit(1)
-        .execute()
-    )
-    return bool(resp.data)
+# ------------------------- Storage HEAD/stream helpers -------------------------
+
+def get_sha_via_head(object_name: str) -> Optional[str]:
+    ensure_env()
+    encoded = quote(object_name, safe='/')
+    url = f"{SUPABASE_URL.rstrip('/')}/storage/v1/object/{SUPABASE_BUCKET}/{encoded}"
+    headers = AUTH_HEADERS
+    last_exc = None
+    for attempt in range(1, 4):
+        try:
+            resp = SESSION.head(url, headers=headers, timeout=STORAGE_HEAD_TIMEOUT)
+        except Exception as e:
+            last_exc = e
+            root_logger.debug("HEAD attempt %d failed for %s: %s", attempt, object_name, e)
+            time.sleep(2 ** attempt)
+            continue
+        if resp.status_code in (404, 400):
+            return None
+        if resp.status_code == 200:
+            return resp.headers.get('x-meta-sha256') or resp.headers.get('X-Meta-Sha256')
+        if resp.status_code == 429:
+            wait = int(resp.headers.get('Retry-After', '5'))
+            root_logger.debug('HEAD 429 for %s, sleeping %s', object_name, wait)
+            time.sleep(wait)
+            continue
+        # treat other statuses as error/absent
+        root_logger.debug('HEAD returned %s for %s', resp.status_code, object_name)
+        return None
+    root_logger.debug('HEAD exhausted for %s: %s', object_name, last_exc)
+    return None
 
 
-def create_stub_tender(gem_bid_id: int) -> None:
-    """
-    Insert a minimal stub row into `tenders` so that the parser
-    (`parse_supabase_bids.py`) has something to attach parsed data to.
-    """
-    bid_number = f"GEM/UNKNOWN/B/{gem_bid_id}"
+def compute_sha_streaming(object_name: str, max_bytes: Optional[int]) -> Optional[str]:
+    ensure_env()
+    encoded = quote(object_name, safe='/')
+    url = f"{SUPABASE_URL.rstrip('/')}/storage/v1/object/{SUPABASE_BUCKET}/{encoded}"
+    headers = AUTH_HEADERS
+    try:
+        resp = SESSION.get(url, headers=headers, stream=True, timeout=DOWNLOAD_TIMEOUT)
+    except Exception as e:
+        root_logger.debug('GET streaming failed for %s: %s', object_name, e)
+        return None
+    if resp.status_code != 200:
+        root_logger.debug('Streaming GET returned %s for %s', resp.status_code, object_name)
+        return None
+    h = hashlib.sha256()
+    total = 0
+    try:
+        for chunk in resp.iter_content(chunk_size=8192):
+            if not chunk:
+                continue
+            total += len(chunk)
+            if max_bytes and total > max_bytes:
+                root_logger.error('Exceeded max download bytes for %s', object_name)
+                return None
+            h.update(chunk)
+    except Exception as e:
+        root_logger.debug('Error streaming content for %s: %s', object_name, e)
+        return None
+    return h.hexdigest()
 
-    payload = {
-        "gem_bid_id": gem_bid_id,
-        "bid_number": bid_number,
-        "documents_extracted": False,
-        "extraction_status": None,
-    }
 
-    resp = supabase.table(TENDERS_TABLE).insert(payload).execute()
-    if resp.data is None:
-        raise RuntimeError(f"Insert returned no data for gem_bid_id={gem_bid_id}")
+def make_public_pdf_url(object_name: str) -> str:
+    encoded = "/".join(quote(p, safe='') for p in object_name.split('/'))
+    return f"{SUPABASE_URL.rstrip('/')}/storage/v1/object/public/{SUPABASE_BUCKET}/{encoded}"
 
 
+# ------------------------- DB helpers (Supabase REST) -------------------------
 
-def main():
-    print("\n============================================================")
-    print("🧩 Backfill Supabase tenders from Storage PDFs (bids/)")
-    print("============================================================\n")
+def _db_request_with_retries(method: str, url: str, headers: Dict[str, str], **kwargs) -> requests.Response:
+    last_exc = None
+    for attempt in range(1, DB_RETRY_ATTEMPTS + 1):
+        try:
+            resp = SESSION.request(method, url, headers=headers, timeout=DB_TIMEOUT, **kwargs)
+            if resp.status_code == 429:
+                wait = int(resp.headers.get('Retry-After', '5'))
+                root_logger.warning('DB 429; sleeping %ds (attempt %d)', wait, attempt)
+                time.sleep(wait)
+                last_exc = RuntimeError('429')
+                continue
+            return resp
+        except Exception as e:
+            last_exc = e
+            root_logger.warning('DB request attempt %d failed: %s', attempt, e)
+            time.sleep(min(30, 2 ** attempt))
+    raise RuntimeError(f"DB request failed after retries: {last_exc}")
 
-    pdf_files = list_bid_pdfs()
-    total_pdfs = len(pdf_files)
 
-    print(f"Found {total_pdfs} PDFs in storage folder 'bids/'\n")
+def db_select_by_gem_bid_id(gem_bid_id: int) -> Optional[Dict[str, Any]]:
+    url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/{TENDERS_TABLE}"
+    params = {"gem_bid_id": f"eq.{gem_bid_id}", "select": "*"}
+    resp = _db_request_with_retries('GET', url, AUTH_HEADERS, params=params)
+    if resp.status_code == 200:
+        rows = resp.json()
+        return rows[0] if rows else None
+    root_logger.error('DB select by gem_bid_id returned %s: %s', resp.status_code, resp.text[:200])
+    return None
 
-    created = 0
-    already = 0
-    skipped = 0
-    errors = 0
 
-    for f in pdf_files:
-        filename = f.get("name") or ""
-        print(f"📄 Checking: {filename}")
+def db_select_by_bid_number(bid_number: str) -> Optional[Dict[str, Any]]:
+    url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/{TENDERS_TABLE}"
+    params = {"bid_number": f"eq.{bid_number}", "select": "*"}
+    resp = _db_request_with_retries('GET', url, AUTH_HEADERS, params=params)
+    if resp.status_code == 200:
+        rows = resp.json()
+        return rows[0] if rows else None
+    root_logger.error('DB select by bid_number returned %s: %s', resp.status_code, resp.text[:200])
+    return None
 
-        gem_bid_id = extract_gem_bid_id_from_filename(filename)
-        if not gem_bid_id:
-            print("  ⏭️  Could not extract gem_bid_id from filename, skipping")
-            skipped += 1
+
+def db_insert(payload: Dict[str, Any], dry_run: bool) -> Optional[Dict[str, Any]]:
+    if dry_run:
+        root_logger.info('DRY-RUN INSERT: %s', {k: (v if k != 'raw_text' else '<raw_text>' ) for k,v in payload.items()})
+        return {'_dry_run': True}
+    url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/{TENDERS_TABLE}"
+    headers = {**AUTH_HEADERS, 'Content-Type': 'application/json', 'Prefer': 'return=representation'}
+    resp = _db_request_with_retries('POST', url, headers, json=payload)
+    if resp.status_code in (200, 201):
+        rows = resp.json()
+        return rows[0] if rows else None
+    root_logger.error('DB insert returned %s: %s', resp.status_code, resp.text[:500])
+    return None
+
+
+def db_patch(row_id: int, payload: Dict[str, Any], dry_run: bool) -> bool:
+    if dry_run:
+        root_logger.info('DRY-RUN PATCH id=%s: %s', row_id, payload)
+        return True
+    url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/{TENDERS_TABLE}?id=eq.{row_id}"
+    headers = {**AUTH_HEADERS, 'Content-Type': 'application/json', 'Prefer': 'return=representation'}
+    resp = _db_request_with_retries('PATCH', url, headers, json=payload)
+    if resp.status_code in (200, 204):
+        return True
+    root_logger.error('DB patch returned %s: %s', resp.status_code, resp.text[:500])
+    return False
+
+
+# ------------------------- Main processing -------------------------
+
+def build_payload_from_bid(bid: Dict[str, Any], scraped_at: Optional[str]) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {}
+    bid_number = bid.get('bid_number')
+    if not bid_number:
+        return payload
+    payload['bid_number'] = bid_number
+    gem_bid_id = extract_gem_bid_id_from_bid_number(bid_number)
+    if gem_bid_id:
+        payload['gem_bid_id'] = gem_bid_id
+
+    # straightforward mapping from run JSON
+    for f in ('detail_url', 'start_datetime', 'end_datetime', 'item', 'quantity', 'department'):
+        v = bid.get(f)
+        if v is not None:
+            payload[f] = v
+
+    # PDF-related
+    if bid.get('pdf_storage_path'):
+        payload['pdf_storage_path'] = bid.get('pdf_storage_path')
+    if bid.get('pdf_sha256'):
+        payload['pdf_sha256'] = bid.get('pdf_sha256')
+    if 'pdf_uploaded' in bid:
+        payload['pdf_uploaded'] = bid.get('pdf_uploaded')
+    if bid.get('pdf_public_url'):
+        payload['pdf_public_url'] = bid.get('pdf_public_url')
+
+    # provenance
+    if scraped_at:
+        payload['scraped_at'] = scraped_at
+
+    return payload
+
+
+def process_bids(bids: List[Dict[str, Any]], scraped_at: Optional[str], dry_run: bool, max_download_bytes: int, max_candidates: int = 0) -> Dict[str, int]:
+    stats = {'total': 0, 'inserted': 0, 'updated': 0, 'skipped_existing': 0, 'skipped_missing_id': 0, 'errors': 0}
+    seen = 0
+    for bid in bids:
+        if max_candidates and seen >= max_candidates:
+            break
+        seen += 1
+        stats['total'] += 1
+
+        # progress log every 50 items
+        if seen % 50 == 0:
+            root_logger.info('Progress: %d / %d bids processed', seen, len(bids))
+
+        bid_number = bid.get('bid_number')
+        if not bid_number:
+            root_logger.warning('Skipping entry with no bid_number')
+            stats['skipped_missing_id'] += 1
             continue
 
-        try:
-            if tender_exists(gem_bid_id):
-                print(f"  ⏭️  Row already exists in '{TENDERS_TABLE}' for gem_bid_id={gem_bid_id}")
-                already += 1
-                continue
+        payload = build_payload_from_bid(bid, scraped_at)
+        if not payload:
+            root_logger.warning('Empty payload for bid %s', bid_number)
+            stats['skipped_missing_id'] += 1
+            continue
 
-            create_stub_tender(gem_bid_id)
-            print(f"  ✅ Created stub tender row for gem_bid_id={gem_bid_id}")
-            created += 1
+        gem_bid_id = payload.get('gem_bid_id')
 
-        except Exception as e:
-            print(f"  ❌ Error while processing gem_bid_id={gem_bid_id}: {e}")
-            errors += 1
+        # Find existing row
+        existing = None
+        if gem_bid_id:
+            existing = db_select_by_gem_bid_id(gem_bid_id)
+        if not existing:
+            existing = db_select_by_bid_number(bid_number)
 
-    print("\n============================================================")
-    print("📊 BACKFILL SUMMARY")
-    print("============================================================")
-    print(f"Total PDFs seen:          {total_pdfs}")
-    print(f"  ✅ Created new rows:    {created}")
-    print(f"  ⏭️  Already had rows:   {already}")
-    print(f"  ⏭️  Skipped (no ID):    {skipped}")
-    print(f"  ❌ Errors:              {errors}")
-    print("============================================================\n")
+        # Only validate pdf_sha256 if missing in payload
+        if 'pdf_sha256' not in payload and payload.get('pdf_storage_path'):
+            # try HEAD
+            try:
+                head_sha = get_sha_via_head(payload['pdf_storage_path'])
+                if head_sha:
+                    payload['pdf_sha256'] = head_sha
+                    root_logger.debug('Recovered SHA via HEAD for %s', payload['pdf_storage_path'])
+                else:
+                    # streaming fallback only if we need the sha to decide; prefer to defer unless inserting
+                    if not existing:
+                        streaming_sha = compute_sha_streaming(payload['pdf_storage_path'], max_download_bytes)
+                        if streaming_sha:
+                            payload['pdf_sha256'] = streaming_sha
+                            root_logger.debug('Computed SHA via streaming for %s', payload['pdf_storage_path'])
+            except Exception as e:
+                root_logger.debug('SHA recovery attempt failed for %s: %s', payload.get('pdf_storage_path'), e)
+
+        # ensure pdf_public_url if storage path present and no public url
+        if payload.get('pdf_storage_path') and not payload.get('pdf_public_url'):
+            try:
+                payload['pdf_public_url'] = make_public_pdf_url(payload['pdf_storage_path'])
+            except Exception:
+                payload['pdf_public_url'] = None
+
+        # Decide insert vs patch
+        if not existing:
+            # Insert
+            inserted = db_insert(payload, dry_run)
+            if inserted is not None:
+                stats['inserted'] += 1
+            else:
+                stats['errors'] += 1
+            continue
+
+        # existing row -> patch minimally
+        row_id = existing.get('id')
+        if row_id is None:
+            root_logger.warning('Existing row for %s missing id field; skipping', bid_number)
+            stats['skipped_missing_id'] += 1
+            continue
+
+        to_patch: Dict[str, Any] = {}
+        # pdf_sha256 logic
+        new_sha = payload.get('pdf_sha256')
+        existing_sha = existing.get('pdf_sha256')
+        if new_sha:
+            if not existing_sha or existing_sha.lower() != new_sha.lower():
+                to_patch['pdf_sha256'] = new_sha
+                # also ensure path + public url updated
+                if payload.get('pdf_storage_path') and payload.get('pdf_storage_path') != existing.get('pdf_storage_path'):
+                    to_patch['pdf_storage_path'] = payload['pdf_storage_path']
+                    to_patch['pdf_public_url'] = payload.get('pdf_public_url')
+        else:
+            # no new sha: we can still populate missing path/public url and other metadata
+            if payload.get('pdf_storage_path') and not existing.get('pdf_storage_path'):
+                to_patch['pdf_storage_path'] = payload['pdf_storage_path']
+                to_patch['pdf_public_url'] = payload.get('pdf_public_url')
+
+        # fill other fields if missing in DB
+        for f in ('bid_number', 'detail_url', 'start_datetime', 'end_datetime', 'item', 'quantity', 'department', 'scraped_at'):
+            if payload.get(f) and not existing.get(f):
+                to_patch[f] = payload.get(f)
+
+        if to_patch:
+            ok = db_patch(row_id, to_patch, dry_run)
+            if ok:
+                stats['updated'] += 1
+            else:
+                stats['errors'] += 1
+        else:
+            stats['skipped_existing'] += 1
+
+    return stats
 
 
-if __name__ == "__main__":
+# ------------------------- Entrypoint -------------------------
+
+def main():
+    args = parse_args()
+    if args.verbose:
+        root_logger.setLevel(logging.DEBUG)
+    else:
+        root_logger.setLevel(logging.INFO)
+
+    # allow overriding the table name via CLI flag
+    global TENDERS_TABLE
+    try:
+        if args.table:
+            TENDERS_TABLE = args.table
+            root_logger.debug('Using TENDERS_TABLE=%s (from CLI)', TENDERS_TABLE)
+    except Exception:
+        pass
+
+    target_date = effective_target_date(args.date)
+    root_logger.info('Target date: %s', target_date)
+
+    try:
+        run_json = load_run_json(target_date)
+    except Exception as e:
+        root_logger.exception('Could not load run JSON: %s', e)
+        sys.exit(2)
+
+    # validate run JSON
+    if not isinstance(run_json, dict):
+        root_logger.error('Run JSON is not an object')
+        sys.exit(2)
+    bids = run_json.get('bids')
+    scraped_at = run_json.get('scraped_at') or run_json.get('scrapedAt')
+    if not isinstance(bids, list) or not bids:
+        root_logger.error('Run JSON missing bids array or it is empty')
+        sys.exit(2)
+    if not scraped_at:
+        root_logger.error('Run JSON missing scraped_at')
+        sys.exit(2)
+
+    max_candidates = int(args.max_candidates or 0)
+    if max_candidates and max_candidates > 0:
+        bids = bids[:max_candidates]
+
+    # progress indicator for large runs
+    if len(bids) > 10:
+        root_logger.info("Processing %d bids...", len(bids))
+
+    stats = process_bids(bids, scraped_at, args.dry_run, args.max_download_bytes, max_candidates)
+
+    # print summary
+    summary = {
+        'target_date': target_date.isoformat(),
+        'scraped_at': scraped_at,
+        **stats,
+        'dry_run': bool(args.dry_run),
+    }
+    root_logger.info('=== Backfill Summary ===')
+    root_logger.info(json.dumps(summary, ensure_ascii=False))
+
+    # exit nonzero if errors
+    if stats['errors'] > 0:
+        sys.exit(2)
+    sys.exit(0)
+
+
+if __name__ == '__main__':
     main()
