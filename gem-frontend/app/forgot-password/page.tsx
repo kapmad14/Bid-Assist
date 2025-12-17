@@ -1,13 +1,21 @@
 'use client';
+export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-client';
 import { Loader2, ArrowLeft, Mail } from 'lucide-react';
 
 export default function ForgotPasswordPage() {
-  const supabase = createClient();
-  
+  // Prevent SSR crash: only create Supabase client in browser
+  const supabase = useMemo(() => {
+    if (typeof window !== 'undefined') {
+      return createClient();
+    }
+    return null;
+  }, []);
+
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -17,6 +25,12 @@ export default function ForgotPasswordPage() {
     e.preventDefault();
     setLoading(true);
     setError(null);
+
+    if (!supabase) {
+      setError('Supabase client not ready');
+      setLoading(false);
+      return;
+    }
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/auth/callback`,
@@ -40,9 +54,7 @@ export default function ForgotPasswordPage() {
               <Mail className="w-10 h-10 text-[#F7C846]" />
             </div>
             <h2 className="text-2xl font-bold text-[#0E121A] mb-3">Check your email!</h2>
-            <p className="text-gray-600 mb-2">
-              We've sent a password reset link to
-            </p>
+            <p className="text-gray-600 mb-2">We've sent a password reset link to</p>
             <p className="font-semibold text-[#0E121A] mb-6">{email}</p>
             <p className="text-sm text-gray-500 mb-8">
               Click the link in the email to reset your password.
@@ -62,6 +74,7 @@ export default function ForgotPasswordPage() {
     <div className="fixed inset-0 bg-[#0E121A] flex items-center justify-center p-4 z-50">
       <div className="w-full max-w-md">
         <div className="bg-white rounded-[32px] p-8 shadow-2xl">
+          
           {/* Header */}
           <div className="mb-8 text-center">
             <div className="inline-flex items-center justify-center w-16 h-16 bg-[#F7C846] rounded-2xl mb-4">
@@ -112,8 +125,8 @@ export default function ForgotPasswordPage() {
 
           {/* Back to Login */}
           <div className="mt-8 text-center">
-            <Link 
-              href="/login" 
+            <Link
+              href="/login"
               className="inline-flex items-center text-sm font-semibold text-[#0E121A] hover:text-[#F7C846] transition-colors"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
