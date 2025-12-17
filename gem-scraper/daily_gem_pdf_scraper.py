@@ -18,6 +18,7 @@ from urllib.parse import urljoin, quote as urlquote
 from dotenv import load_dotenv
 import sys
 import argparse
+from zoneinfo import ZoneInfo
 
 import requests
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
@@ -920,24 +921,42 @@ def dedupe_and_write_final_json(ndjson_path: str, target_date: datetime.date) ->
                     continue
                 total += 1
                 bn = rec.get("bid_number")
-                if bn:
-                    if bn not in unique_map:
-                        unique_map[bn] = rec
+                if bn and bn not in unique_map:
+                    unique_map[bn] = rec
 
         final_bids = list(unique_map.values())
-        scraped_at = datetime.utcnow().isoformat() + "Z"
-        payload = {"scraped_at": scraped_at, "record_count": len(final_bids), "bids": final_bids}
+
+        # ---- NEW: store both UTC and IST timestamps ----
+        utc_now = datetime.now(tz=ZoneInfo("UTC"))
+        ist_now = utc_now.astimezone(ZoneInfo("Asia/Kolkata"))
+
+        payload = {
+            "scraped_at_utc": utc_now.isoformat().replace("+00:00", "Z"),
+            "scraped_at_ist": ist_now.isoformat(),  # ex: 2025-12-17T19:35:33+05:30
+            "record_count": len(final_bids),
+            "bids": final_bids,
+        }
+
         with open(meta_path, "w", encoding="utf-8") as fh:
             fh.write(json.dumps(payload, ensure_ascii=False, indent=2))
-        logger.info("Wrote final metadata to %s (raw_ndjson_total=%d unique=%d)", meta_path, total, len(final_bids))
+
+        logger.info(
+            "Wrote final metadata to %s (raw_ndjson_total=%d unique=%d)",
+            meta_path, total, len(final_bids)
+        )
         return meta_path, len(final_bids)
+
     finally:
         # best-effort cleanup of NDJSON temp file
         try:
             os.remove(ndjson_path)
             logger.debug("Cleaned up tmp NDJSON in dedupe_and_write_final_json: %s", ndjson_path)
         except Exception:
-            logger.debug("Could not clean up tmp NDJSON (it may have been removed already): %s", ndjson_path)
+            logger.debug(
+                "Could not clean up tmp NDJSON (it may have been removed already): %s",
+                ndjson_path
+            )
+
 
 
 # ---------------- wrapper for restart-on-failure ----------------
@@ -960,19 +979,28 @@ def _run_scrape_with_retries(target_date: datetime.date):
 
 
 def _parse_target_date_arg() -> datetime.date:
-    """Return the target date from CLI arg --date or positional, or default to yesterday."""
+    """
+    Return the target date from CLI arg --date or positional,
+    or default to yesterday IN INDIA TIME (Asia/Kolkata).
+
+    This ensures correct behavior regardless of container timezone (UTC on Render, etc.)
+    """
+
     parser = argparse.ArgumentParser(description="GeM bids scraper (target date YYYY-MM-DD).")
-    parser.add_argument("date", nargs="?", help="Target date in YYYY-MM-DD (defaults to yesterday)")
+    parser.add_argument("date", nargs="?", help="Target date in YYYY-MM-DD (defaults to yesterday IST)")
     args = parser.parse_args()
 
+    # 1) Explicit date always wins
     if args.date:
         try:
             return datetime.strptime(args.date, "%Y-%m-%d").date()
         except Exception:
             logger.error("Invalid date format '%s'. Expected YYYY-MM-DD.", args.date)
             sys.exit(2)
-    # fallback: yesterday
-    return (datetime.now().date() - timedelta(days=1))
+
+    # 2) Default: compute yesterday using IST timezone
+    ist_now = datetime.now(tz=ZoneInfo("Asia/Kolkata"))
+    return (ist_now.date() - timedelta(days=1))
 
 
 def main():

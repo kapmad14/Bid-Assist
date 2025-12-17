@@ -1,22 +1,36 @@
 #!/usr/bin/env python3
+"""
+GeM bids scraper — robust, streaming "lift-and-shift" version.
+
+Updates: fixes regex-template bug, adds set_sort_latest_start(), wraps the scraping run
+with a restart-on-failure wrapper _run_scrape_with_retries(), streams NDJSON, dedupes,
+adds pdf metadata to run-level JSON, and includes NDJSON cleanup + runtime metric.
+"""
 import json
 import os
 import re
 import hashlib
 import time
-import random
+import logging
 from datetime import datetime, timedelta
-from typing import Optional, Tuple
-from urllib.parse import urljoin, quote
+from typing import Optional, Tuple, List, Dict
+from urllib.parse import urljoin, quote as urlquote
 from dotenv import load_dotenv
+import sys
+import argparse
 
 import requests
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-import logging
 
-# ---- env + logging ----
+# optional dependency for robust parsing
+try:
+    from dateutil import parser as dateutil_parser  # type: ignore
+except Exception:
+    dateutil_parser = None
+
 load_dotenv()
 
+# ---------------- Logging ----------------
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL, logging.INFO),
@@ -25,379 +39,317 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# reuse a requests session for all HTTP calls (better perf / keepalive)
-HTTP_SESSION = requests.Session()
-USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/114.0 Safari/537.36"
-)
-HTTP_SESSION.headers.update({"User-Agent": USER_AGENT})
-
 # ---------------- CONFIG ---------------- #
 
 ROOT_URL = "https://bidplus.gem.gov.in"
 ALL_BIDS_URL = ROOT_URL + "/all-bids"
 PAGE_LOAD_TIMEOUT = int(os.environ.get("PAGE_LOAD_TIMEOUT", 30000))  # ms (Playwright expects ms)
 MAX_PAGES = int(os.environ.get("MAX_PAGES", 5000))  # hard safety cap
-# Minimum pages to attempt (force at least this many pages unless stop conditions hit)
-MIN_PAGES = int(os.environ.get("MIN_PAGES", 1200))
+MIN_PAGES = int(os.environ.get("MIN_PAGES", 1200))  # minimum pages to scan before early stop allowed
 
 # Supabase config via env vars
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-# default bucket = gem-pdfs (your requirement)
 SUPABASE_BUCKET = os.environ.get("SUPABASE_BUCKET_NAME", "gem-pdfs")
 
-# Local metadata folder (inside gem-scraper)
-DAILY_DATA_DIR = os.path.join(os.path.dirname(__file__), "daily_data")
+USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/114.0 Safari/537.36"
+)
 
-# runtime-configurable timeouts/delays
+DAILY_DATA_DIR = os.path.join(os.path.dirname(__file__), "daily_data")
+os.makedirs(DAILY_DATA_DIR, exist_ok=True)
+
+# runtime timeouts/delays
 PDF_UPLOAD_TIMEOUT = int(os.environ.get("PDF_UPLOAD_TIMEOUT", 60))
 JSON_UPLOAD_TIMEOUT = int(os.environ.get("JSON_UPLOAD_TIMEOUT", 30))
 HEAD_TIMEOUT = int(os.environ.get("HEAD_TIMEOUT", 15))
 PER_UPLOAD_DELAY = float(os.environ.get("PER_UPLOAD_DELAY", 0.5))
 BROWSER_RESTART_ATTEMPTS = int(os.environ.get("BROWSER_RESTART_ATTEMPTS", 3))
 
-# Navigation robustness
-NAV_RETRY_ATTEMPTS = int(os.environ.get("NAV_RETRY_ATTEMPTS", 3))  # per-page navigation attempts
-CONSECUTIVE_NAV_FAILURES_BEFORE_ABORT = int(
-    os.environ.get("CONSECUTIVE_NAV_FAILURES_BEFORE_ABORT", 6)
-)
+# navigation robustness
+CONSECUTIVE_NAV_FAILURES_BEFORE_ABORT = int(os.environ.get("CONSECUTIVE_NAV_FAILURES_BEFORE_ABORT", 6))
 
-# make sure MIN_PAGES/MAX_PAGES sane
-if MIN_PAGES < 1:
-    MIN_PAGES = 1
-if MAX_PAGES < 1:
-    MAX_PAGES = 1
-if MIN_PAGES > MAX_PAGES:
-    logger.warning(
-        "MIN_PAGES (%d) is greater than MAX_PAGES (%d). Adjusting MAX_PAGES to MIN_PAGES.",
-        MIN_PAGES,
-        MAX_PAGES,
-    )
-    MAX_PAGES = MIN_PAGES
+# streaming & tmp
+NDJSON_TMP_DIR = os.path.join(DAILY_DATA_DIR, "tmp")
+os.makedirs(NDJSON_TMP_DIR, exist_ok=True)
+PARSE_FAILURE_SAMPLE_LIMIT = 3  # keep up to 3 raw_text samples per run for audit
 
 # ---------------------------------------- #
 
+# Date parsing pattern strings with {label} placeholder (we will format them safely)
+_DATE_PATTERNS = [
+    # exact: dd-mm-yyyy h:mm AM/PM
+    (r"{label}:\s*([0-9]{2}-[0-9]{2}-[0-9]{4}\s+[0-9]{1,2}:[0-9]{2}\s+[AP]M)", "%d-%m-%Y %I:%M %p"),
+    # d-m-yyyy h:mm AM/PM (single digit day/month)
+    (r"{label}:\s*([0-9]{1,2}-[0-9]{1,2}-[0-9]{4}\s+[0-9]{1,2}:[0-9]{2}\s+[AP]M)", "%d-%m-%Y %I:%M %p"),
+    # dd-mm-yyyy HH:MM (24-hour)
+    (r"{label}:\s*([0-9]{2}-[0-9]{2}-[0-9]{4}\s+[0-9]{2}:[0-9]{2})", "%d-%m-%Y %H:%M"),
+    # dd/mm/yyyy formats, allow optional AM/PM
+    (r"{label}:\s*([0-9]{2}/[0-9]{2}/[0-9]{4}\s+[0-9]{1,2}:[0-9]{2}(?:\s*[APap][Mm])?)", None),
+]
 
-def get_target_date() -> datetime.date:
-    """Use 'yesterday' as the target Start Date."""
-    today = datetime.now().date()
-    return today - timedelta(days=1)
-
-
-def set_sort_latest_start(page):
-    """Click 'Sort by' → 'Bid Start Date: Latest First'."""
-    sort_btn = page.locator("button:has-text('Sort by')")
-    if sort_btn.count() == 0:
-        sort_btn = page.locator("text=Sort by")
-    if sort_btn.count() > 0:
-        try:
-            sort_btn.first.click()
-        except Exception:
-            # sometimes clicking fails silently; try JS click
-            try:
-                page.evaluate("document.querySelector(\"button:has-text('Sort by')\").click()")
-            except Exception:
-                logger.debug("Could not click Sort by via JS")
-    option = page.locator("text='Bid Start Date: Latest First'")
-    if option.count() > 0:
-        try:
-            option.first.click()
-        except Exception:
-            try:
-                page.evaluate(
-                    "Array.from(document.querySelectorAll('*')).find(e => e.textContent && e.textContent.includes('Bid Start Date: Latest First')).click()"
-                )
-            except Exception:
-                logger.debug("Could not click 'Bid Start Date: Latest First' via JS")
-
-    # Wait explicitly for the bids selector to be present rather than sleeping
-    try:
-        page.wait_for_selector("a.bid_no_hover", timeout=PAGE_LOAD_TIMEOUT)
-    except PlaywrightTimeoutError:
-        # fallback: wait for network to be idle
-        try:
-            page.wait_for_load_state("networkidle", timeout=PAGE_LOAD_TIMEOUT)
-        except PlaywrightTimeoutError:
-            logger.debug("set_sort_latest_start: fallback networkidle timed out")
+_GENERIC_DATE_LIKE = re.compile(r"([0-9]{1,2}[/-][0-9]{1,2}[/-][0-9]{2,4}[^,\n\r]*)", re.IGNORECASE)
 
 
-def find_bid_block_container(link_locator):
+def parse_datetime_label(raw_text: str, label: str) -> Optional[datetime]:
     """
-    Starting from the <a class='bid_no_hover'> link (the Bid No),
-    walk up ancestors until the text looks like a full card.
+    Parse a datetime for 'label' (e.g., 'Start Date', 'End Date') using multiple patterns,
+    then fallback to dateutil or generic extraction.
+    Returns naive datetime (no tz).
     """
-    container = link_locator
-    last_good = link_locator
+    if not raw_text or not isinstance(raw_text, str):
+        return None
 
-    for _ in range(8):  # walk up max 8 levels
-        parent = container.locator("xpath=ancestor::*[1]")
-        if parent.count() == 0:
-            break
+    text = " ".join(raw_text.split())
 
+    for pattern_str, fmt in _DATE_PATTERNS:
         try:
-            text = parent.inner_text().strip()
-        except PlaywrightTimeoutError:
-            break
+            regex_str = pattern_str.format(label=re.escape(label))
+            regex = re.compile(regex_str, re.IGNORECASE)
         except Exception:
-            break
+            # fallback to naive replace (should not usually be necessary)
+            try:
+                regex = re.compile(pattern_str.replace("{label}", label), re.IGNORECASE)
+            except Exception:
+                continue
+        m = regex.search(text)
+        if m:
+            candidate = m.group(1).strip()
+            if fmt:
+                try:
+                    return datetime.strptime(candidate, fmt)
+                except Exception:
+                    pass
+            else:
+                if dateutil_parser:
+                    try:
+                        return dateutil_parser.parse(candidate, dayfirst=True)
+                    except Exception:
+                        pass
+                for f in ("%d/%m/%Y %I:%M %p", "%d/%m/%Y %H:%M"):
+                    try:
+                        return datetime.strptime(candidate, f)
+                    except Exception:
+                        pass
 
-        last_good = parent
-        upper = text.upper()
+    # generic fallback
+    m2 = _GENERIC_DATE_LIKE.search(text)
+    if m2:
+        candidate = m2.group(1).strip()
+        if dateutil_parser:
+            try:
+                return dateutil_parser.parse(candidate, dayfirst=True)
+            except Exception:
+                pass
+        for f in ("%d-%m-%Y %I:%M %p", "%d-%m-%Y %H:%M", "%d/%m/%Y %I:%M %p", "%d/%m/%Y %H:%M"):
+            try:
+                return datetime.strptime(candidate, f)
+            except Exception:
+                pass
 
-        if "ITEMS:" in upper or "START DATE" in upper or "QUANTITY:" in upper:
-            return parent
-
-        container = parent
-
-    return last_good  # best we could find
+    return None
 
 
 def parse_start_datetime(raw_text: str) -> Optional[datetime]:
-    """
-    Extract the Start Date datetime from the card text.
+    return parse_datetime_label(raw_text, "Start Date")
 
-    Expects pattern like:
-      Start Date: 01-12-2025 11:29 AM
-    """
-    text = " ".join(raw_text.split())
-    m = re.search(
-        r"Start Date:\s*([0-9]{2}-[0-9]{2}-[0-9]{4}\s+[0-9]{1,2}:[0-9]{2}\s+[AP]M)",
-        text,
-        re.IGNORECASE,
-    )
-    if not m:
-        return None
 
-    dt_str = m.group(1)
-    try:
-        return datetime.strptime(dt_str, "%d-%m-%Y %I:%M %p")
-    except ValueError:
-        return None
+def parse_end_datetime(raw_text: str) -> Optional[datetime]:
+    return parse_datetime_label(raw_text, "End Date")
 
 
 def parse_extra_fields(raw_text: str) -> dict:
     """Parse item, quantity, department from the card text (optional metadata)."""
-    lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
-    joined = " ".join(lines)
+    try:
+        lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
+        joined = " ".join(lines)
 
-    # Items
-    m_items = re.search(r"Items:\s*(.+?)(?:\s+Quantity:|$)", joined, re.IGNORECASE)
-    item = m_items.group(1).strip(" .") if m_items else None
+        # Items
+        m_items = re.search(r"Items:\s*(.+?)(?:\s+Quantity:|$)", joined, re.IGNORECASE)
+        item = m_items.group(1).strip(" .") if m_items else None
 
-    # Quantity
-    m_qty = re.search(r"Quantity:\s*([0-9]+)", joined, re.IGNORECASE)
-    quantity = int(m_qty.group(1)) if m_qty else None
+        # Quantity (allow commas)
+        m_qty = re.search(r"Quantity:\s*([\d,]+)", joined, re.IGNORECASE)
+        quantity = int(m_qty.group(1).replace(",", "")) if m_qty else None
 
-    # Department
-    m_dept = re.search(
-        r"Department Name And Address:\s*(.+?)\s*Start Date:",
-        joined,
-        re.IGNORECASE,
-    )
-    department = m_dept.group(1).strip() if m_dept else None
+        # Department
+        m_dept = re.search(
+            r"Department Name And Address:\s*(.+?)\s*(?:Start Date:|End Date:|$)",
+            joined,
+            re.IGNORECASE,
+        )
+        department = m_dept.group(1).strip() if m_dept else None
 
-    return {
-        "item": item,
-        "quantity": quantity,
-        "department": department,
+        return {
+            "item": item,
+            "quantity": quantity,
+            "department": department,
+        }
+    except Exception:
+        return {"item": None, "quantity": None, "department": None}
+
+
+def _encode_object_name(object_name: str) -> str:
+    return "/".join(urlquote(p, safe="") for p in object_name.split("/"))
+
+
+def ensure_supabase_env():
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise RuntimeError("SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set in env")
+
+
+def download_pdf(detail_url: str) -> bytes:
+    logger.debug("Downloading PDF: %s", detail_url)
+    resp = requests.get(detail_url, headers={"User-Agent": USER_AGENT}, timeout=60)
+    resp.raise_for_status()
+    return resp.content
+
+
+def _compute_sha256(data: bytes) -> str:
+    h = hashlib.sha256()
+    h.update(data)
+    return h.hexdigest()
+
+
+def _get_object_sha256_if_exists(object_name: str) -> Optional[str]:
+    ensure_supabase_env()
+    encoded = _encode_object_name(object_name)
+    storage_url = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{encoded}"
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
     }
-
-
-def scrape_page_for_target_date(page, page_number: int, target_date: datetime.date):
-    """
-    Scrape this page and:
-      - keep RA-free bids with Start Date *date part* == target_date
-      - stop when we hit bids older than target_date.
-    Returns: (matches_on_this_page, passed_target_date_flag)
-    """
-    matches = []
-    passed_target_date = False
-
-    bid_links = page.locator("a.bid_no_hover")
-    count = bid_links.count()
-    logger.info("Page %d: %d bid/RA links", page_number, count)
-
-    for i in range(count):
-        # Robust per-card handling: protect each step against unexpected exceptions
+    last_exc = None
+    for attempt in range(1, 4):
         try:
-            link = bid_links.nth(i)
+            resp = requests.head(storage_url, headers=headers, timeout=HEAD_TIMEOUT)
         except Exception as e:
-            logger.warning("failed to access bid link at index %d: %s", i, e)
+            last_exc = e
+            logger.debug("HEAD failed for %s (attempt %d): %s", object_name, attempt, e)
+            time.sleep(2 ** attempt)
             continue
 
-        try:
-            bid_number = link.inner_text().strip()
-        except Exception as e:
-            logger.warning("failed to read bid link text at index %d: %s", i, e)
+        if resp.status_code in (404, 400):
+            logger.debug("HEAD returned %s for %s (object likely not present)", resp.status_code, object_name)
+            return None
+        if resp.status_code == 429:
+            wait = int(resp.headers.get("Retry-After", "5"))
+            logger.debug("HEAD 429, sleeping %ds", wait)
+            time.sleep(wait)
+            last_exc = RuntimeError("429 on HEAD")
             continue
+        if not resp.ok:
+            logger.debug("unexpected HEAD status %s for %s", resp.status_code, object_name)
+            return None
 
-        # Only consider genuine Bid numbers
-        if "/B/" not in bid_number:
-            continue
+        meta_sha = resp.headers.get("x-meta-sha256") or resp.headers.get("X-Meta-Sha256")
+        return meta_sha
 
-        try:
-            href = link.get_attribute("href") or ""
-            detail_url = urljoin(ROOT_URL, href)
-        except Exception as e:
-            logger.warning("failed to get href for %s: %s", bid_number, e)
-            continue
-
-        # Find a container for additional text
-        try:
-            container = find_bid_block_container(link)
-        except Exception as e:
-            # find_bid_block_container is robust but guard anyway
-            logger.warning("failed to find container for %s: %s", bid_number, e)
-            container = link
-
-        try:
-            raw_text = container.inner_text().strip()
-        except PlaywrightTimeoutError:
-            try:
-                raw_text = link.inner_text().strip()
-            except Exception as e:
-                logger.warning("failed to read fallback link text for %s: %s", bid_number, e)
-                continue
-        except Exception as e:
-            logger.warning("failed to read container text for %s: %s", bid_number, e)
-            continue
-
-        # Skip if this card mentions RA NO anywhere
-        try:
-            if "RA NO" in raw_text.upper():
-                continue
-        except Exception:
-            # defensive: if raw_text isn't a string for some reason, skip
-            continue
-
-        try:
-            start_dt = parse_start_datetime(raw_text)
-        except Exception as e:
-            logger.warning("failed to parse start datetime for %s: %s", bid_number, e)
-            continue
-
-        if start_dt is None:
-            continue
-
-        sd = start_dt.date()
-
-        if sd == target_date:
-            try:
-                extra = parse_extra_fields(raw_text)
-            except Exception as e:
-                logger.warning("failed to parse extra fields for %s: %s", bid_number, e)
-                extra = {}
-            matches.append(
-                {
-                    "page": page_number,
-                    "bid_number": bid_number,
-                    "detail_url": detail_url,
-                    "start_datetime": start_dt.isoformat(),
-                    "raw_text": raw_text,
-                    **extra,
-                }
-            )
-        elif sd < target_date:
-            # sorted 'Latest First' => we've gone past the target date
-            passed_target_date = True
-            break
-
-        # if sd > target_date: newer; just continue
-
-    logger.info("Page %d: kept %d bids with Start Date = %s", page_number, len(matches), target_date)
-    return matches, passed_target_date
-
-
-def find_next_button(page):
-    candidates = [
-        "a[aria-label='Next']",
-        "a.page-link[rel='next']",
-        "a:has-text('Next')",
-        "button:has-text('Next')",
-    ]
-    for sel in candidates:
-        loc = page.locator(sel)
-        if loc.count() == 0:
-            continue
-        btn = loc.first
-        try:
-            disabled = (btn.get_attribute("disabled") or "").lower()
-        except Exception:
-            disabled = ""
-        try:
-            classes = (btn.get_attribute("class") or "").lower()
-        except Exception:
-            classes = ""
-        if "disabled" in classes or disabled in ("true", "disabled"):
-            continue
-        return btn
+    logger.debug("HEAD exhausted for %s: %s", object_name, last_exc)
     return None
 
 
-def _run_scrape_with_retries(target_date: datetime.date):
-    """
-    Wrap the scraping logic with an automatic restart on Playwright/browser errors.
-    Returns the list of bids collected or raises after attempts exhausted.
-    """
-    last_exc = None
-    for attempt in range(1, BROWSER_RESTART_ATTEMPTS + 1):
+def upload_pdf_to_supabase(pdf_bytes: bytes, object_name: str) -> Tuple[bool, Optional[str]]:
+    ensure_supabase_env()
+    sha = _compute_sha256(pdf_bytes)
+
+    existing_sha = _get_object_sha256_if_exists(object_name)
+    if existing_sha:
         try:
-            return _scrape_for_date_once(target_date)
+            if existing_sha.strip().lower() == sha.lower():
+                logger.info("Skipping upload for %s; SHA matches existing object", object_name)
+                return False, sha
         except Exception:
-            logger.exception("scraping attempt %d failed", attempt)
-            last_exc = True
-            if attempt < BROWSER_RESTART_ATTEMPTS:
-                wait = 2 ** attempt
-                logger.info("Restarting browser and retrying after %ds...", wait)
-                time.sleep(wait)
-            else:
-                logger.error("Exhausted browser restart attempts.")
-    raise RuntimeError("Scraping failed after attempts")
+            pass
 
-
-def _attempt_goto(page, url, timeout_ms=PAGE_LOAD_TIMEOUT):
-    """
-    Attempt a page.goto with Playwright timeout handling. Returns True on success.
-    """
-    try:
-        page.goto(url, timeout=timeout_ms)
-        # Ensure at least the bid selector exists or wait for network idle
+    encoded = _encode_object_name(object_name)
+    storage_url = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{encoded}"
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/pdf",
+        "x-meta-sha256": sha,
+        "x-upsert": "true",
+    }
+    last_exc = None
+    for attempt in range(1, 4):
         try:
-            page.wait_for_selector("a.bid_no_hover", timeout=timeout_ms)
-        except PlaywrightTimeoutError:
-            try:
-                page.wait_for_load_state("networkidle", timeout=timeout_ms)
-            except PlaywrightTimeoutError:
-                logger.debug("attempt_goto: network idle timeout for %s", url)
-        return True
-    except PlaywrightTimeoutError as e:
-        logger.debug("page.goto timeout for %s: %s", url, e)
-        return False
-    except Exception as e:
-        logger.debug("page.goto exception for %s: %s", url, e)
-        return False
+            resp = requests.post(storage_url, headers=headers, data=pdf_bytes, timeout=PDF_UPLOAD_TIMEOUT)
+            if resp.ok:
+                time.sleep(PER_UPLOAD_DELAY)
+                return True, sha
+            if resp.status_code == 429:
+                wait = int(resp.headers.get("Retry-After", "5"))
+                logger.debug("upload 429 sleeping %ds", wait)
+                time.sleep(wait)
+                last_exc = RuntimeError("429 on upload")
+            else:
+                last_exc = RuntimeError(f"Failed to upload PDF (status {resp.status_code}): {resp.text}")
+        except Exception as e:
+            last_exc = e
+        sleep_time = 2 ** attempt
+        logger.debug("upload attempt %d failed, retrying in %ds", attempt, sleep_time)
+        time.sleep(sleep_time)
 
+    raise RuntimeError(f"Failed to upload PDF after retries: {last_exc}")
+
+
+def upload_json_to_supabase(json_bytes: bytes, object_name: str):
+    ensure_supabase_env()
+    encoded = _encode_object_name(object_name)
+    storage_url = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{encoded}"
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "x-upsert": "true",
+    }
+    last_exc = None
+    for attempt in range(1, 4):
+        try:
+            resp = requests.post(storage_url, headers=headers, data=json_bytes, timeout=JSON_UPLOAD_TIMEOUT)
+            if resp.ok:
+                return
+            if resp.status_code == 429:
+                wait = int(resp.headers.get("Retry-After", "5"))
+                logger.debug("json upload 429 sleeping %ds", wait)
+                time.sleep(wait)
+                last_exc = RuntimeError("429 on JSON upload")
+            else:
+                last_exc = RuntimeError(f"Failed to upload JSON (status {resp.status_code}): {resp.text}")
+        except Exception as e:
+            last_exc = e
+        sleep_time = 2 ** attempt
+        logger.debug("json upload attempt %d failed, retrying in %ds", attempt, sleep_time)
+        time.sleep(sleep_time)
+
+    raise RuntimeError(f"Failed to upload JSON after retries: {last_exc}")
+
+
+def make_public_pdf_url(object_name: str) -> str:
+    encoded = "/".join(urlquote(p, safe="") for p in object_name.split("/"))
+    return f"{SUPABASE_URL.rstrip('/')}/storage/v1/object/public/{SUPABASE_BUCKET}/{encoded}"
+
+
+# ---------------- navigation helpers (restored robust versions) ----------------
 
 def navigate_next(page, first_before_text: Optional[str], current_page_number: int) -> bool:
     """
     Robustly navigate to the next page. Strategies tried (in order):
-      A) Click numeric pagination link for page (current_page_number+1) if present
-      B) click detected 'Next' button
-      C) find href via DOM and goto it
-      D) JS-click a matching anchor
-      E) page.reload()
+      0) click numeric page link for page (current_page_number+1)
+      1) click detected 'Next' button
+      2) find href via DOM and goto it
+      3) JS-click a matching anchor
+      4) page.reload()
     Returns True if navigation action was initiated (caller still must wait/check for new content).
     """
     target_page_num = current_page_number + 1
-    # 0: try numeric page link (most reliable if pagination shows numbers)
+    # 0: numeric page link
     try:
-        # Look for anchors with exact text matching the next page number (trim whitespace)
         anchors = page.locator("a")
-        count = anchors.count()
-        for i in range(count):
+        for i in range(anchors.count()):
             try:
                 a = anchors.nth(i)
                 txt = (a.inner_text() or "").strip()
@@ -414,14 +366,38 @@ def navigate_next(page, first_before_text: Optional[str], current_page_number: i
         pass
 
     # 1: click Next button if available
-    next_btn = find_next_button(page)
-    if next_btn:
-        try:
-            logger.debug("NAV: clicking 'Next' control")
-            next_btn.click()
-            return True
-        except Exception as e:
-            logger.debug("NAV: click Next failed: %s", e)
+    try:
+        candidates = [
+            "a[aria-label='Next']",
+            "a.page-link[rel='next']",
+            "a[rel='next']",
+            "a[title='Next']",
+            "a:has-text('Next')",
+            "button:has-text('Next')",
+        ]
+        for sel in candidates:
+            loc = page.locator(sel)
+            if loc.count() == 0:
+                continue
+            btn = loc.first
+            try:
+                disabled = (btn.get_attribute("disabled") or "").lower()
+            except Exception:
+                disabled = ""
+            try:
+                classes = (btn.get_attribute("class") or "").lower()
+            except Exception:
+                classes = ""
+            if "disabled" in classes or disabled in ("true", "disabled"):
+                continue
+            try:
+                logger.debug("NAV: clicking Next control selector=%s", sel)
+                btn.click()
+                return True
+            except Exception as e:
+                logger.debug("NAV: click Next failed for %s: %s", sel, e)
+    except Exception:
+        pass
 
     # 2: DOM-href fallback
     try:
@@ -464,9 +440,11 @@ def navigate_next(page, first_before_text: Optional[str], current_page_number: i
             except Exception:
                 abs = href
             logger.debug("NAV: DOM-href found -> goto %s", abs)
-            ok = _attempt_goto(page, abs)
-            if ok:
+            try:
+                page.goto(abs, timeout=PAGE_LOAD_TIMEOUT)
                 return True
+            except Exception as e:
+                logger.debug("NAV: goto failed for %s: %s", abs, e)
     except Exception as e:
         logger.debug("NAV: DOM href extraction failed: %s", e)
 
@@ -508,11 +486,7 @@ def navigate_next(page, first_before_text: Optional[str], current_page_number: i
 
 def wait_for_page_change(page, prev_url: str, first_before_text: Optional[str], timeout_ms: int = PAGE_LOAD_TIMEOUT) -> bool:
     """
-    Wait until either:
-      - page.url != prev_url
-      - first bid text changed compared to first_before_text
-      - or until timeout.
-    On failure, save HTML + screenshot for debugging into DAILY_DATA_DIR/failures/
+    Wait until URL changes or first bid text changes. On failure, save HTML + screenshot for debugging.
     """
     wait_interval_ms = 500
     waited = 0
@@ -523,20 +497,16 @@ def wait_for_page_change(page, prev_url: str, first_before_text: Optional[str], 
     while waited < timeout_ms:
         try:
             page.wait_for_timeout(wait_interval_ms)
-            # ensure bids selector present
             try:
                 page.wait_for_selector("a.bid_no_hover", timeout=wait_interval_ms)
             except PlaywrightTimeoutError:
-                # continue waiting; sometimes the new page takes longer
                 pass
 
-            # check URL change
             try:
                 after_url = page.url
             except Exception:
                 after_url = prev_url
 
-            # check first link text change
             try:
                 after_first = None
                 f = page.locator("a.bid_no_hover").first
@@ -567,7 +537,6 @@ def wait_for_page_change(page, prev_url: str, first_before_text: Optional[str], 
         waited += wait_interval_ms
 
     if not changed:
-        # Save snapshot for debugging
         ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
         html_path = os.path.join(failures_dir, f"page_failure_{ts}.html")
         png_path = os.path.join(failures_dir, f"page_failure_{ts}.png")
@@ -577,20 +546,17 @@ def wait_for_page_change(page, prev_url: str, first_before_text: Optional[str], 
                 fh.write(content)
             logger.debug("Saved failure HTML to %s", html_path)
         except Exception as e:
-            logger.debug("failed to save HTML snapshot: %s", e)
+            logger.debug("Failed to save HTML snapshot: %s", e)
         try:
             page.screenshot(path=png_path, full_page=True)
             logger.debug("Saved failure screenshot to %s", png_path)
         except Exception as e:
-            logger.debug("failed to save screenshot: %s", e)
+            logger.debug("Failed to save screenshot: %s", e)
 
-        # Try one more small reload to see if site recovers
         try:
             logger.debug("WAIT: attempting one final reload after failure")
             page.reload(timeout=PAGE_LOAD_TIMEOUT)
-            # short wait then check url/content once
             page.wait_for_timeout(1000)
-            # if reload changed url or DOM, let caller continue; we do one quick check:
             try:
                 new_url = page.url
             except Exception:
@@ -606,417 +572,439 @@ def wait_for_page_change(page, prev_url: str, first_before_text: Optional[str], 
     return True
 
 
-def _scrape_for_date_once(target_date: datetime.date):
-    """
-    Actual scraping run using Playwright. Isolated so it can be retried safely.
-    This version waits for page changes after clicking 'Next' and respects MIN_PAGES:
-    it will only stop for passed_target_date when we've scanned at least MIN_PAGES pages.
-    """
-    all_bids = []
-    seen_bid_numbers = set()
-    os.makedirs(DAILY_DATA_DIR, exist_ok=True)
+# ---------------- helper to set sort order ----------------
 
+def set_sort_latest_start(page):
+    """Click 'Sort by' → 'Bid Start Date: Latest First' and wait for bids to appear."""
     try:
-        with sync_playwright() as p:
-            # headless=True is better for Docker / non-GUI
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page()
-            # set a realistic user-agent header for requests done by the browser (helps some sites)
+        sort_btn = page.locator("button:has-text('Sort by')")
+        if sort_btn.count() == 0:
+            sort_btn = page.locator("text=Sort by")
+        if sort_btn.count() > 0:
             try:
-                page.set_extra_http_headers({"User-Agent": USER_AGENT})
+                sort_btn.first.click()
             except Exception:
-                logger.debug("Could not set extra http headers on page")
-
-            logger.info("Opening: %s", ALL_BIDS_URL)
-            if not _attempt_goto(page, ALL_BIDS_URL):
-                logger.warning("Initial page load failed; attempting one reload before aborting.")
                 try:
-                    page.reload(timeout=PAGE_LOAD_TIMEOUT)
-                except Exception:
-                    logger.debug("Initial reload failed")
-                # try again quickly
-                if not _attempt_goto(page, ALL_BIDS_URL):
-                    browser.close()
-                    raise RuntimeError("Failed to load ALL_BIDS_URL initially")
-
-            page.wait_for_selector("a.bid_no_hover", timeout=PAGE_LOAD_TIMEOUT)
-            set_sort_latest_start(page)
-
-            page_number = 1
-            consecutive_nav_failures = 0
-
-            # Loop until MAX_PAGES (hard cap). We still respect MIN_PAGES when deciding to stop
-            while page_number <= MAX_PAGES:
-                logger.info("--- Scraping page %d ---", page_number)
-                page_bids, passed_target_date = scrape_page_for_target_date(
-                    page, page_number, target_date
-                )
-
-                # filter out bids we've already seen (dedupe by bid_number)
-                new_added = 0
-                for pb in page_bids:
-                    bn = pb.get("bid_number")
-                    if not bn:
-                        continue
-                    if bn in seen_bid_numbers:
-                        logger.debug("duplicate skipped for %s (page %s)", bn, pb.get("page"))
-                        continue
-                    seen_bid_numbers.add(bn)
-                    all_bids.append(pb)
-                    new_added += 1
-                logger.info("Page %d: appended %d new unique bids (page had %d parsed)", page_number, new_added, len(page_bids))
-
-                # If we've hit bids older than target_date, only stop if we've scanned at least MIN_PAGES.
-                # This implements: stop when passed_target_date AND page_number >= MIN_PAGES.
-                if passed_target_date:
-                    if page_number >= MIN_PAGES:
-                        logger.info(
-                            "Reached bids older than target date on page %d and page_number >= MIN_PAGES (%d); stopping.",
-                            page_number,
-                            MIN_PAGES,
-                        )
-                        break
-                    else:
-                        logger.info(
-                            "Reached bids older than target date on page %d, but page_number < MIN_PAGES (%d); continuing.",
-                            page_number,
-                            MIN_PAGES,
-                        )
-
-                # --- NAVIGATION: robust navigation with bounded retries ---
-                # capture first link text for change detection
-                try:
-                    first_before = None
-                    f = page.locator("a.bid_no_hover").first
-                    if f and f.count() > 0:
-                        try:
-                            first_before = f.inner_text().strip()
-                        except Exception:
-                            first_before = None
-                except Exception:
-                    first_before = None
-
-                navigated = navigate_next(page, first_before, page_number)
-
-                if not navigated:
-                    consecutive_nav_failures += 1
-                    logger.warning("No usable Next navigation path on page %d (failures=%d)", page_number, consecutive_nav_failures)
-                    if consecutive_nav_failures >= CONSECUTIVE_NAV_FAILURES_BEFORE_ABORT:
-                        logger.error("Exceeded consecutive navigation failures (%d). Aborting.", CONSECUTIVE_NAV_FAILURES_BEFORE_ABORT)
-                        break
-                    else:
-                        # small sleep and attempt to continue loop (in case DOM will change on its own)
-                        time.sleep(1 + random.uniform(0, 0.5))
-                        continue
-                else:
-                    consecutive_nav_failures = 0
-
-                # small delay after navigation to reduce flakiness and avoid too-regular patterns
-                try:
-                    time.sleep(PER_UPLOAD_DELAY + random.uniform(0, 0.3))
+                    page.evaluate("document.querySelector(\"button:has-text('Sort by')\").click()")
                 except Exception:
                     pass
 
-                # Wait loop: wait for first bid link text to change (or for the selector to appear).
-                prev_url = page.url
-                ok = wait_for_page_change(page, prev_url, first_before, timeout_ms=PAGE_LOAD_TIMEOUT)
-                if not ok:
-                    logger.warning("Timed out waiting for new page content after navigation; stopping.")
-                    break
-
-                page_number += 1
-
-            browser.close()
-
-        return all_bids
-
+        option = page.locator("text='Bid Start Date: Latest First'")
+        if option.count() > 0:
+            try:
+                option.first.click()
+            except Exception:
+                try:
+                    page.evaluate(
+                        "Array.from(document.querySelectorAll('*')).find(e => e.textContent && e.textContent.includes('Bid Start Date: Latest First')).click()"
+                    )
+                except Exception:
+                    pass
     except Exception:
-        # Save partial progress for debugging / backfill
+        pass
+
+    # explicit wait for bids to ensure sort applied
+    try:
+        page.wait_for_selector("a.bid_no_hover", timeout=PAGE_LOAD_TIMEOUT)
+    except PlaywrightTimeoutError:
         try:
-            ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-            tmp = os.path.join(DAILY_DATA_DIR, f"partial_{ts}.json")
-            with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump({"bids": all_bids}, fh, ensure_ascii=False, indent=2)
-            logger.exception("Scrape failed; saved partial results to %s", tmp)
-        except Exception:
-            logger.exception("Scrape failed and partial save also failed")
-        raise
+            page.wait_for_load_state("networkidle", timeout=PAGE_LOAD_TIMEOUT)
+        except PlaywrightTimeoutError:
+            pass
 
 
-# ---------- PDF download + Supabase upload ---------- #
+# ---------------- scraping + streaming pipeline ----------------
 
-
-def ensure_supabase_env():
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        raise RuntimeError("SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set in env")
-
-
-def download_pdf(detail_url: str) -> bytes:
-    """
-    Download the PDF bytes from the bid detail_url.
-    Example: https://bidplus.gem.gov.in/showbidDocument/8655996
-    """
-    logger.info("Downloading PDF: %s", detail_url)
-    resp = HTTP_SESSION.get(detail_url, timeout=60)
-    resp.raise_for_status()
-
-    ct = resp.headers.get("Content-Type", "")
-    if "pdf" not in ct.lower():
-        logger.warning("Expected PDF content-type but got '%s' for %s", ct, detail_url)
-    return resp.content
-
-
-def _compute_sha256(data: bytes) -> str:
-    h = hashlib.sha256()
-    h.update(data)
-    return h.hexdigest()
-
-
-def _encode_object_name(object_name: str) -> str:
-    """
-    URL-encode each path component of the object_name so we can safely include it in REST URLs.
-    Example: 'daily_json_files/2025-12-04/gem_bids_2025-12-04.json'
-    becomes percent-encoded for unsafe chars.
-    """
-    return "/".join(quote(p, safe="") for p in object_name.split("/"))
-
-
-def _get_object_sha256_if_exists(object_name: str) -> Optional[str]:
-    """
-    Perform a HEAD request to Supabase Storage object URL and return
-    the x-meta-sha256 value if present (string). Returns None if object doesn't exist
-    or header is missing.
-    """
-    ensure_supabase_env()
-    encoded = _encode_object_name(object_name)
-    storage_url = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{encoded}"
-    headers = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-    }
-
-    last_exc = None
-    for attempt in range(1, 4):
+def find_bid_block_container(link_locator):
+    container = link_locator
+    last_good = link_locator
+    for _ in range(8):
+        parent = container.locator("xpath=ancestor::*[1]")
+        if parent.count() == 0:
+            break
         try:
-            resp = HTTP_SESSION.head(storage_url, headers=headers, timeout=HEAD_TIMEOUT)
-        except Exception as e:
-            last_exc = e
-            logger.warning("HEAD request failed for %s on attempt %d: %s", object_name, attempt, e)
-            time.sleep(2 ** attempt)
-            continue
-
-        if resp.status_code in (404, 400):
-            logger.debug("HEAD returned %d for %s (object likely not present)", resp.status_code, object_name)
-            return None
-        if resp.status_code == 429:
-            wait = int(resp.headers.get("Retry-After", "5"))
-            logger.info("attempt %d: Hit 429 on HEAD; sleeping %ds before retry", attempt, wait)
-            time.sleep(wait)
-            last_exc = RuntimeError("429 on HEAD")
-            continue
-        if not resp.ok:
-            logger.debug("unexpected HEAD status %d for %s", resp.status_code, object_name)
-            return None
-
-        meta_sha = resp.headers.get("x-meta-sha256") or resp.headers.get("X-Meta-Sha256")
-        return meta_sha
-
-    logger.debug("HEAD requests exhausted for %s: %s", object_name, last_exc)
-    return None
+            text = parent.inner_text().strip()
+        except PlaywrightTimeoutError:
+            break
+        last_good = parent
+        upper = text.upper()
+        if "ITEMS:" in upper or "START DATE" in upper or "QUANTITY:" in upper:
+            return parent
+        container = parent
+    return last_good
 
 
-def upload_pdf_to_supabase(pdf_bytes: bytes, object_name: str) -> Tuple[bool, str]:
+def scrape_and_stream(target_date: datetime.date):
     """
-    Upload a PDF to Supabase Storage using REST API with retries and SHA-256 idempotency.
-    If an existing object has the same x-meta-sha256, upload is skipped.
-
-    Returns tuple: (uploaded_bool, sha_hex)
+    Scrape pages and stream processed bid records to NDJSON.
+    Returns stats including path to the NDJSON file and parse failure info.
     """
+    date_str = target_date.strftime("%Y-%m-%d")
+    ndjson_path = os.path.join(NDJSON_TMP_DIR, f"gem_bids_{date_str}.ndjson")
+    failures_dir = os.path.join(DAILY_DATA_DIR, "failures")
+    os.makedirs(failures_dir, exist_ok=True)
+
+    seen = set()
+    parse_failures = 0
+    parse_failure_samples: List[str] = []
+    passed_target_date = False
+
     ensure_supabase_env()
 
-    sha = _compute_sha256(pdf_bytes)
-
-    existing_sha = _get_object_sha256_if_exists(object_name)
-    if existing_sha:
+    with sync_playwright() as p, open(ndjson_path, "a", encoding="utf-8") as ndjson_f:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
         try:
-            if existing_sha.strip().lower() == sha.lower():
-                logger.info("Skipping upload for '%s'; SHA matches existing object.", object_name)
-                return False, sha
+            page.set_extra_http_headers({"User-Agent": USER_AGENT})
         except Exception:
             pass
 
-    encoded = _encode_object_name(object_name)
-    storage_url = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{encoded}"
+        logger.info("Opening: %s", ALL_BIDS_URL)
+        try:
+            page.goto(ALL_BIDS_URL, timeout=PAGE_LOAD_TIMEOUT)
+        except PlaywrightTimeoutError:
+            logger.warning("Initial load timed out, trying reload")
+            try:
+                page.reload(timeout=PAGE_LOAD_TIMEOUT)
+            except Exception:
+                pass
+            try:
+                page.goto(ALL_BIDS_URL, timeout=PAGE_LOAD_TIMEOUT)
+            except Exception as e:
+                browser.close()
+                raise RuntimeError("Failed initial load") from e
 
-    headers = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/pdf",
-        "x-meta-sha256": sha,
-        "x-upsert": "true",  # overwrite if exists (when different)
+        page.wait_for_selector("a.bid_no_hover", timeout=PAGE_LOAD_TIMEOUT)
+
+        # set sort latest first via helper
+        set_sort_latest_start(page)
+
+        page_number = 1
+        consecutive_nav_failures = 0
+
+        while page_number <= MAX_PAGES:
+            logger.info("--- Scraping page %d ---", page_number)
+
+            bid_links = page.locator("a.bid_no_hover")
+            count = bid_links.count()
+            logger.info("Page %d: %d bid/RA links", page_number, count)
+
+            # iterate through bids on this page
+            for i in range(count):
+                try:
+                    link = bid_links.nth(i)
+                except Exception as e:
+                    logger.warning("Failed to access bid link %d on page %d: %s", i, page_number, e)
+                    continue
+
+                try:
+                    bid_number_text = link.inner_text().strip()
+                except Exception as e:
+                    logger.warning("Failed to read inner_text for link %d page %d: %s", i, page_number, e)
+                    continue
+
+                if "/B/" not in bid_number_text:
+                    # skip RA entries
+                    continue
+
+                try:
+                    href = link.get_attribute("href") or ""
+                    detail_url = urljoin(ROOT_URL, href)
+                except Exception as e:
+                    logger.warning("Failed to get href for %s: %s", bid_number_text, e)
+                    continue
+
+                try:
+                    container = find_bid_block_container(link)
+                except Exception as e:
+                    logger.debug("find container failed for link %s: %s", bid_number_text, e)
+                    container = link
+                try:
+                    raw_text = container.inner_text().strip()
+                except PlaywrightTimeoutError:
+                    try:
+                        raw_text = link.inner_text().strip()
+                    except Exception as e:
+                        logger.warning("Failed to read fallback link text for %s: %s", bid_number_text, e)
+                        continue
+                except Exception as e:
+                    logger.warning("Failed to read container text for %s: %s", bid_number_text, e)
+                    continue
+
+                try:
+                    if "RA NO" in raw_text.upper():
+                        continue
+                except Exception:
+                    pass
+
+                # parse start and end datetimes robustly
+                start_dt = parse_start_datetime(raw_text)
+                if not start_dt:
+                    parse_failures += 1
+                    if len(parse_failure_samples) < PARSE_FAILURE_SAMPLE_LIMIT:
+                        parse_failure_samples.append(raw_text[:400])
+                    # cannot rely on this bid for date-based filtering; skip
+                    continue
+
+                sd = start_dt.date()
+                if sd < target_date:
+                    passed_target_date = True
+                    logger.info("Hit bids older than %s on page %d (bid %s); marking passed_target_date", target_date, page_number, bid_number_text)
+                    # break this page's bid loop to evaluate stopping condition
+                    break
+
+                if sd != target_date:
+                    # not the target date; skip
+                    continue
+
+                # dedupe by bid number
+                bid_num = bid_number_text
+                if bid_num in seen:
+                    logger.debug("duplicate skipped for %s (page %d)", bid_num, page_number)
+                    continue
+                seen.add(bid_num)
+
+                # extract extra fields
+                try:
+                    extra = parse_extra_fields(raw_text)
+                except Exception:
+                    extra = {}
+
+                # parse end datetime (best-effort)
+                end_dt = parse_end_datetime(raw_text)
+                end_iso = end_dt.isoformat() if end_dt else None
+
+                bid_record = {
+                    "page": page_number,
+                    "bid_number": bid_num,
+                    "detail_url": detail_url,
+                    "start_datetime": start_dt.isoformat(),
+                    "end_datetime": end_iso,
+                    "raw_text": raw_text,
+                    **(extra or {}),
+                }
+
+                # immediate PDF processing
+                parts = bid_num.split("/")
+                if len(parts) >= 2:
+                    suffix = "_".join(parts[-2:])
+                else:
+                    suffix = bid_num.replace("/", "_")
+                date_token = target_date.strftime("%d%m%y")
+                base_name = f"GeM_{date_token}_{suffix}"
+                pdf_filename = base_name + ".pdf"
+                pdf_object_name = f"bids/{target_date.strftime('%Y-%m-%d')}/{pdf_filename}"
+
+                try:
+                    pdf_bytes = download_pdf(detail_url)
+                    uploaded, sha = upload_pdf_to_supabase(pdf_bytes, pdf_object_name)
+                except Exception as e:
+                    logger.exception("PDF handling failed for %s: %s", bid_num, e)
+                    uploaded = False
+                    sha = None
+
+                bid_record["pdf_storage_path"] = pdf_object_name
+                bid_record["pdf_sha256"] = sha
+                bid_record["pdf_uploaded"] = bool(uploaded)
+                try:
+                    bid_record["pdf_public_url"] = make_public_pdf_url(pdf_object_name)
+                except Exception:
+                    bid_record["pdf_public_url"] = None
+
+                # write to NDJSON
+                try:
+                    ndjson_f.write(json.dumps(bid_record, ensure_ascii=False) + "\n")
+                    ndjson_f.flush()
+                except Exception as e:
+                    logger.exception("Failed to write NDJSON for %s: %s", bid_num, e)
+
+            # after iterating bids on page, check early-stop condition
+            if passed_target_date and page_number >= MIN_PAGES:
+                logger.info("Reached bids older than target date on page %d and page_number >= MIN_PAGES (%d); stopping.", page_number, MIN_PAGES)
+                break
+
+            # NAVIGATION: robust navigation with retries
+            try:
+                first_before = None
+                try:
+                    first_before = page.locator("a.bid_no_hover").first.inner_text().strip()
+                except Exception:
+                    first_before = None
+            except Exception:
+                first_before = None
+
+            navigated = navigate_next(page, first_before, page_number)
+
+            if not navigated:
+                consecutive_nav_failures += 1
+                logger.warning("No usable Next navigation path on page %d. consecutive_nav_failures=%d", page_number, consecutive_nav_failures)
+                if consecutive_nav_failures >= CONSECUTIVE_NAV_FAILURES_BEFORE_ABORT:
+                    logger.error("Exceeded consecutive navigation failures (%d). Aborting.", CONSECUTIVE_NAV_FAILURES_BEFORE_ABORT)
+                    break
+                else:
+                    time.sleep(1)
+                    continue
+            else:
+                consecutive_nav_failures = 0
+
+            # small delay
+            try:
+                time.sleep(PER_UPLOAD_DELAY)
+            except Exception:
+                pass
+
+            prev_url = page.url
+            ok = wait_for_page_change(page, prev_url, first_before, timeout_ms=PAGE_LOAD_TIMEOUT)
+            if not ok:
+                logger.warning("Timed out waiting for new page content after navigation; stopping.")
+                break
+
+            page_number += 1
+
+        # end page loop
+        browser.close()
+
+    # save parse-failure snapshot if needed
+    if parse_failures > 0:
+        ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        try:
+            with sync_playwright() as p2:
+                b2 = p2.chromium.launch(headless=True)
+                pg2 = b2.new_page()
+                try:
+                    pg2.goto(ALL_BIDS_URL, timeout=PAGE_LOAD_TIMEOUT)
+                except Exception:
+                    pass
+                html_path = os.path.join(failures_dir, f"parse_failure_sample_{ts}.html")
+                try:
+                    content = pg2.content()
+                    with open(html_path, "w", encoding="utf-8") as fh:
+                        fh.write(content)
+                    logger.info("Saved parse-failure HTML sample to %s", html_path)
+                except Exception as e:
+                    logger.debug("Failed to save parse-failure HTML sample: %s", e)
+                b2.close()
+        except Exception:
+            logger.debug("Could not produce parse-failure HTML sample with Playwright")
+
+    return {
+        "ndjson_path": ndjson_path,
+        "seen_count": len(seen),
+        "parse_failures": parse_failures,
+        "parse_failure_samples": parse_failure_samples,
     }
 
-    logger.info("Uploading to Supabase as %s (%d bytes) - sha=%s", object_name, len(pdf_bytes), sha)
-    last_exc = None
-    for attempt in range(1, 4):
+
+def dedupe_and_write_final_json(ndjson_path: str, target_date: datetime.date) -> Tuple[str, int]:
+    """
+    Read NDJSON, dedupe by bid_number, and write final run-level JSON into daily_data/.
+    Returns (meta_path, unique_count).
+
+    Ensures temporary NDJSON is removed in a finally: block (best-effort).
+    """
+    date_str = target_date.strftime("%Y-%m-%d")
+    meta_filename = f"gem_bids_{date_str}_no_ra_meta.json"
+    meta_path = os.path.join(DAILY_DATA_DIR, meta_filename)
+
+    unique_map: Dict[str, dict] = {}
+    total = 0
+    try:
+        with open(ndjson_path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    continue
+                total += 1
+                bn = rec.get("bid_number")
+                if bn:
+                    if bn not in unique_map:
+                        unique_map[bn] = rec
+
+        final_bids = list(unique_map.values())
+        scraped_at = datetime.utcnow().isoformat() + "Z"
+        payload = {"scraped_at": scraped_at, "record_count": len(final_bids), "bids": final_bids}
+        with open(meta_path, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, ensure_ascii=False, indent=2))
+        logger.info("Wrote final metadata to %s (raw_ndjson_total=%d unique=%d)", meta_path, total, len(final_bids))
+        return meta_path, len(final_bids)
+    finally:
+        # best-effort cleanup of NDJSON temp file
         try:
-            resp = HTTP_SESSION.post(storage_url, headers=headers, data=pdf_bytes, timeout=PDF_UPLOAD_TIMEOUT)
-            if resp.ok:
-                time.sleep(PER_UPLOAD_DELAY + random.uniform(0, 0.2))
-                return True, sha
-            elif resp.status_code == 429:
-                wait = int(resp.headers.get("Retry-After", "5"))
-                logger.info("attempt %d: hit 429, sleeping %ds then retrying", attempt, wait)
-                time.sleep(wait)
-                last_exc = RuntimeError(f"429 Rate limited on upload attempt {attempt}")
-            else:
-                last_exc = RuntimeError(f"Failed to upload PDF (status {resp.status_code}): {resp.text}")
-                logger.debug("upload response: %s", resp.text)
+            os.remove(ndjson_path)
+            logger.debug("Cleaned up tmp NDJSON in dedupe_and_write_final_json: %s", ndjson_path)
+        except Exception:
+            logger.debug("Could not clean up tmp NDJSON (it may have been removed already): %s", ndjson_path)
+
+
+# ---------------- wrapper for restart-on-failure ----------------
+
+def _run_scrape_with_retries(target_date: datetime.date):
+    last_exc = None
+    for attempt in range(1, BROWSER_RESTART_ATTEMPTS + 1):
+        try:
+            return scrape_and_stream(target_date)
         except Exception as e:
             last_exc = e
-            logger.exception("upload attempt %d raised exception", attempt)
-
-        sleep_time = 2 ** attempt
-        logger.warning("attempt %d failed, retrying in %ds...", attempt, sleep_time)
-        time.sleep(sleep_time)
-
-    raise RuntimeError(f"Failed to upload PDF after retries: {last_exc}")
-
-
-def upload_json_to_supabase(json_bytes: bytes, object_name: str):
-    """
-    Upload JSON to Supabase with simple retries and 429 handling.
-    URL-encodes object paths.
-    """
-    ensure_supabase_env()
-    encoded = _encode_object_name(object_name)
-    storage_url = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{encoded}"
-    headers = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/json",
-        "x-upsert": "true",
-    }
-
-    logger.info("Uploading JSON (%d bytes) to Supabase as %s", len(json_bytes), object_name)
-    last_exc = None
-    for attempt in range(1, 4):
-        try:
-            resp = HTTP_SESSION.post(storage_url, headers=headers, data=json_bytes, timeout=JSON_UPLOAD_TIMEOUT)
-            if resp.ok:
-                time.sleep(PER_UPLOAD_DELAY + random.uniform(0, 0.2))
-                return
-            elif resp.status_code == 429:
-                wait = int(resp.headers.get("Retry-After", "5"))
-                logger.info("attempt %d: hit 429, sleeping %ds then retrying", attempt, wait)
+            logger.exception("Scraping attempt %d failed: %s", attempt, e)
+            if attempt < BROWSER_RESTART_ATTEMPTS:
+                wait = 2 ** attempt
+                logger.info("Restarting browser and retrying after %ds...", wait)
                 time.sleep(wait)
-                last_exc = RuntimeError("429 Rate limited on JSON upload")
             else:
-                last_exc = RuntimeError(f"Failed to upload JSON (status {resp.status_code}): {resp.text}")
-                logger.debug("json upload response: %s", resp.text)
-        except Exception as e:
-            last_exc = e
-            logger.exception("JSON upload attempt %d exception", attempt)
+                logger.error("Exhausted browser restart attempts.")
+    raise RuntimeError(f"Scraping failed after {BROWSER_RESTART_ATTEMPTS} attempts: {last_exc}")
 
-        sleep_time = 2 ** attempt
-        logger.warning("attempt %d failed, retrying in %ds...", attempt, sleep_time)
-        time.sleep(sleep_time)
 
-    raise RuntimeError(f"Failed to upload JSON after retries: {last_exc}")
+def _parse_target_date_arg() -> datetime.date:
+    """Return the target date from CLI arg --date or positional, or default to yesterday."""
+    parser = argparse.ArgumentParser(description="GeM bids scraper (target date YYYY-MM-DD).")
+    parser.add_argument("date", nargs="?", help="Target date in YYYY-MM-DD (defaults to yesterday)")
+    args = parser.parse_args()
+
+    if args.date:
+        try:
+            return datetime.strptime(args.date, "%Y-%m-%d").date()
+        except Exception:
+            logger.error("Invalid date format '%s'. Expected YYYY-MM-DD.", args.date)
+            sys.exit(2)
+    # fallback: yesterday
+    return (datetime.now().date() - timedelta(days=1))
 
 
 def main():
-    # ensure local metadata directory exists
-    os.makedirs(DAILY_DATA_DIR, exist_ok=True)
+    start_time = time.time()
 
-    target_date = get_target_date()
-    logger.info("Target date (yesterday) = %s", target_date)
+    # determine target date from CLI (or default to yesterday)
+    target_date = _parse_target_date_arg()
+    logger.info("Effective target date: %s", target_date)
 
-    # Use the resilient run wrapper (auto-restart on Playwright/browser errors)
-    bids = _run_scrape_with_retries(target_date)
-    logger.info("TOTAL RA-free bids for %s: %d", target_date, len(bids))
+    logger.info("Starting scrape for %s", target_date)
+    stats = _run_scrape_with_retries(target_date)
+    ndjson_path = stats["ndjson_path"]
+    logger.info("Streaming scrape complete: seen=%d parse_failures=%d", stats["seen_count"], stats["parse_failures"])
+    if stats["parse_failure_samples"]:
+        logger.info("Parse failure samples (truncated):")
+        for s in stats["parse_failure_samples"]:
+            logger.info("  %s", s.replace("\n", " ")[:300])
 
-    # Add scraped_at to each bid (UTC) for traceability
-    scraped_at = datetime.utcnow().isoformat() + "Z"
-    for b in bids:
-        b["scraped_at"] = scraped_at
+    meta_path, unique_count = dedupe_and_write_final_json(ndjson_path, target_date)
 
-    # Serialize metadata JSON (add top-level metadata: scraped_at and record_count)
-    payload = {
-        "scraped_at": scraped_at,  # ISO timestamp for the entire run
-        "record_count": len(bids),  # number of bid records included
-        "bids": bids,  # list of bid dicts (each already has scraped_at field)
-    }
-    json_str = json.dumps(payload, ensure_ascii=False, indent=2)
-
-    date_str = target_date.strftime("%Y-%m-%d")
-    meta_filename = f"gem_bids_{date_str}_no_ra_meta.json"
-
-    # Save metadata into ./daily_data/
-    meta_path = os.path.join(DAILY_DATA_DIR, meta_filename)
-    with open(meta_path, "w", encoding="utf-8") as f:
-        f.write(json_str)
-    logger.info("Saved metadata locally as %s", meta_path)
-
-    # Also upload the metadata JSON to Supabase storage under 'daily_json_files/{date}/'
+    # Upload the run-level JSON to Supabase under daily_meta/
     try:
-        object_name = f"daily_meta/{date_str}/{meta_filename}"
-        upload_json_to_supabase(json_str.encode("utf-8"), object_name)
-        logger.info("Uploaded metadata JSON to Supabase as %s", object_name)
+        object_name = f"daily_meta/{os.path.basename(meta_path)}"
+        upload_json_to_supabase(open(meta_path, "rb").read(), object_name)
+        logger.info("Uploaded run-level metadata to Supabase as %s", object_name)
     except Exception as e:
-        logger.warning("failed to upload metadata JSON to Supabase: %s", e)
+        logger.exception("Failed to upload run-level metadata: %s", e)
 
-    # Download + upload PDFs and per-bid JSONs
-    ensure_supabase_env()
-
-    # ddmmyy token (e.g. 01-12-2025 -> 011225)
-    date_token = target_date.strftime("%d%m%y")
-
-    for bid in bids:
-        bid_no = bid["bid_number"]
-        detail_url = bid["detail_url"]
-
-        # e.g. "GEM/2025/B/6950285" -> "B_6950285"
-        parts = bid_no.split("/")
-        if len(parts) >= 2:
-            suffix = "_".join(parts[-2:])
-        else:
-            suffix = bid_no.replace("/", "_")
-
-        # GeM_011225_B_6950285.pdf
-        filename = f"GeM_{date_token}_{suffix}.pdf"
-        # final path in bucket: bids/{date}/GeM_011225_B_6950285.pdf
-        object_name = f"bids/{date_str}/{filename}"
-
-        try:
-            pdf_bytes = download_pdf(detail_url)
-            uploaded, sha = upload_pdf_to_supabase(pdf_bytes, object_name)
-        except Exception:
-            logger.exception("ERROR for %s when downloading/uploading PDF", bid_no)
-            uploaded = False
-            sha = None
-
-        # Create and upload per-bid JSON metadata (so backfill can match easily)
-        try:
-            per_bid_meta = dict(bid)  # shallow copy of the parsed bid dict (includes scraped_at)
-            per_bid_meta["pdf_storage_path"] = object_name
-            per_bid_meta["pdf_sha256"] = sha
-            per_bid_meta["pdf_uploaded"] = bool(uploaded)
-            per_bid_json_name = f"{os.path.splitext(filename)[0]}.json"
-            per_bid_object = f"daily_json_files/{date_str}/{per_bid_json_name}"
-            upload_json_to_supabase(json.dumps(per_bid_meta, ensure_ascii=False).encode("utf-8"), per_bid_object)
-            logger.info("Uploaded per-bid JSON to Supabase as %s", per_bid_object)
-        except Exception:
-            logger.exception("failed to upload per-bid JSON for %s", bid_no)
-
-    logger.info("All done.")
+    elapsed_min = (time.time() - start_time) / 60.0
+    logger.info("Run complete: unique_bids=%d, total_runtime=%.1fmin", unique_count, elapsed_min)
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        logger.warning("Interrupted by user; exiting.")
-    except Exception:
-        logger.exception("Unhandled exception in main()")
-        raise
+    main()
+

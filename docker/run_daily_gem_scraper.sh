@@ -1,15 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TARGET_HOUR=00
-TARGET_MINUTE=30
+TARGET_HOUR=12
+TARGET_MINUTE=15
 
 cd /app/gem-scraper || exit 1
 mkdir -p ./logs
-
-while true; do
-  CURRENT_TIMESTAMP=$(date +%s)
-  TARGET_TIMESTAMP=$(date -d "today $TARGET_HOUR:$TARGET_MINUTE" +%s)
 
   # if target time already passed today → schedule for tomorrow
   if [ "$CURRENT_TIMESTAMP" -gt "$TARGET_TIMESTAMP" ]; then
