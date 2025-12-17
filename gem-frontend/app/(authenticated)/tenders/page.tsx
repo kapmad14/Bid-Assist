@@ -736,14 +736,14 @@ function TendersContentInner() {
 
             const computeStatus = (() => {
               const now = new Date();
-              const deadline = tender.deadline ? new Date(tender.deadline) : null;
-              if (!deadline || Number.isNaN(deadline.getTime())) {
+              const endDate = tender.endDate ? new Date(tender.endDate) : null;
+              if (!endDate || Number.isNaN(endDate.getTime())) {
                 return { text: 'Active', classes: 'bg-gray-50 text-gray-700 border border-gray-200' };
               }
-              if (deadline.getTime() < now.getTime()) {
+              if (endDate.getTime() < now.getTime()) {
                 return { text: 'Closed', classes: 'bg-red-600 text-white border-red-600' };
               }
-              const diffMs = (new Date(deadline)).setHours(23,59,59,999) - now.getTime();
+              const diffMs = (new Date(endDate)).setHours(23,59,59,999) - now.getTime();
               const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
               if (diffDays <= 7 && diffDays > 0) {
                 return { text: 'Closing Soon', classes: 'bg-orange-50 text-orange-700 border border-orange-100' };
