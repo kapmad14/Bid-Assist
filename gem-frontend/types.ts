@@ -31,6 +31,7 @@ export interface Tender {
 
   startDate: string | null;
   endDate: string | null;
+  publishedDate?: string | null;
 
   estimatedValue: number | null;
   emdAmount: number | null;
