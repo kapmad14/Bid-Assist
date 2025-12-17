@@ -422,7 +422,7 @@ class TenderClientStore {
   // ---------------------------------------------------------
   // ROBUST MAPPER (restored from earlier working logic)
   // ---------------------------------------------------------
-  mapRowToTender(row) {
+  mapRowToTender(row: any) {
     const safeDate = (v: any) => {
       if (!v) return null;
       const d = new Date(v);
