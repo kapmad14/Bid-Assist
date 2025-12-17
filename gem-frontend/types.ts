@@ -20,6 +20,7 @@ export interface Tender {
   gemBidId: string;
   bidNumber: string | null;
 
+  item?: string | null;   // <-- add this
   title: string | null;            // maps from t.item
   category: string | null;         // maps from item_category
   quantity: number | null;
