@@ -13,6 +13,21 @@ from supabase import create_client, Client
 import warnings
 warnings.filterwarnings("ignore")
 
+# --- FORCE CLEAN JSON OUTPUT: Redirect non-JSON stdout to stderr ---
+class StdoutFilter:
+    def write(self, data):
+        # Allow only lines that start with '{' (your final JSON output)
+        if data.lstrip().startswith("{"):
+            sys.__stdout__.write(data)
+        else:
+            # Everything else (warnings, prints) → stderr
+            sys.__stderr__.write(data)
+
+    def flush(self):
+        pass
+
+sys.stdout = StdoutFilter()
+
 
 # Load .env only if present — no hardcoded local path
 load_dotenv()
