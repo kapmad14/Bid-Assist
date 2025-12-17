@@ -10,6 +10,10 @@ from urllib.parse import urlparse
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
+import warnings
+warnings.filterwarnings("ignore")
+
+
 # Load .env only if present — no hardcoded local path
 load_dotenv()
 
