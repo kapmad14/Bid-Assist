@@ -730,9 +730,8 @@ function TendersContentInner() {
         ) : (
            <div className="space-y-4">
           {tenders.map((tender, idx) => {
-            console.log("DEBUG — tender.endDate:", tender.endDate, "raw tender:", tender);
-            const urgent = isClosingSoon(tender.deadline);
-            const timeLeft = getTimeLeft(tender.deadline);
+            const urgent = isClosingSoon(tender.deadline?.toISOString() ?? null);
+            const timeLeft = getTimeLeft(tender.deadline?.toISOString() ?? null);
             const hasEmd = (tender.emdAmount ?? 0) > 0;
 
             const computeStatus = (() => {
