@@ -15,8 +15,10 @@ export async function POST(request: NextRequest): Promise<Response> {
     // Call simplified Python script (just extracts URLs, no file downloads)
     const pythonProcess = spawn('python3', [
       '/Users/kapilmadan/Projects/Bid-Assist/extract_document_urls.py',
-      tenderId.toString()
+      '--tender-id',
+      tenderId.toString(),
     ]);
+
     
     let result = '';
     let error = '';
