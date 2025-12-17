@@ -88,15 +88,36 @@ export default function Sidebar() {
   }, [isCollapsed]);
 
   // Memoize supabase client so it isn't recreated each render
-  const supabase = useMemo(() => createClient(), []);
+    // Lazy-initialize supabase client on mount to avoid any render-time errors
+  const [supabase, setSupabase] = useState<any | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    try {
+      // createClient is safe here because this effect runs only in the browser
+      const client = createClient();
+      if (mounted) setSupabase(client);
+    } catch (err) {
+      // If createClient throws for some reason, surface a friendly error (do not crash the UI)
+      console.error('Failed to initialize Supabase client in Sidebar', err);
+      setSupabase(null);
+    }
+    return () => { mounted = false; };
+  }, []);
 
   const handleLogout = async () => {
     setLogoutError(null);
+
+    // Guard in case supabase hasn't been initialized yet
+    if (!supabase) {
+      setLogoutError('Authentication not available yet. Please try again in a moment.');
+      return;
+    }
+
     try {
       setIsLoggingOut(true);
       const { error } = await supabase.auth.signOut();
       if (error) {
-        // set error and keep user on page
         setLogoutError(error.message || 'Sign out failed');
         setIsLoggingOut(false);
         return;
@@ -109,6 +130,7 @@ export default function Sidebar() {
       setIsLoggingOut(false);
     }
   };
+
 
   return (
     <>

@@ -14,62 +14,39 @@ export interface BoqItem {
   delivery_days: number;
 }
 
+// FILE: src/types.ts  (or wherever your project stores this)
 export interface Tender {
-  // may be missing for some rows (keep optional)
-  id?: string;
+  id: number;
+  gemBidId: string;
+  bidNumber: string | null;
 
-  // mapping guarantees an item string (fallback to 'Untitled Tender')
-  item: string;
-  title?: string;
+  item?: string | null;   // <-- add this
+  title: string | null;            // maps from t.item
+  category: string | null;         // maps from item_category
+  quantity: number | null;
 
-  // these are optional because mapping may fallback or return undefined
-  authority?: string;
-  ministry?: string | null;
-  department?: string | null;
+  ministry: string | null;
+  department: string | null;
+  organizationName: string | null;
 
-  description?: string;
-  productDescription?: string;
-
-  // budget may be null or missing
-  budget?: string | null;
-  emdAmount?: number;
-
-  // deadline can be null when not present in DB
-  deadline?: string | null;
-
-  // status is set by mapping
-  status: TenderStatus;
-
-  category?: string;
-  location?: string;
-  city?: string;
-  state?: string;
-  pincode?: string | null;
-
-  // publishedDate can be null if not available
+  startDate: string | null;
+  endDate: string | null;
   publishedDate?: string | null;
 
-  // quantity may be null/undefined
-  quantity?: string | null;
+  estimatedValue: number | null;
+  emdAmount: number | null;
+  reverseAuctionEnabled: boolean | null;
 
-  pageCount?: number | null;
-  reverseAuctionEnabled?: boolean;
-
-  sourceUrl?: string;
-  bidNumber?: string;
-  docId?: string;
-  capturedAt?: string | null;
-  isEnriched?: boolean;
-
-  pdfPath?: string;
-  pdfStoragePath?: string;
-  pdfPublicUrl?: string;
-  pdfSha256?: string;
-  downloadedAt?: string;
+  pageCount: number | null;
+  pdfPublicUrl: string | null;
+  pdfStoragePath: string | null;
+  documentsExtracted: boolean | null;
 
   isShortlisted?: boolean;
-  boqItems?: BoqItem[];
+  deadline: Date | null;        // <-- ADD THIS LINE
+
 }
+
 
 export interface TenderAnalysis {
   summary: string;

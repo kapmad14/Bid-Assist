@@ -1,11 +1,12 @@
 'use client';
+export const dynamic = 'force-dynamic';
 
 import { useEffect, useState, useRef } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase-client';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+
 import {
   ArrowLeft,
   Download,
@@ -19,18 +20,18 @@ import {
   Star,
 } from 'lucide-react';
 
-import { tenderStore } from '@/services/tenderStore';
+import { tenderClientStore as tenderStore } from '@/services/tenderStore.client';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
 interface Tender {
   id: number;
   bid_number: string | null;
-  item_category: string | null;
+  item: string | null;
   ministry: string | null;
   department: string | null;
   organization_name: string | null;
-  bid_end_datetime: string | null;
+  end_datetime: string | null;
   bid_date: string | null;
   emd_amount: string | number | null;
   total_quantity: string | number | null;
@@ -64,9 +65,25 @@ interface ExtractedDocument {
 export default function TenderDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const supabase = createClient();
+  const searchParams = useSearchParams();
+  const pageFromList = searchParams.get('page') ?? '1';
   const tenderIdParam = params?.id;
   const tenderIdNum = tenderIdParam ? Number(tenderIdParam) : NaN;
+
+  // ✅ Supabase client (dynamic import to avoid Turbopack SSR evaluation issues)
+  const [supabase, setSupabase] = useState<any>(null);
+
+  useEffect(() => {
+    import('@/lib/supabase-client').then(({ createClient }) => {
+      setSupabase(createClient());
+    });
+  }, []);
+
+  // Sync shortlist from DB so detail page always shows correct state
+  useEffect(() => {
+    tenderStore.loadServerShortlist();
+  }, []);
+
 
   const [tender, setTender] = useState<Tender | null>(null);
   const [loading, setLoading] = useState(true);
@@ -113,14 +130,17 @@ export default function TenderDetailPage() {
     // 2️⃣ Fallback: derive from pdf_storage_path via supabase.storage.getPublicUrl
     if (row.pdf_storage_path) {
       try {
-        const { data } = supabase.storage
-          .from('gem-pdfs')
-          .getPublicUrl(String(row.pdf_storage_path));
+        if (supabase) {
+          const { data } = supabase.storage
+            .from('gem-pdfs')
+            .getPublicUrl(String(row.pdf_storage_path));
 
-        if (data?.publicUrl && /^https?:\/\//i.test(data.publicUrl)) {
-          setSelectedDocUrl(encodeURI(data.publicUrl));
-          return;
+          if (data?.publicUrl && /^https?:\/\//i.test(data.publicUrl)) {
+            setSelectedDocUrl(encodeURI(data.publicUrl));
+            return;
+          }
         }
+
       } catch (e) {
         console.warn('Failed to derive public URL from pdf_storage_path', e);
       }
@@ -142,11 +162,14 @@ export default function TenderDetailPage() {
       }
 
       try {
+        if (!supabase) return;  // ⬅️ REQUIRED: prevents calling supabase=null
+
         const { data, error } = await supabase
           .from('tenders')
           .select('*')
           .eq('id', tenderIdNum)
           .single();
+
 
         if (error) throw error;
         if (!mountedRef.current) return;
@@ -174,20 +197,31 @@ export default function TenderDetailPage() {
 
     fetchTender();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenderIdParam]);
+  }, [tenderIdParam, supabase]);
 
-  const formatDate = (dateString?: string | null) => {
-    if (!dateString) return 'N/A';
+  const formatDate = (dateString?: string | null, opts: "date" | "datetime" = "datetime") => {
+    if (!dateString) return "N/A";
     const d = new Date(dateString);
-    if (Number.isNaN(d.getTime())) return 'N/A';
-    return d.toLocaleDateString('en-IN', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
+    if (isNaN(d.getTime())) return "N/A";
+
+    if (opts === "date") {
+      return d.toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "2-digit",
+      });
+    }
+
+    return d.toLocaleString("en-IN", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
     });
   };
+
 
   const formatCurrency = (amount?: string | number | null) => {
     if (amount === null || amount === undefined || amount === '') return 'N/A';
@@ -201,19 +235,21 @@ export default function TenderDetailPage() {
   };
 
   const getTenderStatus = () => {
-    if (!tender?.bid_end_datetime) return 'Unknown';
-    const endDate = new Date(tender.bid_end_datetime);
-    const today = new Date();
+    const raw = tender?.end_datetime;
+    if (!raw) return 'Unknown';
 
-    if (endDate < today) return 'Closed';
+    const end = new Date(raw);
+    if (isNaN(end.getTime())) return 'Unknown';
 
-    const diffDays = Math.ceil(
-      (endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
-    );
-    if (diffDays <= 7) return 'Urgent';
+    const now = new Date();
+    if (end < now) return 'Closed';
 
-    return 'Open';
+    const diffMs = end.getTime() - now.getTime();
+    const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+    return diffDays <= 7 ? 'Closing Soon' : 'Active';
   };
+
 
   const handleShortlistToggle = async () => {
     if (!tender?.id || shortlistPendingRef.current) return;
@@ -382,7 +418,12 @@ export default function TenderDetailPage() {
           Error loading tender: {error || 'Tender not found'}
         </p>
         <div className="text-center mt-4">
-          <Button onClick={() => router.push('/tenders')}>
+          <Button
+            onClick={() => router.push(`/tenders?page=${pageFromList}`)}
+            variant="outline"
+            className="border-2 border-gray-300 font-bold text-gray-900 hover:bg-gray-50"
+          >
+            <ArrowLeft className="h-5 w-5 mr-2" aria-hidden />
             Back to All Tenders
           </Button>
         </div>
@@ -398,7 +439,7 @@ export default function TenderDetailPage() {
       <div className="bg-white border-b-2 border-gray-200 px-4 py-4 shadow-sm">
         <div className="container mx-auto">
           <Button
-            onClick={() => router.push('/tenders')}
+            onClick={() => router.push(`/tenders?page=${pageFromList}`)}
             variant="outline"
             className="border-2 border-gray-300 font-bold text-gray-900 hover:bg-gray-50"
           >
@@ -426,7 +467,7 @@ export default function TenderDetailPage() {
                     variant={
                       status === 'Closed'
                         ? 'destructive'
-                        : status === 'Urgent'
+                        : status === 'Closing Soon'
                           ? 'warning'
                           : 'success'
                     }
@@ -450,15 +491,15 @@ export default function TenderDetailPage() {
                     Closing Date
                   </p>
                   <p className="font-bold text-sm text-gray-900">
-                    {formatDate(tender.bid_end_datetime)}
+                    {formatDate(tender.end_datetime, "datetime")}
                   </p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-600 font-semibold">
-                    Item Category
+                    Item
                   </p>
                   <p className="font-bold text-sm text-gray-900 line-clamp-5">
-                    {tender.item_category || 'N/A'}
+                    {tender.item || 'N/A'}
                   </p>
                 </div>
                 <div>

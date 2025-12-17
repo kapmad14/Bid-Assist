@@ -1005,6 +1005,6 @@ function TendersContentInner() {
   );
 }
 
-export default function Page() {
+export default function TendersPageClient() {
   return <TendersContentInner />;
 }

@@ -1,9 +1,16 @@
+// ==============================
+// Catalog Page (Optimized Option A)
+// ==============================
+
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase-client';
 import toast, { Toaster } from 'react-hot-toast';
 
+// ---------------------
+// Types
+// ---------------------
 interface CatalogItem {
   id: string;
   title: string;
@@ -15,246 +22,208 @@ interface CatalogItem {
 
 type ActionMode = 'none' | 'modify' | 'bulk-pause' | 'bulk-resume' | 'bulk-delete';
 
+// ---------------------
+// Component
+// ---------------------
 export default function CatalogPage() {
+  // Stable client instance
   const [supabaseClient, setSupabaseClient] = useState<any | null>(null);
-  const [products, setProducts] = useState<CatalogItem[]>([]);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [loading, setLoading] = useState(false);
 
-  // Add Product modal state
+  const [products, setProducts] = useState<CatalogItem[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 10;
+
+  // Modal State
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // Field state for add/edit
   const [newTitle, setNewTitle] = useState('');
   const [newCategory, setNewCategory] = useState('');
   const [adding, setAdding] = useState(false);
 
-  // Edit modal state
-  const [showEditModal, setShowEditModal] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editCategory, setEditCategory] = useState('');
   const [editing, setEditing] = useState(false);
 
-  // Delete confirmation modal
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteTargetIds, setDeleteTargetIds] = useState<string[]>([]);
   const [processingBulk, setProcessingBulk] = useState(false);
 
-  // Selection & action mode
+  // Selection state
   const [actionMode, setActionMode] = useState<ActionMode>('none');
-  const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({}); // id -> true if selected
+  const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
   const [selectedRadioId, setSelectedRadioId] = useState<string | null>(null);
 
-  const PAGE_SIZE = 10;
+  // Page Loading
+  const [loading, setLoading] = useState(false);
 
-  const mountedRef = useRef<boolean>(false);
+  const mountedRef = useRef(false);
 
+  // -------------------------------------
+  // Initialize component + Supabase client
+  // -------------------------------------
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    try {
+      const client = createClient();
+      if (mountedRef.current) setSupabaseClient(client);
+    } catch (e) {
+      console.error('Supabase init error:', e);
+    }
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
-  // Lazily create the Supabase client only on the browser.
-  useEffect(() => {
-    // createClient() throws when run on server — so do this inside useEffect
-    try {
-      const c = createClient();
-      if (mountedRef.current) setSupabaseClient(c);
-    } catch (err) {
-      console.error('Failed to create supabase client in CatalogPage useEffect:', err);
-      // optionally show a toast if you want immediate feedback
-      // toast.error('Failed to initialize backend client');
-    }
-  }, []);
-  // --- Helper: enqueue match jobs for one or more catalog items ---
-    // --- Helper: enqueue match jobs for one or more catalog items ---
-    // --- Helper: enqueue match jobs for one or more catalog items ---
-  async function enqueueMatchJobs(
-    action: 'create' | 'update' | 'pause' | 'resume' | 'delete',
-    ids: string[]
-  ) {
-    if (!ids.length) return;
-    try {
-      if (!supabaseClient) {
-        toast.error('Initializing client — try again in a moment');
-        return;
-      }
-      // 👇 Get current session and access token from Supabase JS client
-      const { data: sessionData, error: sessionError } = await supabaseClient.auth.getSession();
-      if (sessionError || !sessionData?.session?.access_token) {
-        console.error('No access token available for match-jobs call:', sessionError);
-        toast.error('Not authenticated for matching');
-        return;
-      }
+  // -------------------------------------
+  // Helper: Get authenticated user safely
+  // -------------------------------------
+  async function getCurrentUser() {
+    if (!supabaseClient) return null;
 
-      const accessToken = sessionData.session.access_token;
-
-      const res = await fetch('/api/match-jobs', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          // 👇 Send token to backend
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          action,
-          catalog_item_ids: ids,
-        }),
-      });
-
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        console.error('Failed to enqueue match jobs: ', {
-          status: res.status,
-          statusText: res.statusText,
-          body: text,
-        });
-        toast.error('Failed to queue matching job(s)');
-        return;
-      }
-
-      const data = await res.json().catch(() => null);
-      console.log('Enqueued match jobs:', data);
-    } catch (err) {
-      console.error('enqueueMatchJobs exception:', err);
-      toast.error('Failed to queue matching job(s)');
-    }
+    const { data, error } = await supabaseClient.auth.getUser();
+    if (error || !data?.user) return null;
+    return data.user;
   }
 
-
-  useEffect(() => {
+  // -------------------------------------
+  // Fetch products from Supabase
+  // -------------------------------------
+  async function fetchProducts(page = currentPage) {
     if (!supabaseClient) return;
-    fetchProducts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, searchTerm, supabaseClient]);
 
-
-  // Fetch products for a specific page (defaults to currentPage)
-  async function fetchProducts(page: number = currentPage) {
     setLoading(true);
+
     try {
-      if (!supabaseClient) {
-        // If the client isn't ready yet, avoid making calls.
-        setProducts([]);
-        setLoading(false);
-        return;
-      }
-
-      const { data } = await supabaseClient.auth.getUser();
-      if (!mountedRef.current) return;
-      const user = data?.user;
-      console.log('Logged in user id:', user?.id);
+      const user = await getCurrentUser();
       if (!user) {
-        if (mountedRef.current) {
-        setProducts([]);
-        setLoading(false);
-        }
+        if (mountedRef.current) setProducts([]);
         return;
       }
 
-      // build the query using the browser supabase client
-      let supabaseQuery = supabaseClient
+      // Base query
+      let query = supabaseClient
         .from('catalog_items')
         .select('id, title, category, status, updated_at, user_id')
         .eq('user_id', user.id)
         .order('updated_at', { ascending: false });
 
-      if (searchTerm.trim() !== '') {
-        supabaseQuery = supabaseQuery.or(
-          `title.ilike.%${searchTerm}%,category.ilike.%${searchTerm}%`
-        );
+      // Search filter
+      if (searchTerm.trim()) {
+        const term = `%${searchTerm}%`;
+        query = query.or(`title.ilike.${term},category.ilike.${term}`);
       }
 
+      // Pagination
       const from = (page - 1) * PAGE_SIZE;
-      const to = page * PAGE_SIZE - 1;
-      supabaseQuery = supabaseQuery.range(from, to);
+      const to = from + PAGE_SIZE - 1;
 
-      const { data: productsData, error } = await supabaseQuery;
-      if (!mountedRef.current) return;
-      console.log('Fetched catalog_items:', productsData, 'Error:', error);
+      const { data, error } = await query.range(from, to);
 
       if (error) {
         console.error('fetchProducts error:', error);
-        setProducts([]);
         toast.error('Failed to load products');
-      } else {
-        if (mountedRef.current) setProducts(productsData || []);
+        if (mountedRef.current) setProducts([]);
+        return;
       }
+
+      if (mountedRef.current) setProducts(data || []);
     } catch (err) {
       console.error('fetchProducts exception:', err);
       if (mountedRef.current) {
-      setProducts([]);
-      toast.error('Failed to load products');
+        setProducts([]);
+        toast.error('Failed to load products');
       }
     } finally {
       if (!mountedRef.current) return;
       setLoading(false);
-      // Reset selection whenever page/search changes so UI stays consistent
+
+      // Reset selection state whenever the table reloads
       setSelectedIds({});
       setSelectedRadioId(null);
       setActionMode('none');
     }
   }
 
+  // Load products on changes
+  useEffect(() => {
+    if (supabaseClient) fetchProducts();
+  }, [currentPage, searchTerm, supabaseClient]);
 
-  // ---------- ADD PRODUCT ----------
-  async function handleAddProduct(e: React.FormEvent) {
+  // -------------------------------------
+  // Match Jobs Helper
+  // -------------------------------------
+  async function enqueueMatch(action: string, ids: string[]) {
+    if (!ids.length) return;
+
+    const user = await getCurrentUser();
+    if (!user) {
+      toast.error("Not authenticated");
+      return;
+    }
+
+    const session = await supabaseClient.auth.getSession();
+    const token = session?.data?.session?.access_token;
+    if (!token) return;
+
+    try {
+      await fetch('/api/match-jobs', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ action, catalog_item_ids: ids }),
+      });
+    } catch (e) {
+      console.error("enqueueMatch error:", e);
+    }
+  }
+
+  // -------------------------------------
+  // Add Product
+  // -------------------------------------
+  async function handleAddProduct(e: any) {
     e.preventDefault();
     if (!newTitle.trim() || !newCategory.trim()) return;
+
     setAdding(true);
+
     try {
-      if (!supabaseClient) {
-        toast.error('Initializing client — try again in a moment');
-        setAdding(false);
-        return;
-      }
-      const { data } = await supabaseClient.auth.getUser();
-      if (!mountedRef.current) return;
-      const user = data?.user;
+      const user = await getCurrentUser();
       if (!user) {
-        if (mountedRef.current) {
         toast.error('Not authenticated');
-        setAdding(false);
-        }
         return;
       }
 
-      const res = await supabaseClient
+      const { data, error } = await supabaseClient
         .from('catalog_items')
-        .insert([
-          {
-            title: newTitle.trim(),
-            category: newCategory.trim(),
-            status: 'active',
-            user_id: user.id,
-            updated_at: new Date().toISOString(),
-          },
-        ])
+        .insert({
+          title: newTitle.trim(),
+          category: newCategory.trim(),
+          status: 'active',
+          user_id: user.id,
+          updated_at: new Date().toISOString(),
+        })
         .select();
 
-      console.log('Insert response:', res);
-
-      if (res.error) {
-        console.error('Insert error:', res.error);
+      if (error) {
+        console.error('Insert error:', error);
         toast.error('Failed to add product');
-      } else {
-        toast.success('Product added');
-
-        // get the new catalog item id and enqueue a "create" match job
-        const newItem = res.data?.[0];
-        if (newItem?.id) {
-          enqueueMatchJobs('create', [newItem.id]);
-        }
-
-        if (mountedRef.current) {
-        setCurrentPage(1);
-        await fetchProducts(1);}
+        return;
       }
-    } catch (err) {
-      console.error('handleAddProduct exception:', err);
-      toast.error('Failed to add product');
+
+      toast.success('Product added');
+
+      const newItem = data?.[0];
+      if (newItem?.id) enqueueMatch('create', [newItem.id]);
+
+      setCurrentPage(1);
+      fetchProducts(1);
     } finally {
-      if (!mountedRef.current) return;
       setAdding(false);
       setShowAddModal(false);
       setNewTitle('');
@@ -262,44 +231,19 @@ export default function CatalogPage() {
     }
   }
 
-  // ---------- EDIT (Modify single item) ----------
-  function startModifyFlow() {
-    setActionMode('modify');
-    setSelectedIds({});
-    setSelectedRadioId(null);
-  }
-
-  function onSelectRadio(id: string) {
-    setSelectedRadioId(id);
-    // prefill edit modal with the selected product
-    const p = products.find((x) => x.id === id);
-    if (p) {
-      setEditId(p.id);
-      setEditTitle(p.title);
-      setEditCategory(p.category);
-      // open a modal to edit
-      setShowEditModal(true);
-    }
-  }
-
-  async function handleSaveEdit(e?: React.FormEvent) {
-    if (e) e.preventDefault();
+  // -------------------------------------
+  // Edit Product
+  // -------------------------------------
+  async function handleSaveEdit(e: any) {
+    e.preventDefault();
     if (!editId) return;
+
     setEditing(true);
+
     try {
-      if (!supabaseClient) {
-        toast.error('Initializing client — try again in a moment');
-        setEditing(false);
-        return;
-      }
-      const { data } = await supabaseClient.auth.getUser();
-      if (!mountedRef.current) return;
-      const user = data?.user;
+      const user = await getCurrentUser();
       if (!user) {
-        if (mountedRef.current) {
         toast.error('Not authenticated');
-        setEditing(false);
-        }
         return;
       }
 
@@ -311,26 +255,18 @@ export default function CatalogPage() {
           updated_at: new Date().toISOString(),
         })
         .eq('id', editId)
-        .eq('user_id', user.id)
-        .select();
+        .eq('user_id', user.id);
 
       if (error) {
         console.error('Edit error:', error);
         toast.error('Failed to update product');
-      } else {
-        toast.success('Product updated');
-
-        // enqueue an "update" match job for this item
-        enqueueMatchJobs('update', [editId]);
-        if (mountedRef.current) {
-        await fetchProducts(currentPage);
-        }
+        return;
       }
-    } catch (err) {
-      console.error('handleSaveEdit exception:', err);
-      toast.error('Failed to update product');
+
+      toast.success('Product updated');
+      enqueueMatch('update', [editId]);
+      fetchProducts(currentPage);
     } finally {
-      if (!mountedRef.current) return;
       setEditing(false);
       setShowEditModal(false);
       setEditId(null);
@@ -340,122 +276,69 @@ export default function CatalogPage() {
     }
   }
 
-  // ---------- BULK Pause/Resume/Delete ----------
-  function startBulk(mode: ActionMode) {
-    setActionMode(mode);
-    setSelectedIds({});
-    setSelectedRadioId(null);
-  }
-
-  function toggleCheckbox(id: string) {
-    setSelectedIds((prev) => ({ ...prev, [id]: !prev[id] }));
-  }
-
-  function clearSelectionMode() {
-    if (!mountedRef.current) return;
-    setActionMode('none');
-    setSelectedIds({});
-    setSelectedRadioId(null);
-  }
-
-  function getSelectedIdList() {
-    return Object.entries(selectedIds)
-      .filter(([, v]) => v)
-      .map(([k]) => k);
-  }
-
-  async function applyPauseResume(status: 'paused' | 'active') {
-    const ids = getSelectedIdList();
-    if (ids.length === 0) {
-      toast('No items selected', { icon: '⚠️' });
+  // -------------------------------------
+  // Bulk Pause/Resume
+  // -------------------------------------
+  async function applyBulkStatus(newStatus: 'paused' | 'active') {
+    const ids = Object.keys(selectedIds).filter(id => selectedIds[id]);
+    if (!ids.length) {
+      toast('No items selected');
       return;
     }
 
     setProcessingBulk(true);
-    try {
-      if (!supabaseClient) {
-        toast.error('Initializing client — try again in a moment');
-        setProcessingBulk(false);
-        return;
-      }
 
-      const { data } = await supabaseClient.auth.getUser();
-      if (!mountedRef.current) return;
-      const user = data?.user;
+    try {
+      const user = await getCurrentUser();
       if (!user) {
-        if (mountedRef.current) {
         toast.error('Not authenticated');
-        setProcessingBulk(false);
-        }
         return;
       }
 
       const { error } = await supabaseClient
         .from('catalog_items')
-        .update({ status, updated_at: new Date().toISOString() })
+        .update({
+          status: newStatus,
+          updated_at: new Date().toISOString(),
+        })
         .in('id', ids)
         .eq('user_id', user.id);
 
       if (error) {
-        console.error('Pause/Resume error:', error);
+        console.error("bulk update error", error);
         toast.error('Failed to update items');
-      } else {
-        toast.success(`Updated ${ids.length} item(s)`);
-
-        // enqueue "pause" or "resume" jobs for these items
-        const action = status === 'paused' ? 'pause' : 'resume';
-        enqueueMatchJobs(action, ids);
-
-        await fetchProducts(currentPage);
+        return;
       }
-    } catch (err) {
-      console.error('applyPauseResume exception:', err);
-      toast.error('Failed to update items');
+
+      toast.success(`Updated ${ids.length} item(s)`);
+      enqueueMatch(newStatus === 'paused' ? 'pause' : 'resume', ids);
+
+      fetchProducts(currentPage);
     } finally {
-      if (!mountedRef.current) return;
       setProcessingBulk(false);
-      clearSelectionMode();
+      setActionMode('none');
+      setSelectedIds({});
     }
   }
 
-
-  // Prepare delete: confirm first
-  function prepareDeleteSelected() {
-    const ids = getSelectedIdList();
-    if (ids.length === 0) {
-      toast('No items selected', { icon: '⚠️' });
-      return;
-    }
-    setDeleteTargetIds(ids);
-    setShowDeleteConfirm(true);
-  }
-
-  // Perform hard delete
+  // -------------------------------------
+  // Delete Items
+  // -------------------------------------
   async function performDeleteConfirmed() {
+    const ids = deleteTargetIds;
+    if (!ids.length) return;
+
     setProcessingBulk(true);
+
     try {
-      if (!supabaseClient) {
-        toast.error('Initializing client — try again in a moment');
-        setProcessingBulk(false);
-        return;
-      }
-      const { data } = await supabaseClient.auth.getUser();
-      if (!mountedRef.current) return;
-      const user = data?.user;
+      const user = await getCurrentUser();
       if (!user) {
-        if (mountedRef.current) {
         toast.error('Not authenticated');
-        setProcessingBulk(false);
-        }
         return;
       }
 
-      const ids = deleteTargetIds;
+      await enqueueMatch('delete', ids);
 
-      // 👈 FIRST: enqueue deletion job
-      await enqueueMatchJobs("delete", ids);
-
-      // 👇 THEN: delete from catalog_items
       const { error } = await supabaseClient
         .from('catalog_items')
         .delete()
@@ -463,378 +346,317 @@ export default function CatalogPage() {
         .eq('user_id', user.id);
 
       if (error) {
-        if (mountedRef.current) toast.error("Failed to delete items");
-      } else {
-        if (mountedRef.current) {
-          toast.success(`Deleted ${ids.length} item(s)`);
-          await fetchProducts(currentPage);
-        }
+        toast.error("Failed to delete items");
+        return;
       }
 
-    } catch (err) {
-      console.error("performDeleteConfirmed exception:", err);
-      toast.error("Failed to delete items");
+      toast.success(`Deleted ${ids.length} item(s)`);
+      fetchProducts(currentPage);
     } finally {
-      if (!mountedRef.current) return;
       setProcessingBulk(false);
       setShowDeleteConfirm(false);
       setDeleteTargetIds([]);
-      clearSelectionMode();
+      setSelectedIds({});
+      setActionMode('none');
     }
   }
 
-
-  // ---------- Pagination & Search handlers ----------
-  function handlePrevPage() {
-    if (currentPage > 1) setCurrentPage(currentPage - 1);
-  }
-  function handleNextPage() {
-    if (products.length === PAGE_SIZE) setCurrentPage(currentPage + 1);
-  }
-  function handleSearch(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setCurrentPage(1);
-    fetchProducts(1);
-  }
-
-  // ---------- UI helpers ----------
-  const anySelected = Object.values(selectedIds).some(Boolean);
-
-  // ---------- RENDER ----------
+  // -------------------------------------
+  // Render
+  // -------------------------------------
   return (
     <div className="p-8 bg-white min-h-screen">
-      {/* Toaster for toast messages */}
       <Toaster position="top-right" />
 
+      {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold text-[#0E121A]">My Product Catalogue</h1>
-        <div className="flex items-center gap-4">
-          {/* Primary Add button (yellow) */}
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="px-4 py-2 rounded-lg font-semibold shadow-sm transition text-[#0E121A] bg-[#F7C846] hover:bg-yellow-400 disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            + Add Product
-          </button>
-        </div>
+        <h1 className="text-3xl font-bold">My Product Catalogue</h1>
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="px-4 py-2 rounded-lg font-semibold bg-[#F7C846]"
+        >
+          + Add Product
+        </button>
       </div>
 
-      <form onSubmit={handleSearch}>
+      {/* Search */}
+      <form onSubmit={(e) => { e.preventDefault(); setCurrentPage(1); }}>
         <input
           type="search"
           placeholder="Search by Name or Category"
-          className="border border-gray-400 rounded-lg p-3 w-full max-w-xs mb-6 bg-white text-gray-900 placeholder-gray-400"
+          className="border border-gray-400 rounded-lg p-3 w-full max-w-xs mb-6"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
         />
       </form>
 
-      {/* Action toolbar (shows buttons to enter selection modes) */}
-      <div className="flex gap-3 items-center mb-4 flex-wrap">
-        {/* Outline buttons */}
+      {/* Toolbar */}
+      <div className="flex gap-3 items-center mb-4">
         <button
-          className={`px-3 py-2 rounded-lg font-medium border border-gray-300 bg-white hover:bg-gray-50 transition ${
-            actionMode === 'modify' ? 'ring-2 ring-[#F7C846]' : ''
-          }`}
-          onClick={startModifyFlow}
-          type="button"
+          className={`px-3 py-2 rounded-lg border ${actionMode === 'modify' ? 'ring-2 ring-yellow-400' : ''}`}
+          onClick={() => setActionMode('modify')}
         >
           Modify (single)
         </button>
 
         <button
-          className={`px-3 py-2 rounded-lg font-medium border border-gray-300 bg-white hover:bg-gray-50 transition ${
-            actionMode === 'bulk-pause' ? 'ring-2 ring-[#F7C846]' : ''
-          }`}
-          onClick={() => startBulk('bulk-pause')}
-          type="button"
+          className={`px-3 py-2 rounded-lg border ${actionMode === 'bulk-pause' ? 'ring-2 ring-yellow-400' : ''}`}
+          onClick={() => setActionMode('bulk-pause')}
         >
           Pause Selected
         </button>
 
         <button
-          className={`px-3 py-2 rounded-lg font-medium border border-gray-300 bg-white hover:bg-gray-50 transition ${
-            actionMode === 'bulk-resume' ? 'ring-2 ring-[#F7C846]' : ''
-          }`}
-          onClick={() => startBulk('bulk-resume')}
-          type="button"
+          className={`px-3 py-2 rounded-lg border ${actionMode === 'bulk-resume' ? 'ring-2 ring-yellow-400' : ''}`}
+          onClick={() => setActionMode('bulk-resume')}
         >
           Resume Selected
         </button>
 
         <button
-          className={`px-3 py-2 rounded-lg font-medium border border-gray-300 bg-white hover:bg-gray-50 transition ${
-            actionMode === 'bulk-delete' ? 'ring-2 ring-[#F7C846]' : ''
-          }`}
-          onClick={() => startBulk('bulk-delete')}
-          type="button"
+          className={`px-3 py-2 rounded-lg border ${actionMode === 'bulk-delete' ? 'ring-2 ring-red-400' : ''}`}
+          onClick={() => setActionMode('bulk-delete')}
         >
           Delete Selected
         </button>
 
         <button
-          className="px-3 py-2 rounded-lg font-medium border border-gray-300 bg-gray-100 hover:bg-gray-200 transition ml-2"
-          onClick={clearSelectionMode}
-          type="button"
+          className="px-3 py-2 rounded-lg border bg-gray-100"
+          onClick={() => {
+            setActionMode('none');
+            setSelectedIds({});
+            setSelectedRadioId(null);
+          }}
         >
           Cancel Selection
         </button>
 
-        {/* Apply buttons - only visible for bulk modes */}
-        {actionMode === 'bulk-pause' && (
-          <button
-            onClick={() => applyPauseResume('paused')}
-            disabled={!anySelected || processingBulk}
-            className="ml-auto px-3 py-2 rounded-lg font-semibold shadow-sm transition text-[#0E121A] bg-[#F7C846] hover:bg-yellow-400 disabled:opacity-60 disabled:cursor-not-allowed"
-            type="button"
-          >
-            Apply Pause
-          </button>
-        )}
-        {actionMode === 'bulk-resume' && (
-          <button
-            onClick={() => applyPauseResume('active')}
-            disabled={!anySelected || processingBulk}
-            className="ml-auto px-3 py-2 rounded-lg font-semibold shadow-sm transition text-[#0E121A] bg-[#8AE98D] hover:bg-green-300 disabled:opacity-60 disabled:cursor-not-allowed"
-            type="button"
-          >
-            Apply Resume
-          </button>
-        )}
-        {actionMode === 'bulk-delete' && (
-          <button
-            onClick={prepareDeleteSelected}
-            disabled={!anySelected || processingBulk}
-            className="ml-auto px-3 py-2 rounded-lg font-semibold shadow-sm transition text-white bg-[#FC574E] hover:bg-red-600 disabled:opacity-60 disabled:cursor-not-allowed"
-            type="button"
-          >
-            Confirm Delete
-          </button>
-        )}
+        {/* Right-Aligned Bulk Buttons */}
+        <div className="ml-auto flex gap-2">
+          {actionMode === 'bulk-pause' && (
+            <button
+              onClick={() => applyBulkStatus('paused')}
+              disabled={!Object.values(selectedIds).some(Boolean)}
+              className="px-3 py-2 rounded-lg bg-yellow-400"
+            >
+              Apply Pause
+            </button>
+          )}
+          {actionMode === 'bulk-resume' && (
+            <button
+              onClick={() => applyBulkStatus('active')}
+              disabled={!Object.values(selectedIds).some(Boolean)}
+              className="px-3 py-2 rounded-lg bg-green-300"
+            >
+              Apply Resume
+            </button>
+          )}
+          {actionMode === 'bulk-delete' && (
+            <button
+              onClick={() => {
+                const ids = Object.keys(selectedIds).filter(id => selectedIds[id]);
+                if (ids.length) {
+                  setDeleteTargetIds(ids);
+                  setShowDeleteConfirm(true);
+                }
+              }}
+              disabled={!Object.values(selectedIds).some(Boolean)}
+              className="px-3 py-2 rounded-lg bg-red-500 text-white"
+            >
+              Confirm Delete
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Loading skeleton or table */}
+      {/* Table or loading */}
       {loading ? (
-        // simple table skeleton
         <div className="animate-pulse space-y-2">
           {[...Array(6)].map((_, i) => (
             <div key={i} className="h-12 bg-gray-100 rounded" />
           ))}
         </div>
       ) : products.length === 0 ? (
-        <p className="mt-6 text-lg text-gray-700 font-semibold">
-          No products found. Click{' '}
-          <span className="text-[#F7C846] font-semibold">'Add Product'</span> to get started.
-        </p>
+        <p className="mt-6 text-lg text-gray-700">No products found.</p>
       ) : (
         <>
-          <table className="w-full border border-gray-300 bg-white text-gray-900">
+          <table className="w-full border border-gray-300 bg-white">
             <thead>
               <tr className="bg-gray-100">
-                <th className="border border-gray-300 p-3 text-left font-semibold">#</th>
-                <th className="border border-gray-300 p-3 text-left font-semibold">Product Name</th>
-                <th className="border border-gray-300 p-3 text-left font-semibold">Category</th>
-                <th className="border border-gray-300 p-3 text-left font-semibold">Status</th>
-                <th className="border border-gray-300 p-3 text-left font-semibold">Updated At</th>
+                <th className="p-3 border text-left">#</th>
+                <th className="p-3 border text-left">Product Name</th>
+                <th className="p-3 border text-left">Category</th>
+                <th className="p-3 border text-left">Status</th>
+                <th className="p-3 border text-left">Updated At</th>
               </tr>
             </thead>
+
             <tbody>
-              {products.map((product, idx) => (
-                <tr key={product.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="border border-gray-200 p-3">
-                    {/* Show checkbox or radio depending on actionMode */}
+              {products.map((p, idx) => (
+                <tr key={p.id} className="hover:bg-gray-50">
+                  <td className="p-3 border">
                     {actionMode === 'modify' ? (
                       <input
                         type="radio"
-                        name="editRadio"
-                        checked={selectedRadioId === product.id}
-                        onChange={() => onSelectRadio(product.id)}
-                        className="mr-2"
+                        checked={selectedRadioId === p.id}
+                        onChange={() => {
+                          setSelectedRadioId(p.id);
+                          setEditId(p.id);
+                          setEditTitle(p.title);
+                          setEditCategory(p.category);
+                          setShowEditModal(true);
+                        }}
                       />
-                    ) : actionMode === 'bulk-pause' ||
-                      actionMode === 'bulk-resume' ||
-                      actionMode === 'bulk-delete' ? (
+                    ) : actionMode.includes('bulk') ? (
                       <input
                         type="checkbox"
-                        checked={!!selectedIds[product.id]}
-                        onChange={() => toggleCheckbox(product.id)}
-                        className="mr-2"
+                        checked={!!selectedIds[p.id]}
+                        onChange={() =>
+                          setSelectedIds(prev => ({ ...prev, [p.id]: !prev[p.id] }))
+                        }
                       />
                     ) : (
-                      <span className="text-sm text-gray-500">
-                        {(currentPage - 1) * PAGE_SIZE + idx + 1}
-                      </span>
+                      <span>{(currentPage - 1) * PAGE_SIZE + idx + 1}</span>
                     )}
                   </td>
 
-                  <td className="border border-gray-200 p-3">{product.title}</td>
-                  <td className="border border-gray-200 p-3">{product.category}</td>
-                  <td className="border border-gray-200 p-3 capitalize">{product.status}</td>
-                  <td className="border border-gray-200 p-3">
-                    {new Date(product.updated_at).toLocaleDateString()}
+                  <td className="p-3 border">{p.title}</td>
+                  <td className="p-3 border">{p.category}</td>
+                  <td className="p-3 border capitalize">{p.status}</td>
+                  <td className="p-3 border">
+                    {new Date(p.updated_at).toLocaleDateString()}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
 
-          {/* Bulk action hint area + pagination */}
-          <div className="flex items-center justify-between mt-6 max-w-full gap-4">
-            <div className="text-sm text-gray-700">
-              {actionMode === 'none' ? (
-                'Select an action above to edit, pause/resume or delete items.'
-              ) : actionMode === 'modify' ? (
-                'Select one item (radio) to modify.'
-              ) : (
-                <span>{Object.values(selectedIds).filter(Boolean).length} selected</span>
-              )}
-            </div>
+          {/* Pagination */}
+          <div className="flex justify-between items-center mt-6">
+            <button
+              onClick={() => currentPage > 1 && setCurrentPage(p => p - 1)}
+              disabled={currentPage === 1}
+              className="px-4 py-2 bg-gray-200 rounded"
+            >
+              Previous
+            </button>
 
-            <div className="flex items-center gap-4">
-              <button
-                onClick={handlePrevPage}
-                disabled={currentPage === 1}
-                className="px-4 py-2 bg-gray-200 text-[#0E121A] rounded disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                Previous
-              </button>
-              <span className="text-[#0E121A] font-semibold px-2">Page {currentPage}</span>
-              <button
-                onClick={handleNextPage}
-                disabled={products.length < PAGE_SIZE}
-                className="px-4 py-2 bg-gray-200 text-[#0E121A] rounded disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                Next
-              </button>
-            </div>
+            <span>Page {currentPage}</span>
+
+            <button
+              onClick={() => products.length === PAGE_SIZE && setCurrentPage(p => p + 1)}
+              disabled={products.length < PAGE_SIZE}
+              className="px-4 py-2 bg-gray-200 rounded"
+            >
+              Next
+            </button>
           </div>
         </>
       )}
 
-      {/* ADD PRODUCT MODAL */}
+      {/* Add Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-black bg-opacity-30 flex items-center justify-center">
-          <div className="bg-white rounded-lg shadow-lg p-8 min-w-[350px]">
-            <h2 className="text-xl font-semibold text-[#0E121A] mb-4">Add Product</h2>
-            <form onSubmit={handleAddProduct}>
-              <input
-                type="text"
-                className="w-full border border-gray-400 rounded-lg p-3 mb-4 bg-white text-gray-900 placeholder-gray-400"
-                placeholder="Product Name"
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                required
-              />
-              <input
-                type="text"
-                className="w-full border border-gray-400 rounded-lg p-3 mb-5 bg-white text-gray-900 placeholder-gray-400"
-                placeholder="Product Category"
-                value={newCategory}
-                onChange={(e) => setNewCategory(e.target.value)}
-                required
-              />
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  className="px-5 py-2 rounded-lg bg-gray-200 text-gray-700 font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
-                  onClick={() => setShowAddModal(false)}
-                  disabled={adding}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-lg font-semibold shadow-sm transition text-[#0E121A] bg-[#F7C846] hover:bg-yellow-400 disabled:opacity-60 disabled:cursor-not-allowed"
-                  disabled={adding}
-                >
-                  {adding ? 'Adding...' : 'Add'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <Modal title="Add Product" onClose={() => setShowAddModal(false)}>
+          <form onSubmit={handleAddProduct}>
+            <Input value={newTitle} onChange={setNewTitle} placeholder="Product Name" required />
+            <Input value={newCategory} onChange={setNewCategory} placeholder="Product Category" required />
+
+            <ModalActions
+              loading={adding}
+              onCancel={() => setShowAddModal(false)}
+              submitLabel="Add"
+            />
+          </form>
+        </Modal>
       )}
 
-      {/* EDIT MODAL */}
+      {/* Edit Modal */}
       {showEditModal && (
-        <div className="fixed inset-0 z-50 bg-black bg-opacity-30 flex items-center justify-center">
-          <div className="bg-white rounded-lg shadow-lg p-8 min-w-[350px]">
-            <h2 className="text-xl font-semibold text-[#0E121A] mb-4">Edit Product</h2>
-            <form onSubmit={handleSaveEdit}>
-              <input
-                type="text"
-                className="w-full border border-gray-400 rounded-lg p-3 mb-4 bg-white text-gray-900 placeholder-gray-400"
-                placeholder="Product Name"
-                value={editTitle}
-                onChange={(e) => setEditTitle(e.target.value)}
-                required
-              />
-              <input
-                type="text"
-                className="w-full border border-gray-400 rounded-lg p-3 mb-5 bg-white text-gray-900 placeholder-gray-400"
-                placeholder="Product Category"
-                value={editCategory}
-                onChange={(e) => setEditCategory(e.target.value)}
-                required
-              />
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  className="px-5 py-2 rounded-lg bg-gray-200 text-gray-700 font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
-                  onClick={() => {
-                    setShowEditModal(false);
-                    setActionMode('none');
-                    setSelectedRadioId(null);
-                  }}
-                  disabled={editing}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-lg font-semibold shadow-sm transition text-[#0E121A] bg-[#F7C846] hover:bg-yellow-400 disabled:opacity-60 disabled:cursor-not-allowed"
-                  disabled={editing}
-                >
-                  {editing ? 'Saving...' : 'Save'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <Modal title="Edit Product" onClose={() => setShowEditModal(false)}>
+          <form onSubmit={handleSaveEdit}>
+            <Input value={editTitle} onChange={setEditTitle} placeholder="Product Name" required />
+            <Input value={editCategory} onChange={setEditCategory} placeholder="Product Category" required />
+
+            <ModalActions
+              loading={editing}
+              onCancel={() => setShowEditModal(false)}
+              submitLabel="Save"
+            />
+          </form>
+        </Modal>
       )}
 
-      {/* DELETE CONFIRMATION MODAL */}
+      {/* Delete Confirmation */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 z-60 bg-black bg-opacity-30 flex items-center justify-center">
-          <div className="bg-white rounded-lg shadow-lg p-8 min-w-[320px]">
-            <h3 className="text-lg font-semibold mb-4 text-[#0E121A]">Confirm Delete</h3>
-            <p className="mb-6 text-sm text-gray-700">
-              Are you sure you want to permanently delete {deleteTargetIds.length} item(s)? This
-              action cannot be undone.
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                className="px-4 py-2 rounded bg-gray-200 disabled:opacity-60 disabled:cursor-not-allowed"
-                onClick={() => {
-                  setShowDeleteConfirm(false);
-                }}
-                disabled={processingBulk}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="px-4 py-2 rounded bg-[#FC574E] text-white disabled:opacity-60 disabled:cursor-not-allowed"
-                onClick={performDeleteConfirmed}
-                disabled={processingBulk}
-              >
-                {processingBulk ? 'Deleting...' : 'Delete'}
-              </button>
-            </div>
+        <Modal title="Confirm Delete" onClose={() => setShowDeleteConfirm(false)}>
+          <p className="mb-4">Are you sure you want to delete {deleteTargetIds.length} item(s)?</p>
+
+          <div className="flex justify-end gap-2">
+            <button
+              className="px-4 py-2 bg-gray-200 rounded"
+              onClick={() => setShowDeleteConfirm(false)}
+              disabled={processingBulk}
+            >
+              Cancel
+            </button>
+            <button
+              className="px-4 py-2 bg-red-500 text-white rounded"
+              onClick={performDeleteConfirmed}
+              disabled={processingBulk}
+            >
+              {processingBulk ? 'Deleting...' : 'Delete'}
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
+    </div>
+  );
+}
+
+// --------------------------------------------
+// Reusable small UI pieces (no logic changes)
+// --------------------------------------------
+function Modal({ title, children, onClose }: any) {
+  return (
+    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
+      <div className="bg-white p-8 rounded-lg shadow min-w-[350px]">
+        <h2 className="text-xl font-semibold mb-4">{title}</h2>
+        {children}
+        <button className="absolute top-4 right-4" onClick={onClose}>✕</button>
+      </div>
+    </div>
+  );
+}
+
+function Input({ value, onChange, ...props }: any) {
+  return (
+    <input
+      className="w-full border border-gray-300 rounded-lg p-3 mb-4"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      {...props}
+    />
+  );
+}
+
+function ModalActions({ loading, onCancel, submitLabel }: any) {
+  return (
+    <div className="flex justify-end gap-2">
+      <button
+        type="button"
+        className="px-5 py-2 rounded-lg bg-gray-200"
+        onClick={onCancel}
+        disabled={loading}
+      >
+        Cancel
+      </button>
+      <button
+        type="submit"
+        className="px-5 py-2 rounded-lg bg-yellow-400"
+        disabled={loading}
+      >
+        {loading ? 'Please wait…' : submitLabel}
+      </button>
     </div>
   );
 }
