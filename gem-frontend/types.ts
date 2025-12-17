@@ -41,6 +41,8 @@ export interface Tender {
   documentsExtracted: boolean | null;
 
   isShortlisted?: boolean;
+  deadline: Date | null;        // <-- ADD THIS LINE
+
 }
 
 

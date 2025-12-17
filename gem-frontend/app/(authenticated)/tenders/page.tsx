@@ -730,20 +730,21 @@ function TendersContentInner() {
         ) : (
            <div className="space-y-4">
           {tenders.map((tender, idx) => {
-            const urgent = isClosingSoon(tender.endDate);
-            const timeLeft = getTimeLeft(tender.endDate);
+            console.log("DEBUG — tender.endDate:", tender.endDate, "raw tender:", tender);
+            const urgent = isClosingSoon(tender.deadline);
+            const timeLeft = getTimeLeft(tender.deadline);
             const hasEmd = (tender.emdAmount ?? 0) > 0;
 
             const computeStatus = (() => {
               const now = new Date();
-              const endDate = tender.endDate ? new Date(tender.endDate) : null;
-              if (!endDate || Number.isNaN(endDate.getTime())) {
+              const deadline = tender.deadline ? new Date(tender.deadline) : null;
+              if (!deadline || Number.isNaN(deadline.getTime())) {
                 return { text: 'Active', classes: 'bg-gray-50 text-gray-700 border border-gray-200' };
               }
-              if (endDate.getTime() < now.getTime()) {
+              if (deadline.getTime() < now.getTime()) {
                 return { text: 'Closed', classes: 'bg-red-600 text-white border-red-600' };
               }
-              const diffMs = (new Date(endDate)).setHours(23,59,59,999) - now.getTime();
+              const diffMs = (new Date(deadline)).setHours(23,59,59,999) - now.getTime();
               const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
               if (diffDays <= 7 && diffDays > 0) {
                 return { text: 'Closing Soon', classes: 'bg-orange-50 text-orange-700 border border-orange-100' };
