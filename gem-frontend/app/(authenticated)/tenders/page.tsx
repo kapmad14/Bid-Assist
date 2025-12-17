@@ -876,10 +876,10 @@ function TendersContentInner() {
                         <Building2 className="w-3 h-3 text-blue-600" aria-hidden />
                       </div>
                       <div>
-                        <p className="text-sm font-bold text-gray-900 line-clamp-1">{tender.ministry || tender.authority || 'Unknown'}</p>
+                        <p className="text-sm font-bold text-gray-900 line-clamp-1">{tender.ministry || 'Unknown'}</p>
                         <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5">
                           {/* show department first, fallback to location */}
-                          {tender.department || tender.location || 'Location not specified'}
+                          {tender.department || 'Location not specified'}
                         </div>
                       </div>
                     </div>
