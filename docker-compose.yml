@@ -26,3 +26,13 @@ services:
       - ./logs:/app/logs
     env_file: .env
     restart: unless-stopped
+
+  extractor_service:
+    build:
+      context: ./extractor-service
+    ports:
+      - "5001:5001"
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+    restart: unless-stopped

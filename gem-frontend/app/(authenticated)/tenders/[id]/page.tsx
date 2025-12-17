@@ -289,22 +289,11 @@ export default function TenderDetailPage() {
     setExtractionLogs(['Starting URL extraction...']);
 
     try {
-      // 🧩 Safety: if backend URL is missing, show a clear log and stop
-      if (!API_BASE_URL) {
-        setExtractionLogs(prev => [
-          ...prev,
-          'Error: Backend URL is not configured (NEXT_PUBLIC_API_BASE_URL)',
-        ]);
-        setIsExtracting(false);
-        return;
-      }
-
-      const base = API_BASE_URL.replace(/\/+$/, ''); // remove trailing /
-      const response = await fetch(`${base}/api/extract-documents`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenderId: tender.id }),
-      });
+    const response = await fetch(`/api/extract-documents`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenderId: tender.id }),
+    });
 
 
       if (!response.ok) {

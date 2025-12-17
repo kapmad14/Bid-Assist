@@ -1,60 +1,24 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { spawn } from 'child_process';
+import { NextRequest, NextResponse } from "next/server";
 
-export async function POST(request: NextRequest): Promise<Response> {
+const EXTRACTOR_URL =
+  process.env.EXTRACTOR_URL || "http://localhost:5001";
+
+export async function POST(request: NextRequest) {
   try {
     const { tenderId } = await request.json();
-    
-    if (!tenderId) {
-      return NextResponse.json(
-        { error: 'Tender ID is required' },
-        { status: 400 }
-      );
-    }
-    
-    // Call simplified Python script (just extracts URLs, no file downloads)
-    const pythonProcess = spawn('python3', [
-      '/Users/kapilmadan/Projects/Bid-Assist/extract_document_urls.py',
-      '--tender-id',
-      tenderId.toString(),
-    ]);
 
-    
-    let result = '';
-    let error = '';
-    
-    pythonProcess.stdout.on('data', (data) => {
-      result += data.toString();
-    });
-    
-    pythonProcess.stderr.on('data', (data) => {
-      error += data.toString();
-    });
-    
-    // 👇 Explicitly type the Promise as Promise<Response>
-    return new Promise<Response>((resolve) => {
-      pythonProcess.on('close', (code) => {
-        if (code === 0) {
-          try {
-            resolve(NextResponse.json(JSON.parse(result)));
-          } catch (parseError) {
-            resolve(NextResponse.json(
-              { error: 'Failed to parse response' },
-              { status: 500 }
-            ));
-          }
-        } else {
-          resolve(NextResponse.json(
-            { error: error || 'Extraction failed' },
-            { status: 500 }
-          ));
-        }
-      });
+    const response = await fetch(`${EXTRACTOR_URL}/extract`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tenderId }),
     });
 
-  } catch (error: any) {
+    const data = await response.json();
+    return NextResponse.json(data, { status: response.status });
+
+  } catch (err: any) {
     return NextResponse.json(
-      { error: error.message ?? 'Unknown error' },
+      { success: false, error: err.message },
       { status: 500 }
     );
   }
