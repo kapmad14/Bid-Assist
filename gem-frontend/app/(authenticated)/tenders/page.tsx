@@ -790,7 +790,7 @@ function TendersContentInner() {
                       {/* Title — show `item` first as requested */}
                       <h3
                         className="text-lg font-bold text-[#0E121A] group-hover:text-blue-700 transition-colors line-clamp-2 mb-2"
-                        title={tender.item || tender.category || tender.title}
+                        title={(tender.item || tender.category || tender.title) ?? undefined}
                       >
                         {tender.item || tender.category || tender.title || 'Untitled tender'}
                       </h3>
