@@ -16,7 +16,6 @@ import {
   ChevronUp, 
   Building2, 
   FileText, 
-  Plus,
   Filter,
   Star
 } from 'lucide-react';
@@ -24,6 +23,8 @@ import {
 import { tenderStore } from '@/services/tenderStore';
 import { Tender } from '@/types';
 import { createClient } from '@/lib/supabase-client';
+import { useRouter } from 'next/navigation';
+
 
 const supabase = createClient();
 
@@ -80,6 +81,8 @@ function TendersContent() {
   const searchParams = useSearchParams();
   const fromDashboard = searchParams?.get('from') === 'dashboard'; // detect CTA entry
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const router = useRouter();
+
 
   useEffect(() => {
     // Autofocus ONLY when user comes via Dashboard CTA
@@ -327,6 +330,14 @@ function TendersContent() {
      return `Ending soon`;
   };
 
+  const safeFormatDate = (val?: string | null, opts: 'date' | 'datetime' = 'date') => {
+    if (!val) return 'N/A';
+    const d = new Date(val);
+    if (Number.isNaN(d.getTime())) return 'N/A';
+    return opts === 'datetime' ? d.toLocaleString() : d.toLocaleDateString();
+  };
+
+
   // Derived values & pagination helpers
   // compute proper showing range (start-end)
   const showingStart = useMemo(() => {
@@ -480,22 +491,33 @@ function TendersContent() {
            {/* Tabs */}
            <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0" role="tablist" aria-label="Tender tabs">
               <div className="flex bg-gray-100 p-1 rounded-lg whitespace-nowrap">
-                 {['Active', 'Closing Soon', 'Shortlisted', 'All', 'Archived'].map((tab) => (
-                   <button 
+                {['Active', 'Closing Soon', 'Shortlisted', 'All', 'Archived'].map((tab) => {
+                  const isShortlistedTab = tab === 'Shortlisted';
+                  const disabled = isShortlistedTab && tenderStore.isShortlistCooldown;
+
+                  return (
+                    <button 
                       key={tab}
-                      onClick={() => handleSetActiveTab(tab as TabOption)}
+                      disabled={disabled}
+                      onClick={() => {
+                        if (!disabled) handleSetActiveTab(tab as TabOption);
+                      }}
                       className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
-                        activeTab === tab 
-                           ? 'bg-gray-200 text-[#0E121A] shadow-sm' 
-                           : 'text-gray-500 hover:text-gray-700'
+                        activeTab === tab
+                          ? 'bg-gray-200 text-[#0E121A] shadow-sm'
+                          : disabled
+                            ? 'text-gray-300 cursor-not-allowed'
+                            : 'text-gray-500 hover:text-gray-700'
                       }`}
+                      aria-disabled={disabled}
                       aria-pressed={activeTab === tab}
                       role="tab"
                       aria-current={activeTab === tab ? 'true' : undefined}
-                   >
+                    >
                       {tab}
-                   </button>
-                 ))}
+                    </button>
+                  );
+                })}
               </div>
            </div>
 
@@ -627,89 +649,132 @@ function TendersContent() {
            </div>
         ) : (
            <div className="space-y-4">
-              {tenders.map(tender => {
-                const urgent = isClosingSoon(tender.deadline);
-                const timeLeft = getTimeLeft(tender.deadline);
-                const hasEmd = (tender.emdAmount ?? 0) > 0;
+          {tenders.map((tender, idx) => {
+            const urgent = isClosingSoon(tender.deadline);
+            const timeLeft = getTimeLeft(tender.deadline);
+            const hasEmd = (tender.emdAmount ?? 0) > 0;
 
-                // compute status for the status pill (Closed / Closing Soon / Active)
-                const computeStatus = (() => {
-                  const now = new Date();
-                  const deadline = tender.deadline ? new Date(tender.deadline) : null;
-                  if (!deadline || Number.isNaN(deadline.getTime())) {
-                    return { text: 'Active', classes: 'bg-gray-50 text-gray-700 border border-gray-200' };
-                  }
-                  if (deadline.getTime() < now.getTime()) {
-                    return { text: 'Closed', classes: 'bg-red-600 text-white border-red-600' };
-                  }
-                  const diffMs = (new Date(deadline)).setHours(23,59,59,999) - now.getTime();
-                  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-                  if (diffDays <= 7 && diffDays > 0) {
-                    return { text: 'Closing Soon', classes: 'bg-orange-50 text-orange-700 border border-orange-100' };
-                  }
-                  return { text: 'Active', classes: 'bg-green-50 text-green-700 border border-green-100' };
-                })();
+            const computeStatus = (() => {
+              const now = new Date();
+              const deadline = tender.deadline ? new Date(tender.deadline) : null;
+              if (!deadline || Number.isNaN(deadline.getTime())) {
+                return { text: 'Active', classes: 'bg-gray-50 text-gray-700 border border-gray-200' };
+              }
+              if (deadline.getTime() < now.getTime()) {
+                return { text: 'Closed', classes: 'bg-red-600 text-white border-red-600' };
+              }
+              const diffMs = (new Date(deadline)).setHours(23,59,59,999) - now.getTime();
+              const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+              if (diffDays <= 7 && diffDays > 0) {
+                return { text: 'Closing Soon', classes: 'bg-orange-50 text-orange-700 border border-orange-100' };
+              }
+              return { text: 'Active', classes: 'bg-green-50 text-green-700 border border-green-100' };
+            })();
 
-                return (
-                  <div key={tender.id} className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow p-5 group relative">
-                    <div className="flex flex-col md:flex-row justify-between gap-4 mb-4">
-                      {/* Left Info */}
-                      <div className="flex-1 pr-8">
-                        <Link href={`/tenders/${tender.id}`}
-                          onClick={() =>
-                            void logUserEvent('TENDER_VIEWED', {
-                              tenderId: tender.id,
-                              source: 'title',
-                            })
-                          }
-                        >
-                          <h3 className="text-lg font-bold text-[#0E121A] group-hover:text-blue-700 transition-colors line-clamp-2 mb-2 cursor-pointer">
-                            {tender.category || tender.title || 'Untitled tender'}
-                          </h3>
-                        </Link>
+            // fallback key and details URL
+            const safeKey = tender.id ?? `${tender.bidNumber ?? 'unknown'}-${idx}`;
+            const detailsHref = tender.id ? `/tenders/${tender.id}` : '#';
 
-                        {/* Row: Bid number + Qty + optional urgent badge */}
-                        <div className="flex items-center gap-3 mb-2">
-                          <span className="bg-gray-100 text-gray-700 text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wide border border-gray-200">
-                            {tender.bidNumber || 'ID N/A'}
+            // click handler for the card (uses router to avoid wrapping a button in <a>)
+            const onCardClick = (e: React.MouseEvent) => {
+              // ignore clicks from interactive children (they should stopPropagation themselves)
+              // Only navigate when we have a valid tender id
+              if (!tender.id) {
+                e.preventDefault();
+                return;
+              }
+              void logUserEvent('TENDER_VIEWED', { tenderId: tender.id, source: 'card' });
+              router.push(detailsHref);
+            };
+
+            return (
+              <div key={safeKey} className="relative">
+                {/* card container */}
+                <div
+                  onClick={onCardClick}
+                  role={tender.id ? 'button' : undefined}
+                  tabIndex={tender.id ? 0 : undefined}
+                  className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow p-5 group cursor-pointer"
+                  onKeyDown={(e) => {
+                    if ((e as unknown as KeyboardEvent).key === 'Enter' && tender.id) {
+                      router.push(detailsHref);
+                    }
+                  }}
+                >
+                  <div className="flex flex-col md:flex-row justify-between gap-4 mb-4">
+                    {/* Left Info */}
+                    <div className="flex-1 pr-8">
+                      {/* Title — show `item` first as requested */}
+                      <h3
+                        className="text-lg font-bold text-[#0E121A] group-hover:text-blue-700 transition-colors line-clamp-2 mb-2"
+                        title={tender.item || tender.category || tender.title}
+                      >
+                        {tender.item || tender.category || tender.title || 'Untitled tender'}
+                      </h3>
+
+                      {/* Row: Bid number + Qty + optional urgent badge */}
+                      <div className="flex items-center gap-3 mb-2">
+                        <span className="bg-gray-100 text-gray-700 text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wide border border-gray-200">
+                          {tender.bidNumber || 'ID N/A'}
+                        </span>
+
+                        <span className="flex items-center gap-1 bg-gray-50 text-gray-600 text-[10px] font-bold px-2 py-1 rounded border border-gray-200">
+                          <FileText className="w-3 h-3" aria-hidden /> {tender.quantity ? `${tender.quantity} Qty` : 'Docs'}
+                        </span>
+
+                        {urgent && (
+                          <span className="flex items-center gap-1 bg-orange-50 text-orange-700 text-[10px] font-bold px-2 py-1 rounded border border-orange-100">
+                            <Clock className="w-3 h-3" aria-hidden /> {timeLeft}
                           </span>
-
-                          <span className="flex items-center gap-1 bg-gray-50 text-gray-600 text-[10px] font-bold px-2 py-1 rounded border border-gray-200">
-                            <FileText className="w-3 h-3" aria-hidden /> {tender.quantity ? `${tender.quantity} Qty` : 'Docs'}
-                          </span>
-
-                          {urgent && (
-                            <span className="flex items-center gap-1 bg-orange-50 text-orange-700 text-[10px] font-bold px-2 py-1 rounded border border-orange-100">
-                              <Clock className="w-3 h-3" aria-hidden /> {timeLeft}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Status pill — stacked below Bid/Qty (non-clickable visual only) */}
-                        <div className="mb-3">
-                          <span
-                            className={`inline-flex items-center text-[11px] font-semibold px-3 py-1 rounded max-w-max ${computeStatus.classes}`}
-                            title={computeStatus.text}
-                            aria-hidden
-                          >
-                            {computeStatus.text}
-                          </span>
-                        </div>
+                        )}
                       </div>
 
-                      {/* Right Info (EMD & Shortlist) */}
-                      <div className="flex flex-col items-end justify-between shrink-0 gap-3 min-w-[140px]">
-                        <div className="text-right">
-                          <p className="text-xs font-bold text-gray-500 uppercase mb-0.5">EMD Amount</p>
-                          <p className="text-base font-semibold text-[#0E121A]">
-                            {hasEmd ? formatCurrency(tender.emdAmount ?? 0) : 'N/A'}
-                          </p>
-                        </div>
+                      {/* Status pill */}
+                      <div className="mb-3">
+                        <span
+                          className={`inline-flex items-center text-[11px] font-semibold px-3 py-1 rounded max-w-max ${computeStatus.classes}`}
+                          title={computeStatus.text}
+                          aria-hidden
+                        >
+                          {computeStatus.text}
+                        </span>
+                      </div>
+                    </div>
 
-                        {/* Shortlist Button */}
-                        <button 
-                          onClick={(e) => void toggleShortlist(e, tender)}
-                          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg border text-xs font-bold transition-all justify-center ${tender.isShortlisted ? 'bg-yellow-50 border-[#F7C846] text-yellow-700' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+                    {/* Right Info (EMD, Reverse Auction badge moved here, & Shortlist) */}
+                    <div className="flex flex-col items-end justify-between shrink-0 gap-3 min-w-[160px]">
+                      {/* EMD */}
+                      <div className="text-right">
+                        <p className="text-xs font-bold text-gray-500 uppercase mb-0.5">EMD Amount</p>
+                        <p className="text-base font-semibold text-[#0E121A]">
+                          {hasEmd ? formatCurrency(tender.emdAmount ?? 0) : 'N/A'}
+                        </p>
+                      </div>
+
+                      {/* Row containing Reverse Auction badge (if any) and Shortlist button.
+                          We keep them together so Reverse Auction appears to the left of Shortlist. */}
+                      <div className="flex items-center gap-3">
+                        {/* Reverse Auction badge placed to the left of Shortlist */}
+                        {tender.reverseAuctionEnabled && (
+                          <div className="inline-flex items-center gap-1 px-3 py-2 text-[11px] font-semibold bg-blue-50 text-blue-700 rounded border border-blue-100">
+                            Reverse Auction
+                          </div>
+                        )}
+
+                        {/* Shortlist Button: stopPropagation so card click does not fire */}
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (!tender.id) {
+                              console.warn('Shortlist skipped: tender has no id', tender);
+                              return;
+                            }
+                            void toggleShortlist(e, tender);
+                          }}
+                          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg border text-xs font-bold transition-all justify-center ${
+                            tender.isShortlisted ? 'bg-yellow-50 border-[#F7C846] text-yellow-700' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                          }`}
                           aria-pressed={!!tender.isShortlisted}
                           aria-label={tender.isShortlisted ? 'Remove from shortlist' : 'Add to shortlist'}
                         >
@@ -718,53 +783,52 @@ function TendersContent() {
                         </button>
                       </div>
                     </div>
+                  </div>
 
-                    {/* Footer Info — unchanged */}
-                    <div className="border-t border-gray-100 pt-4 grid grid-cols-1 md:grid-cols-2 gap-y-3 gap-x-6">
-                      {/* Organization */}
-                      <div className="flex items-start gap-2.5">
-                        <div className="mt-0.5 w-5 h-5 rounded bg-blue-50 flex items-center justify-center shrink-0">
-                          <Building2 className="w-3 h-3 text-blue-600" aria-hidden />
+                  {/* Footer */}
+                  <div className="border-t border-gray-100 pt-4 grid grid-cols-1 md:grid-cols-2 gap-y-3 gap-x-6">
+                    {/* Organization */}
+                    <div className="flex items-start gap-2.5">
+                      <div className="mt-0.5 w-5 h-5 rounded bg-blue-50 flex items-center justify-center shrink-0">
+                        <Building2 className="w-3 h-3 text-blue-600" aria-hidden />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-gray-900 line-clamp-1">{tender.ministry || tender.authority || 'Unknown'}</p>
+                        <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5">
+                          {/* show department first, fallback to location */}
+                          {tender.department || tender.location || 'Location not specified'}
                         </div>
-                        <div>
-                          <p className="text-sm font-bold text-gray-900 line-clamp-1">{tender.ministry || tender.authority || 'Unknown'}</p>
-                          <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5">
-                            <MapPin className="w-3 h-3" aria-hidden />
-                            {tender.location || 'Location not specified'}
-                          </div>
+                      </div>
+                    </div>
+
+                    {/* Dates & metadata — wider area to avoid wrap */}
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="space-y-1 flex-1 min-w-[220px]">
+                        <div className="flex items-center gap-2 text-xs text-gray-500">
+                          <Calendar className="w-3 h-3" aria-hidden />
+                          Start: <span className="font-medium text-gray-700">{safeFormatDate(tender.publishedDate, 'date')}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-gray-500">
+                          <Clock className="w-3 h-3 text-red-500" aria-hidden />
+                          {/* make the end date non-wrapping */}
+                          End: <span className="font-bold text-gray-900 whitespace-nowrap">{safeFormatDate(tender.deadline, 'datetime')}</span>
                         </div>
                       </div>
 
-                      {/* Dates & Action */}
-                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2 text-xs text-gray-500">
-                            <Calendar className="w-3 h-3" aria-hidden />
-                            Start: <span className="font-medium text-gray-700">{tender.publishedDate ? new Date(tender.publishedDate).toLocaleDateString() : 'N/A'}</span>
+                      <div className="mt-2 flex items-center gap-3 text-xs text-gray-500 md:mt-0">
+                        {typeof tender.pageCount === 'number' && (
+                          <div className="flex items-center gap-1">
+                            <FileText className="w-3 h-3" aria-hidden />
+                            <span>{tender.pageCount} pages</span>
                           </div>
-                          <div className="flex items-center gap-2 text-xs text-gray-500">
-                            <Clock className="w-3 h-3 text-red-500" aria-hidden />
-                            End: <span className="font-bold text-gray-900">{tender.deadline ? new Date(tender.deadline).toLocaleString() : 'N/A'}</span>
-                          </div>
-                        </div>
-
-                        <Link 
-                          href={`/tenders/${tender.id}`}
-                          onClick={() =>
-                            void logUserEvent('TENDER_VIEWED', {
-                              tenderId: tender.id,
-                              source: 'button',
-                            })
-                          } 
-                          className="flex items-center justify-center gap-1 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold px-4 py-2 rounded-lg transition-colors border border-blue-100"
-                        >
-                          View Details <ChevronRight className="w-3 h-3" aria-hidden />
-                        </Link>
+                        )}
                       </div>
                     </div>
                   </div>
-                );
-              })}
+                </div>
+              </div>
+            );
+          })}
 
            </div>
         )}

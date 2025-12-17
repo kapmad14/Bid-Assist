@@ -9,6 +9,8 @@ python-dateutil
 streamlit
 requests
 sqlite-utils
+pypdf
+
 
 # New packages for GPT-based parser
 openai>=1.3.0

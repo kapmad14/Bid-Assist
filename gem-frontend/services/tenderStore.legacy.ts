@@ -1,9 +1,54 @@
 'use client';
 
-import { createClient } from '../lib/supabase-client';
+// NOTE: removed static import of createClient to avoid accidental server usage
 import { Tender, TenderStatus } from '../types';
 
-const supabase = createClient();
+/**
+ * Environment-aware Supabase client getter.
+ * - On browser: returns the browser singleton from lib/supabase-client
+ * - On server: dynamically imports the server helper from lib/supabase-server
+ *
+ * IMPORTANT: never call createClient() at module scope. Always call getSupabaseClient()
+ * inside functions (and `await` it there).
+ */
+
+let _browserClient: any = null;
+let _serverClient: any = null;
+
+async function getSupabaseClient() {
+  // Browser runtime — safe to call createBrowser client
+  if (typeof window !== 'undefined') {
+    if (_browserClient) return _browserClient;
+    const mod = await import('../lib/supabase-client');
+    if (!mod || typeof mod.createClient !== 'function') {
+      throw new Error('supabase-client module does not export createClient()');
+    }
+    _browserClient = mod.createClient();
+    return _browserClient;
+  }
+
+  // Server runtime — import the server helper dynamically
+  if (_serverClient) return _serverClient;
+  const mod = await import('../lib/supabase-server');
+
+  // Try a few common exported factory names (adapt if your file exports a different name)
+  if (mod && typeof mod.createServerSupabase === 'function') {
+    _serverClient = mod.createServerSupabase();
+    return _serverClient;
+  }
+  if (mod && typeof mod.createServerClient === 'function') {
+    _serverClient = mod.createServerClient();
+    return _serverClient;
+  }
+  if (mod && typeof mod.createClient === 'function') {
+    // fallback if server helper kept same name (not ideal)
+    _serverClient = mod.createClient();
+    return _serverClient;
+  }
+
+  throw new Error('No compatible server Supabase factory found in ../lib/supabase-server');
+}
+
 
 class TenderStore {
   // Local cache of shortlisted IDs (string form). Used for quick UI reads.
@@ -51,6 +96,7 @@ class TenderStore {
 
   // Insert a shortlist record server-side (throws on error)
   async addShortlistServer(userId: string, tenderId: number | string) {
+    const supabase = await getSupabaseClient();
     const payload = { user_id: userId, tender_id: Number(tenderId) };
     const { error } = await supabase.from('user_shortlists').insert(payload).maybeSingle();
     if (error) {
@@ -62,6 +108,7 @@ class TenderStore {
 
   // Remove a shortlist server-side (throws on error)
   async removeShortlistServer(userId: string, tenderId: number | string) {
+    const supabase = await getSupabaseClient();
     const { error } = await supabase
       .from('user_shortlists')
       .delete()
@@ -73,6 +120,7 @@ class TenderStore {
   // Fetch shortlist tender ids for the authenticated user from server
   async getShortlistedTenderIdsForUser(): Promise<number[]> {
     try {
+      const supabase = await getSupabaseClient();
       const userResp = await supabase.auth.getUser();
       const user = userResp?.data?.user;
       if (!user || !user.id) return [];
@@ -97,6 +145,7 @@ class TenderStore {
   // Call this after login or when you want to refresh the local cache
   async syncShortlistFromServer(): Promise<void> {
     try {
+      // No need to call getSupabaseClient() here — getShortlistedTenderIdsForUser will fetch it.
       const ids = await this.getShortlistedTenderIdsForUser();
       this.shortlistedIds = new Set(ids.map(String));
       this.saveShortlist();
@@ -112,7 +161,7 @@ class TenderStore {
   async toggleShortlist(id: string): Promise<{ persisted: boolean; reason?: string }> {
     if (!id) return { persisted: false, reason: 'invalid-id' };
 
-    // optimistic local flip
+    // optimistic local flip (no supabase call needed)
     try {
       if (this.shortlistedIds.has(id)) {
         this.shortlistedIds.delete(id);
@@ -128,6 +177,7 @@ class TenderStore {
 
     // Try server-side persistence
     try {
+      const supabase = await getSupabaseClient();
       const userResp = await supabase.auth.getUser();
       const user = userResp?.data?.user;
       if (!user || !user.id) {
@@ -173,6 +223,7 @@ class TenderStore {
    *******************************/
   async getRecommendedTenderIds(): Promise<number[]> {
     try {
+      const supabase = await getSupabaseClient();
       const userResp = await supabase.auth.getUser();
       const user = userResp?.data?.user;
       if (!user || !user.id) return [];
@@ -202,63 +253,64 @@ class TenderStore {
   /*******************************
    * Map DB row to UI Tender model
    *******************************/
-    private mapRowToTender(row: any): Tender {
+  private mapRowToTender(row: any): Tender {
     const now = new Date();
-
-    // Build date-only strings (YYYY-MM-DD) for published & end dates
-    const toDateOnlyString = (v: any): string | null => {
-      if (!v) return null;
-      try {
-        // Accept date, timestamp or string
-        const d = new Date(v);
-        if (Number.isNaN(d.getTime())) return null;
-        // produce YYYY-MM-DD
-        return d.toISOString().split('T')[0];
-      } catch {
-        return null;
-      }
-    };
-
-    const endDateOnly = toDateOnlyString(row?.end_datetime || row?.end_date || null);
-    const publishedDateOnly = toDateOnlyString(row?.bid_date || row?.start_datetime || row?.created_at || null);
+    const endDate = row?.bid_end_datetime ? new Date(row.bid_end_datetime) : null;
+    let status = TenderStatus.OPEN;
+    if (endDate && endDate < now) status = TenderStatus.CLOSED;
 
     const rowId = row?.id != null ? String(row.id) : undefined;
 
-    // quantity prefer integer quantity column, fallback to total_quantity
-    const quantityValue = row?.quantity ?? row?.total_quantity ?? null;
+    // publishedDate: primary from start_datetime (date-only), then bid_date, then created_at
+    // safer published date parsing (date-only YYYY-MM-DD) from start_datetime
+    const publishedDateFromStart = row?.start_datetime
+      ? (() => {
+          const d = new Date(row.start_datetime);
+          return Number.isNaN(d.getTime()) ? null : d.toISOString().split('T')[0];
+        })()
+      : null;
+
+    // safer deadline handling: do NOT default to now — return null when missing
+    const deadlineVal = row?.bid_end_datetime || row?.end_datetime || null;
+
+    // safer emdAmount coercion
+    const emdAmountVal = row?.emd_amount != null
+      ? (typeof row.emd_amount === 'number' ? row.emd_amount : (Number.isNaN(Number(row.emd_amount)) ? 0 : Number(row.emd_amount)))
+      : 0;
+
+    // safe quantity coercion
+    const quantityVal = row?.quantity != null ? String(row.quantity) : undefined;
 
     return {
       id: rowId,
-      // strictly use `item` for title/category as requested (no fallback to item_category)
-      item: row?.item || null,
-      // bid_number remains as-is
-      bid_number: row?.bid_number || row?.gem_bid_id || null,
-      // Date-only fields for UI list & status logic
-      published_date: publishedDateOnly,
-      end_date: endDateOnly,
-      // keep raw full timestamp too (in case detail page wants full time)
-      end_datetime: row?.end_datetime || null,
-      // quantity as string for display (keep null if not available)
-      quantity: quantityValue != null ? String(quantityValue) : null,
-      // mapping for org/department
-      ministry: row?.ministry ?? null,
-      department: row?.department ?? null,
-      // location in list should use department per your request; keep organization_name in _raw if needed
-      location: row?.department ?? null,
-      organization_name: row?.organization_name ?? null,
-      // PDF fields
-      pdf_public_url: row?.pdf_public_url ?? null,
-      pdf_uploaded: !!row?.pdf_uploaded,
-      pdf_storage_path: row?.pdf_storage_path ?? null,
-      downloaded_at: row?.downloaded_at ?? null,
-      scraped_at: row?.scraped_at ?? null,
-      // description and raw row
-      description: row?.item_description ?? row?.item ?? '',
-      // shortlist state
+      bidNumber: row?.bid_number || row?.gem_bid_id,
+      item: row?.item || row?.b_category_name || 'Untitled Tender',
+      authority: row?.organization_name || 'GeM Portal',
+      ministry: row?.buyer_ministry || row?.ministry,
+      department: row?.buyer_department || row?.department,
+      //description: row?.product_description || row?.item || 'No description available',
+      budget: row?.estimated_value ? `₹ ${row.estimated_value}` : 'Refer to Doc',
+      emdAmount: emdAmountVal,
+      deadline: deadlineVal,
+      status,
+      category: row?.item_category || row?.b_category_name || 'Goods',
+      location: `${row?.city || ''} ${row?.state || ''}`.trim() || row?.pincode || 'India',
+      //city: row?.city,
+      //state: row?.state,
+      pincode: row?.pincode,
+      publishedDate: publishedDateFromStart || row?.bid_date || row?.created_at || null,
+      sourceUrl: row?.detail_url || row?.source_url,
+      capturedAt: row?.captured_at,
+      isEnriched: !!row?.documents_extracted,
+      //pdfPath: row?.pdf_path,
+      pdfStoragePath: row?.pdf_storage_path || row?.pdf_path,
+      pdfPublicUrl: row?.pdf_public_url,
+      quantity: quantityVal,
       isShortlisted: rowId ? this.shortlistedIds.has(rowId) : false,
-      // raw for debugging
-      _raw: row,
-    } as unknown as Tender;
+      boqItems: row?.boq_items || [],
+      pageCount: row?.page_count ?? null,
+      reverseAuctionEnabled: !!row?.reverse_auction_enabled
+    } as Tender;
   }
 
 
@@ -270,13 +322,14 @@ class TenderStore {
     limit: number;
     search?: string;
     statusFilter?: 'all' | 'open' | 'urgent' | 'closed' | 'closing-soon' | 'shortlisted';
-    // EMD filters removed from UI — keep param optional but it will be ignored
-    emdFilter?: never;
+    emdFilter?: 'all' | 'yes' | 'no';
+    reverseAuction?: 'all' | 'yes' | 'no'; // <--- NEW
     sortBy?: 'newest' | 'oldest' | 'closing-soon' | 'closing-latest';
     recommendationsOnly?: boolean;
     source?: 'gem' | 'all';
   }): Promise<{ data: Tender[]; total: number; totalPages: number }> {
     try {
+      const supabase = await getSupabaseClient();
       // 1) recommendationsOnly branch (combined RPC)
       if (params.recommendationsOnly) {
         try {
@@ -385,88 +438,139 @@ class TenderStore {
       }
 
       // 3) Standard query
-      // Select explicit columns to make mapping predictable and avoid surprises from schema changes
-      let query: any = supabase.from('tenders').select(`
-        id,
-        gem_bid_id,
-        bid_number,
-        item,
-        item_category,
-        bid_date,
-        start_datetime,
-        end_datetime,
-        quantity,
-        total_quantity,
-        item_description,
-        item_description_tsv,
-        ministry,
-        department,
-        organization_name,
-        organization_address,
-        pincode,
-        pdf_public_url,
-        pdf_uploaded,
-        pdf_storage_path,
-        downloaded_at,
-        scraped_at,
-        created_at,
-        updated_at
-      `, { count: 'exact' });
+      let query: any = supabase.from('tenders').select('*', { count: 'exact' });
 
-      // Search: prefer full-text search using tsvector if available, otherwise fallback to ILIKE across common text fields.
+      // Search — use a safe whitelist of known columns to avoid "column ... does not exist" errors
+      // ---------- Replace existing search handling with this ----------
       if (params.search && params.search.trim()) {
         const term = params.search.trim();
+        const like = `%${term}%`;
 
-        // Attempt to use Postgres full-text search via filter 'fts' (works on some Supabase/PostgREST setups).
-        // If this operator is not available in your client/version it may cause an error; in that case fallback to ILIKE.
-        try {
-          query = query.filter('item_description_tsv', 'fts', term);
-        } catch (e) {
-          // Fallback to a broad ILIKE across likely fields
-          const like = `%${term}%`;
-          query = query.or(
-            [
-              `item.ilike.${like}`,
-              `gem_bid_id.ilike.${like}`,
-              `bid_number.ilike.${like}`,
-              `item_category.ilike.${like}`,
-              `ministry.ilike.${like}`,
-              `department.ilike.${like}`,
-              `organization_name.ilike.${like}`,
-              `organization_address.ilike.${like}`,
-              `pincode.ilike.${like}`,
-              `detail_url.ilike.${like}`
-            ].join(',')
-          );
+        // lightweight module-level cache on globalThis to avoid repeated info_schema queries
+        if (typeof (globalThis as any)._cachedTextColumns === 'undefined') {
+          (globalThis as any)._cachedTextColumns = null;
+        }
+
+        // populate cache once per process if empty
+        if (!(globalThis as any)._cachedTextColumns) {
+          try {
+            const { data: cols, error: colsErr } = await supabase
+              .from('information_schema.columns')
+              .select('column_name,data_type')
+              .eq('table_name', 'tenders');
+
+            if (!colsErr && Array.isArray(cols)) {
+              const textTypes = new Set(['character varying', 'varchar', 'text', 'character', 'tsvector']);
+              const textCols = cols
+                .filter((c: any) => c && c.column_name && textTypes.has((c.data_type || '').toLowerCase()))
+                .map((c: any) => String(c.column_name));
+
+              (globalThis as any)._cachedTextColumns = textCols.length > 0 ? textCols : null;
+            } else {
+              (globalThis as any)._cachedTextColumns = null;
+            }
+          } catch (e) {
+            console.warn('Failed to fetch tenders text columns from information_schema; will use fallback whitelist.', e);
+            (globalThis as any)._cachedTextColumns = null;
+          }
+        }
+
+        // Conservative fallback whitelist (only columns that exist in your table)
+        const fallbackCols = [
+          'gem_bid_id',
+          'detail_url',
+          'pdf_storage_path',
+          'pdf_sha256',
+          'pdf_public_url',
+          'bid_number',
+          'item_category',
+          'ministry',
+          'department',
+          'organization_name',
+          'organization_type',
+          'organization_address',
+          'pincode',
+          'bid_type',
+          'extraction_status',
+          'item_description',
+          'consignee_address',
+          'scrape_run_id',
+          'item',
+          'estimated_bid_value',
+          'turnover_requirement',
+          'oem_authorization_required',
+          'warranty_terms',
+          'payment_terms',
+          'delivery_terms',
+          'simple_extraction'
+        ];
+
+        // allowedCols = discovered text columns OR fallback if discovery failed
+        const allowedCols: string[] = (globalThis as any)._cachedTextColumns && Array.isArray((globalThis as any)._cachedTextColumns) && (globalThis as any)._cachedTextColumns.length > 0
+          ? (globalThis as any)._cachedTextColumns
+          : fallbackCols;
+
+        // Defensive sanitization: only allow simple lowercase underscore column names
+        const validColRegex = /^[a-z0-9_]+$/;
+        const sanitizedCols = allowedCols.filter((c) => typeof c === 'string' && validColRegex.test(c));
+
+        try { console.debug('Tender search will use columns:', sanitizedCols); } catch (e) {}
+
+        // Build .or() clauses only from sanitized columns
+        const orClauses = sanitizedCols.map(col => `${col}.ilike.${like}`);
+
+        if (orClauses.length > 0) {
+          try {
+            query = query.or(orClauses.join(','));
+          } catch (e) {
+            console.warn('Skipping search .or() due to invalid clauses or supabase error', e);
+            // continue without search filter
+          }
+        } else {
+          console.warn('No valid text columns found for tender search; skipping text search filter.');
         }
       }
+      // ---------- End replacement ----------
 
-      // Status filters (open/closed/urgent/closing-soon) mapped to end_datetime
+
+
+      // Status filters (open/closed/urgent)
       if (params.statusFilter === 'closed') {
-        query = query.lt('end_datetime', nowIso);
+        query = query.lt('bid_end_datetime', nowIso);
       } else if (params.statusFilter === 'open') {
-        query = query.or(`end_datetime.gte.${nowIso},end_datetime.is.null`);
+        query = query.or(`bid_end_datetime.gte.${nowIso},bid_end_datetime.is.null`);
       } else if (params.statusFilter === 'urgent' || params.statusFilter === 'closing-soon') {
         const nextWeek = new Date();
         nextWeek.setDate(nextWeek.getDate() + 7);
         query = query
-          .gte('end_datetime', nowIso)
-          .lte('end_datetime', nextWeek.toISOString());
+          .gte('bid_end_datetime', nowIso)
+          .lte('bid_end_datetime', nextWeek.toISOString());
       }
 
-      // EMD filters removed from UI; ignore params.emdFilter
+      // EMD filter (emd_amount_parsed → emd_amount)
+      if (params.emdFilter === 'yes') {
+        query = query.gt('emd_amount', 0);
+      } else if (params.emdFilter === 'no') {
+        query = query.or('emd_amount.is.null,emd_amount.eq.0');
+      }
+
+      // Reverse auction filter
+      if (params.reverseAuction === 'yes') {
+        query = query.eq('reverse_auction_enabled', true);
+      } else if (params.reverseAuction === 'no') {
+        query = query.eq('reverse_auction_enabled', false);
+      }
+      // else 'all' or undefined -> no additional filter
 
       // Sorting
       if (params.sortBy === 'closing-soon') {
-        query = query.order('end_datetime', { ascending: true, nullsFirst: false });
+        query = query.order('bid_end_datetime', { ascending: true, nullsFirst: false });
       } else if (params.sortBy === 'closing-latest') {
-        query = query.order('end_datetime', { ascending: false, nullsFirst: false });
+        query = query.order('bid_end_datetime', { ascending: false, nullsFirst: false });
       } else if (params.sortBy === 'oldest') {
-        // sort by published date preference: use bid_date then start_datetime then created_at
-        query = query.order('bid_date', { ascending: true, nullsFirst: true }).order('start_datetime', { ascending: true });
+        query = query.order('bid_date', { ascending: true });
       } else {
-        // newest
-        query = query.order('bid_date', { ascending: false, nullsFirst: false }).order('start_datetime', { ascending: false });
+        query = query.order('bid_date', { ascending: false });
       }
 
       // Pagination
@@ -475,9 +579,81 @@ class TenderStore {
       const { data, error, count } = await query.range(from, to);
 
       if (error) {
-        console.error('Supabase Error details:', JSON.stringify(error, null, 2));
-        throw new Error(`Supabase Error: ${error.message} (${error.code})`);
+        // Safely stringify objects (handles circular refs), but guard every step.
+        const getCircularReplacer = () => {
+          const seen = new WeakSet();
+          return (key: string, value: any) => {
+            if (typeof value === "object" && value !== null) {
+              if (seen.has(value)) return "[Circular]";
+              seen.add(value);
+            }
+            if (typeof value === "function" || typeof value === "symbol") return String(value);
+            return value;
+          };
+        };
+
+        // Defensive logging: never allow logging itself to throw.
+        try {
+          let safeStr: string | null = null;
+          try {
+            safeStr = JSON.stringify(error, getCircularReplacer(), 2);
+          } catch (stringifyErr) {
+            // If stringify fails, try a simple String() conversion
+            try {
+              safeStr = String(error);
+            } catch {
+              safeStr = null;
+            }
+          }
+
+          if (safeStr) {
+            try {
+              // Use a single string argument to reduce console formatting surprises
+              console.error(`Supabase Error details (safe): ${safeStr}`);
+            } catch (consoleErr) {
+              // swallow console errors — we don't want to break control flow
+              try { console.log('Supabase Error (logged fallback)'); } catch {}
+            }
+          } else {
+            try {
+              // Last-resort: attempt to print selected safe fields
+              const preview: any = {};
+              try { preview.message = (error && error.message) ? error.message : undefined; } catch {}
+              try { preview.code = (error && (error.code ?? error.status)) ? (error.code ?? error.status) : undefined; } catch {}
+              try { preview.details = (error && error.details) ? error.details : undefined; } catch {}
+              console.error('Supabase Error (preview):', preview);
+            } catch {
+              try { console.log('Supabase Error: <unserializable object>'); } catch {}
+            }
+          }
+        } catch {
+          // final no-op — absolutely no throws allowed from logging
+        }
+
+        // Defensive extraction for thrown message
+        let errMsg = 'Unknown Supabase error';
+        try {
+          if (error && (error.message || error.msg || error.error)) {
+            errMsg = error.message || error.msg || error.error;
+          } else {
+            errMsg = String(error);
+          }
+        } catch {
+          // fallback unchanged
+        }
+
+        let errCode = 'no-code';
+        try {
+          if (error && (error.code ?? error.status)) {
+            errCode = (error.code ?? error.status);
+          }
+        } catch {
+          // ignore
+        }
+
+        throw new Error(`Supabase Error: ${errMsg} (${errCode})`);
       }
+
 
       const mappedData = (data || []).map((row: any) => this.mapRowToTender(row));
       return {
@@ -501,6 +677,7 @@ class TenderStore {
 
   async getTenderById(id: string): Promise<Tender | undefined> {
     try {
+      const supabase = await getSupabaseClient();
       const { data, error } = await supabase
         .from('tenders')
         .select('*')
@@ -521,12 +698,14 @@ class TenderStore {
 
   async getStats() {
     try {
+      const supabase = await getSupabaseClient();
       const { count: total } = await supabase.from('tenders').select('*', { count: 'exact', head: true });
       const now = new Date().toISOString();
       const { count: active } = await supabase
         .from('tenders')
         .select('*', { count: 'exact', head: true })
-        .gte('end_datetime', now);
+        .or(`bid_end_datetime.gte.${now},bid_end_datetime.is.null`);
+
 
       return {
         total: total || 0,
@@ -541,8 +720,9 @@ class TenderStore {
 
   async updateTender(id: string, updates: Partial<Tender>) {
     try {
+      const supabase = await getSupabaseClient();
       const dbUpdates: any = {};
-      if (updates.description) dbUpdates.item_description = updates.description;
+      if (updates.description) dbUpdates.product_description = updates.description;
       if (updates.isEnriched !== undefined) dbUpdates.documents_extracted = updates.isEnriched;
 
       if (Object.keys(dbUpdates).length === 0) return;

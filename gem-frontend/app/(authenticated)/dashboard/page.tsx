@@ -34,7 +34,6 @@ const chartData = [
 
 export default function DashboardPage() {
   const router = useRouter();
-  const supabase = useMemo(() => createClient(), []);
 
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -54,6 +53,7 @@ export default function DashboardPage() {
     let mounted = true;
 
     const fetchData = async () => {
+      const supabase = createClient();
       setLoading(true);
       setError(null);
 
@@ -189,7 +189,7 @@ export default function DashboardPage() {
     return () => {
       mounted = false;
     };
-  }, [router, supabase]);
+  }, [router]);
 
   // ================== LOADING UI ====================
   if (loading) {

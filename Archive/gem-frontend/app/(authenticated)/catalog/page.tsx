@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase-client';
 import toast, { Toaster } from 'react-hot-toast';
 
@@ -16,8 +16,7 @@ interface CatalogItem {
 type ActionMode = 'none' | 'modify' | 'bulk-pause' | 'bulk-resume' | 'bulk-delete';
 
 export default function CatalogPage() {
-  const supabase = createClient();
-
+  const [supabaseClient, setSupabaseClient] = useState<any | null>(null);
   const [products, setProducts] = useState<CatalogItem[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
@@ -48,6 +47,25 @@ export default function CatalogPage() {
 
   const PAGE_SIZE = 10;
 
+  const mountedRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  // Lazily create the Supabase client only on the browser.
+  useEffect(() => {
+    // createClient() throws when run on server — so do this inside useEffect
+    try {
+      const c = createClient();
+      if (mountedRef.current) setSupabaseClient(c);
+    } catch (err) {
+      console.error('Failed to create supabase client in CatalogPage useEffect:', err);
+      // optionally show a toast if you want immediate feedback
+      // toast.error('Failed to initialize backend client');
+    }
+  }, []);
   // --- Helper: enqueue match jobs for one or more catalog items ---
     // --- Helper: enqueue match jobs for one or more catalog items ---
     // --- Helper: enqueue match jobs for one or more catalog items ---
@@ -57,8 +75,12 @@ export default function CatalogPage() {
   ) {
     if (!ids.length) return;
     try {
+      if (!supabaseClient) {
+        toast.error('Initializing client — try again in a moment');
+        return;
+      }
       // 👇 Get current session and access token from Supabase JS client
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      const { data: sessionData, error: sessionError } = await supabaseClient.auth.getSession();
       if (sessionError || !sessionData?.session?.access_token) {
         console.error('No access token available for match-jobs call:', sessionError);
         toast.error('Not authenticated for matching');
@@ -101,24 +123,37 @@ export default function CatalogPage() {
 
 
   useEffect(() => {
+    if (!supabaseClient) return;
     fetchProducts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, searchTerm]);
+  }, [currentPage, searchTerm, supabaseClient]);
+
 
   // Fetch products for a specific page (defaults to currentPage)
   async function fetchProducts(page: number = currentPage) {
     setLoading(true);
     try {
-      const { data } = await supabase.auth.getUser();
-      const user = data?.user;
-      console.log('Logged in user id:', user?.id);
-      if (!user) {
+      if (!supabaseClient) {
+        // If the client isn't ready yet, avoid making calls.
         setProducts([]);
         setLoading(false);
         return;
       }
 
-      let supabaseQuery = supabase
+      const { data } = await supabaseClient.auth.getUser();
+      if (!mountedRef.current) return;
+      const user = data?.user;
+      console.log('Logged in user id:', user?.id);
+      if (!user) {
+        if (mountedRef.current) {
+        setProducts([]);
+        setLoading(false);
+        }
+        return;
+      }
+
+      // build the query using the browser supabase client
+      let supabaseQuery = supabaseClient
         .from('catalog_items')
         .select('id, title, category, status, updated_at, user_id')
         .eq('user_id', user.id)
@@ -135,7 +170,7 @@ export default function CatalogPage() {
       supabaseQuery = supabaseQuery.range(from, to);
 
       const { data: productsData, error } = await supabaseQuery;
-
+      if (!mountedRef.current) return;
       console.log('Fetched catalog_items:', productsData, 'Error:', error);
 
       if (error) {
@@ -143,13 +178,16 @@ export default function CatalogPage() {
         setProducts([]);
         toast.error('Failed to load products');
       } else {
-        setProducts(productsData || []);
+        if (mountedRef.current) setProducts(productsData || []);
       }
     } catch (err) {
       console.error('fetchProducts exception:', err);
+      if (mountedRef.current) {
       setProducts([]);
       toast.error('Failed to load products');
+      }
     } finally {
+      if (!mountedRef.current) return;
       setLoading(false);
       // Reset selection whenever page/search changes so UI stays consistent
       setSelectedIds({});
@@ -158,21 +196,30 @@ export default function CatalogPage() {
     }
   }
 
+
   // ---------- ADD PRODUCT ----------
   async function handleAddProduct(e: React.FormEvent) {
     e.preventDefault();
     if (!newTitle.trim() || !newCategory.trim()) return;
     setAdding(true);
     try {
-      const { data } = await supabase.auth.getUser();
-      const user = data?.user;
-      if (!user) {
-        toast.error('Not authenticated');
+      if (!supabaseClient) {
+        toast.error('Initializing client — try again in a moment');
         setAdding(false);
         return;
       }
+      const { data } = await supabaseClient.auth.getUser();
+      if (!mountedRef.current) return;
+      const user = data?.user;
+      if (!user) {
+        if (mountedRef.current) {
+        toast.error('Not authenticated');
+        setAdding(false);
+        }
+        return;
+      }
 
-      const res = await supabase
+      const res = await supabaseClient
         .from('catalog_items')
         .insert([
           {
@@ -199,13 +246,15 @@ export default function CatalogPage() {
           enqueueMatchJobs('create', [newItem.id]);
         }
 
+        if (mountedRef.current) {
         setCurrentPage(1);
-        await fetchProducts(1);
+        await fetchProducts(1);}
       }
     } catch (err) {
       console.error('handleAddProduct exception:', err);
       toast.error('Failed to add product');
     } finally {
+      if (!mountedRef.current) return;
       setAdding(false);
       setShowAddModal(false);
       setNewTitle('');
@@ -238,15 +287,23 @@ export default function CatalogPage() {
     if (!editId) return;
     setEditing(true);
     try {
-      const { data } = await supabase.auth.getUser();
-      const user = data?.user;
-      if (!user) {
-        toast.error('Not authenticated');
+      if (!supabaseClient) {
+        toast.error('Initializing client — try again in a moment');
         setEditing(false);
         return;
       }
+      const { data } = await supabaseClient.auth.getUser();
+      if (!mountedRef.current) return;
+      const user = data?.user;
+      if (!user) {
+        if (mountedRef.current) {
+        toast.error('Not authenticated');
+        setEditing(false);
+        }
+        return;
+      }
 
-      const { error } = await supabase
+      const { error } = await supabaseClient
         .from('catalog_items')
         .update({
           title: editTitle.trim(),
@@ -265,13 +322,15 @@ export default function CatalogPage() {
 
         // enqueue an "update" match job for this item
         enqueueMatchJobs('update', [editId]);
-
+        if (mountedRef.current) {
         await fetchProducts(currentPage);
+        }
       }
     } catch (err) {
       console.error('handleSaveEdit exception:', err);
       toast.error('Failed to update product');
     } finally {
+      if (!mountedRef.current) return;
       setEditing(false);
       setShowEditModal(false);
       setEditId(null);
@@ -293,6 +352,7 @@ export default function CatalogPage() {
   }
 
   function clearSelectionMode() {
+    if (!mountedRef.current) return;
     setActionMode('none');
     setSelectedIds({});
     setSelectedRadioId(null);
@@ -310,17 +370,27 @@ export default function CatalogPage() {
       toast('No items selected', { icon: '⚠️' });
       return;
     }
+
     setProcessingBulk(true);
     try {
-      const { data } = await supabase.auth.getUser();
-      const user = data?.user;
-      if (!user) {
-        toast.error('Not authenticated');
+      if (!supabaseClient) {
+        toast.error('Initializing client — try again in a moment');
         setProcessingBulk(false);
         return;
       }
 
-      const { error } = await supabase
+      const { data } = await supabaseClient.auth.getUser();
+      if (!mountedRef.current) return;
+      const user = data?.user;
+      if (!user) {
+        if (mountedRef.current) {
+        toast.error('Not authenticated');
+        setProcessingBulk(false);
+        }
+        return;
+      }
+
+      const { error } = await supabaseClient
         .from('catalog_items')
         .update({ status, updated_at: new Date().toISOString() })
         .in('id', ids)
@@ -342,10 +412,12 @@ export default function CatalogPage() {
       console.error('applyPauseResume exception:', err);
       toast.error('Failed to update items');
     } finally {
+      if (!mountedRef.current) return;
       setProcessingBulk(false);
       clearSelectionMode();
     }
   }
+
 
   // Prepare delete: confirm first
   function prepareDeleteSelected() {
@@ -362,11 +434,19 @@ export default function CatalogPage() {
   async function performDeleteConfirmed() {
     setProcessingBulk(true);
     try {
-      const { data } = await supabase.auth.getUser();
+      if (!supabaseClient) {
+        toast.error('Initializing client — try again in a moment');
+        setProcessingBulk(false);
+        return;
+      }
+      const { data } = await supabaseClient.auth.getUser();
+      if (!mountedRef.current) return;
       const user = data?.user;
       if (!user) {
+        if (mountedRef.current) {
         toast.error('Not authenticated');
         setProcessingBulk(false);
+        }
         return;
       }
 
@@ -376,23 +456,26 @@ export default function CatalogPage() {
       await enqueueMatchJobs("delete", ids);
 
       // 👇 THEN: delete from catalog_items
-      const { error } = await supabase
+      const { error } = await supabaseClient
         .from('catalog_items')
         .delete()
         .in('id', ids)
         .eq('user_id', user.id);
 
       if (error) {
-        console.error("Delete error:", error);
-        toast.error("Failed to delete items");
+        if (mountedRef.current) toast.error("Failed to delete items");
       } else {
-        toast.success(`Deleted ${ids.length} item(s)`);
-        await fetchProducts(currentPage);
+        if (mountedRef.current) {
+          toast.success(`Deleted ${ids.length} item(s)`);
+          await fetchProducts(currentPage);
+        }
       }
+
     } catch (err) {
       console.error("performDeleteConfirmed exception:", err);
       toast.error("Failed to delete items");
     } finally {
+      if (!mountedRef.current) return;
       setProcessingBulk(false);
       setShowDeleteConfirm(false);
       setDeleteTargetIds([]);

@@ -15,37 +15,58 @@ export interface BoqItem {
 }
 
 export interface Tender {
-  id: string;              
-  title: string;           
-  authority: string;       
-  ministry?: string;       
-  department?: string;     
-  description: string;     
-  productDescription?: string; 
-  budget: string;          
-  emdAmount?: number;      
-  deadline: string;        
-  status: TenderStatus;
-  category: string;
-  location: string;
-  city?: string;           
-  state?: string;          
-  pincode?: string;        
-  publishedDate: string;   
-  quantity?: string;       
-  
-  sourceUrl?: string;      
-  bidNumber?: string;      
-  docId?: string;          
-  capturedAt?: string;     
-  isEnriched?: boolean;    
+  // may be missing for some rows (keep optional)
+  id?: string;
 
-  pdfPath?: string;        
-  pdfStoragePath?: string; 
-  pdfPublicUrl?: string;   
-  pdfSha256?: string;      
-  downloadedAt?: string;   
-  
+  // mapping guarantees an item string (fallback to 'Untitled Tender')
+  item: string;
+  title?: string;
+
+  // these are optional because mapping may fallback or return undefined
+  authority?: string;
+  ministry?: string | null;
+  department?: string | null;
+
+  description?: string;
+  productDescription?: string;
+
+  // budget may be null or missing
+  budget?: string | null;
+  emdAmount?: number;
+
+  // deadline can be null when not present in DB
+  deadline?: string | null;
+
+  // status is set by mapping
+  status: TenderStatus;
+
+  category?: string;
+  location?: string;
+  city?: string;
+  state?: string;
+  pincode?: string | null;
+
+  // publishedDate can be null if not available
+  publishedDate?: string | null;
+
+  // quantity may be null/undefined
+  quantity?: string | null;
+
+  pageCount?: number | null;
+  reverseAuctionEnabled?: boolean;
+
+  sourceUrl?: string;
+  bidNumber?: string;
+  docId?: string;
+  capturedAt?: string | null;
+  isEnriched?: boolean;
+
+  pdfPath?: string;
+  pdfStoragePath?: string;
+  pdfPublicUrl?: string;
+  pdfSha256?: string;
+  downloadedAt?: string;
+
   isShortlisted?: boolean;
   boqItems?: BoqItem[];
 }

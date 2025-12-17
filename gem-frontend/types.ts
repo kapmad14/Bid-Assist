@@ -14,41 +14,35 @@ export interface BoqItem {
   delivery_days: number;
 }
 
+// FILE: src/types.ts  (or wherever your project stores this)
 export interface Tender {
-  id: string;              
-  title: string;           
-  authority: string;       
-  ministry?: string;       
-  department?: string;     
-  description: string;     
-  productDescription?: string; 
-  budget: string;          
-  emdAmount?: number;      
-  deadline: string;        
-  status: TenderStatus;
-  category: string;
-  location: string;
-  city?: string;           
-  state?: string;          
-  pincode?: string;        
-  publishedDate: string;   
-  quantity?: string;       
-  
-  sourceUrl?: string;      
-  bidNumber?: string;      
-  docId?: string;          
-  capturedAt?: string;     
-  isEnriched?: boolean;    
+  id: number;
+  gemBidId: string;
+  bidNumber: string | null;
 
-  pdfPath?: string;        
-  pdfStoragePath?: string; 
-  pdfPublicUrl?: string;   
-  pdfSha256?: string;      
-  downloadedAt?: string;   
-  
+  title: string | null;            // maps from t.item
+  category: string | null;         // maps from item_category
+  quantity: number | null;
+
+  ministry: string | null;
+  department: string | null;
+  organizationName: string | null;
+
+  startDate: string | null;
+  endDate: string | null;
+
+  estimatedValue: number | null;
+  emdAmount: number | null;
+  reverseAuctionEnabled: boolean | null;
+
+  pageCount: number | null;
+  pdfPublicUrl: string | null;
+  pdfStoragePath: string | null;
+  documentsExtracted: boolean | null;
+
   isShortlisted?: boolean;
-  boqItems?: BoqItem[];
 }
+
 
 export interface TenderAnalysis {
   summary: string;

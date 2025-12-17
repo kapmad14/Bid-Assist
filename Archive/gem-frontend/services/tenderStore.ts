@@ -209,42 +209,59 @@ class TenderStore {
     if (endDate && endDate < now) status = TenderStatus.CLOSED;
 
     const rowId = row?.id != null ? String(row.id) : undefined;
+
+    // publishedDate: primary from start_datetime (date-only), then bid_date, then created_at
+    // safer published date parsing (date-only YYYY-MM-DD) from start_datetime
+    const publishedDateFromStart = row?.start_datetime
+      ? (() => {
+          const d = new Date(row.start_datetime);
+          return Number.isNaN(d.getTime()) ? null : d.toISOString().split('T')[0];
+        })()
+      : null;
+
+    // safer deadline handling: do NOT default to now — return null when missing
+    const deadlineVal = row?.bid_end_datetime || row?.end_datetime || null;
+
+    // safer emdAmount coercion
+    const emdAmountVal = row?.emd_amount != null
+      ? (typeof row.emd_amount === 'number' ? row.emd_amount : (Number.isNaN(Number(row.emd_amount)) ? 0 : Number(row.emd_amount)))
+      : 0;
+
+    // safe quantity coercion
+    const quantityVal = row?.quantity != null ? String(row.quantity) : undefined;
+
     return {
       id: rowId,
       bidNumber: row?.bid_number || row?.gem_bid_id,
-      title: row?.title || row?.b_category_name || 'Untitled Tender',
-      // organisation_name → organization_name
+      item: row?.item || row?.b_category_name || 'Untitled Tender',
       authority: row?.organization_name || 'GeM Portal',
       ministry: row?.buyer_ministry || row?.ministry,
       department: row?.buyer_department || row?.department,
-      description: row?.product_description || row?.title || 'No description available',
+      //description: row?.product_description || row?.item || 'No description available',
       budget: row?.estimated_value ? `₹ ${row.estimated_value}` : 'Refer to Doc',
-      // emd_amount_parsed → emd_amount (parsed as number if string)
-      emdAmount: row?.emd_amount != null
-        ? (typeof row.emd_amount === 'number' ? row.emd_amount : parseFloat(row.emd_amount))
-        : 0,
-      deadline: row?.bid_end_datetime || row?.final_end_date || new Date().toISOString(),
+      emdAmount: emdAmountVal,
+      deadline: deadlineVal,
       status,
-      // item_category → item_category
       category: row?.item_category || row?.b_category_name || 'Goods',
-      // city/state are not DB columns, but leaving them doesn’t break anything if undefined
       location: `${row?.city || ''} ${row?.state || ''}`.trim() || row?.pincode || 'India',
-      city: row?.city,
-      state: row?.state,
+      //city: row?.city,
+      //state: row?.state,
       pincode: row?.pincode,
-      publishedDate: row?.bid_date || row?.created_at,
+      publishedDate: publishedDateFromStart || row?.bid_date || row?.created_at || null,
       sourceUrl: row?.detail_url || row?.source_url,
       capturedAt: row?.captured_at,
       isEnriched: !!row?.documents_extracted,
-      pdfPath: row?.pdf_path,
-      pdfStoragePath: row?.pdf_storage_path,
+      //pdfPath: row?.pdf_path,
+      pdfStoragePath: row?.pdf_storage_path || row?.pdf_path,
       pdfPublicUrl: row?.pdf_public_url,
-      // total_quantity_parsed → total_quantity
-      quantity: row?.total_quantity?.toString(),
+      quantity: quantityVal,
       isShortlisted: rowId ? this.shortlistedIds.has(rowId) : false,
-      boqItems: row?.boq_items || []
+      boqItems: row?.boq_items || [],
+      pageCount: row?.page_count ?? null,
+      reverseAuctionEnabled: !!row?.reverse_auction_enabled
     } as Tender;
   }
+
 
   /**
    * Main listing method used by the UI.
@@ -255,6 +272,7 @@ class TenderStore {
     search?: string;
     statusFilter?: 'all' | 'open' | 'urgent' | 'closed' | 'closing-soon' | 'shortlisted';
     emdFilter?: 'all' | 'yes' | 'no';
+    reverseAuction?: 'all' | 'yes' | 'no'; // <--- NEW
     sortBy?: 'newest' | 'oldest' | 'closing-soon' | 'closing-latest';
     recommendationsOnly?: boolean;
     source?: 'gem' | 'all';
@@ -370,34 +388,99 @@ class TenderStore {
       // 3) Standard query
       let query: any = supabase.from('tenders').select('*', { count: 'exact' });
 
-      // Search (updated to only use existing columns, but still broad)
+      // Search — use a safe whitelist of known columns to avoid "column ... does not exist" errors
+      // ---------- Replace existing search handling with this ----------
       if (params.search && params.search.trim()) {
         const term = params.search.trim();
         const like = `%${term}%`;
 
-        // IMPORTANT: only columns that actually exist in your schema
-        query = query.or(
-          [
-            `title.ilike.${like}`,
-            `gem_bid_id.ilike.${like}`,
-            `bid_number.ilike.${like}`,
-            `item_category.ilike.${like}`,
-            `b_category_name.ilike.${like}`,
-            `buyer_ministry.ilike.${like}`,
-            `buyer_department.ilike.${like}`,
-            `ministry.ilike.${like}`,
-            `department.ilike.${like}`,
-            `organization_name.ilike.${like}`,
-            `organization_address.ilike.${like}`,
-            `pincode.ilike.${like}`,
-            `local_content_requirement.ilike.${like}`,
-            `payment_terms.ilike.${like}`,
-            `warranty_period.ilike.${like}`,
-            `past_performance.ilike.${like}`,
-            `detail_url.ilike.${like}`
-          ].join(',')
-        );
+        // lightweight module-level cache on globalThis to avoid repeated info_schema queries
+        if (typeof (globalThis as any)._cachedTextColumns === 'undefined') {
+          (globalThis as any)._cachedTextColumns = null;
+        }
+
+        // populate cache once per process if empty
+        if (!(globalThis as any)._cachedTextColumns) {
+          try {
+            const { data: cols, error: colsErr } = await supabase
+              .from('information_schema.columns')
+              .select('column_name,data_type')
+              .eq('table_name', 'tenders');
+
+            if (!colsErr && Array.isArray(cols)) {
+              const textTypes = new Set(['character varying', 'varchar', 'text', 'character', 'tsvector']);
+              const textCols = cols
+                .filter((c: any) => c && c.column_name && textTypes.has((c.data_type || '').toLowerCase()))
+                .map((c: any) => String(c.column_name));
+
+              (globalThis as any)._cachedTextColumns = textCols.length > 0 ? textCols : null;
+            } else {
+              (globalThis as any)._cachedTextColumns = null;
+            }
+          } catch (e) {
+            console.warn('Failed to fetch tenders text columns from information_schema; will use fallback whitelist.', e);
+            (globalThis as any)._cachedTextColumns = null;
+          }
+        }
+
+        // Conservative fallback whitelist (only columns that exist in your table)
+        const fallbackCols = [
+          'gem_bid_id',
+          'detail_url',
+          'pdf_storage_path',
+          'pdf_sha256',
+          'pdf_public_url',
+          'bid_number',
+          'item_category',
+          'ministry',
+          'department',
+          'organization_name',
+          'organization_type',
+          'organization_address',
+          'pincode',
+          'bid_type',
+          'extraction_status',
+          'item_description',
+          'consignee_address',
+          'scrape_run_id',
+          'item',
+          'estimated_bid_value',
+          'turnover_requirement',
+          'oem_authorization_required',
+          'warranty_terms',
+          'payment_terms',
+          'delivery_terms',
+          'simple_extraction'
+        ];
+
+        // allowedCols = discovered text columns OR fallback if discovery failed
+        const allowedCols: string[] = (globalThis as any)._cachedTextColumns && Array.isArray((globalThis as any)._cachedTextColumns) && (globalThis as any)._cachedTextColumns.length > 0
+          ? (globalThis as any)._cachedTextColumns
+          : fallbackCols;
+
+        // Defensive sanitization: only allow simple lowercase underscore column names
+        const validColRegex = /^[a-z0-9_]+$/;
+        const sanitizedCols = allowedCols.filter((c) => typeof c === 'string' && validColRegex.test(c));
+
+        try { console.debug('Tender search will use columns:', sanitizedCols); } catch (e) {}
+
+        // Build .or() clauses only from sanitized columns
+        const orClauses = sanitizedCols.map(col => `${col}.ilike.${like}`);
+
+        if (orClauses.length > 0) {
+          try {
+            query = query.or(orClauses.join(','));
+          } catch (e) {
+            console.warn('Skipping search .or() due to invalid clauses or supabase error', e);
+            // continue without search filter
+          }
+        } else {
+          console.warn('No valid text columns found for tender search; skipping text search filter.');
+        }
       }
+      // ---------- End replacement ----------
+
+
 
       // Status filters (open/closed/urgent)
       if (params.statusFilter === 'closed') {
@@ -419,6 +502,14 @@ class TenderStore {
         query = query.or('emd_amount.is.null,emd_amount.eq.0');
       }
 
+      // Reverse auction filter
+      if (params.reverseAuction === 'yes') {
+        query = query.eq('reverse_auction_enabled', true);
+      } else if (params.reverseAuction === 'no') {
+        query = query.eq('reverse_auction_enabled', false);
+      }
+      // else 'all' or undefined -> no additional filter
+
       // Sorting
       if (params.sortBy === 'closing-soon') {
         query = query.order('bid_end_datetime', { ascending: true, nullsFirst: false });
@@ -436,9 +527,81 @@ class TenderStore {
       const { data, error, count } = await query.range(from, to);
 
       if (error) {
-        console.error('Supabase Error details:', JSON.stringify(error, null, 2));
-        throw new Error(`Supabase Error: ${error.message} (${error.code})`);
+        // Safely stringify objects (handles circular refs), but guard every step.
+        const getCircularReplacer = () => {
+          const seen = new WeakSet();
+          return (key: string, value: any) => {
+            if (typeof value === "object" && value !== null) {
+              if (seen.has(value)) return "[Circular]";
+              seen.add(value);
+            }
+            if (typeof value === "function" || typeof value === "symbol") return String(value);
+            return value;
+          };
+        };
+
+        // Defensive logging: never allow logging itself to throw.
+        try {
+          let safeStr: string | null = null;
+          try {
+            safeStr = JSON.stringify(error, getCircularReplacer(), 2);
+          } catch (stringifyErr) {
+            // If stringify fails, try a simple String() conversion
+            try {
+              safeStr = String(error);
+            } catch {
+              safeStr = null;
+            }
+          }
+
+          if (safeStr) {
+            try {
+              // Use a single string argument to reduce console formatting surprises
+              console.error(`Supabase Error details (safe): ${safeStr}`);
+            } catch (consoleErr) {
+              // swallow console errors — we don't want to break control flow
+              try { console.log('Supabase Error (logged fallback)'); } catch {}
+            }
+          } else {
+            try {
+              // Last-resort: attempt to print selected safe fields
+              const preview: any = {};
+              try { preview.message = (error && error.message) ? error.message : undefined; } catch {}
+              try { preview.code = (error && (error.code ?? error.status)) ? (error.code ?? error.status) : undefined; } catch {}
+              try { preview.details = (error && error.details) ? error.details : undefined; } catch {}
+              console.error('Supabase Error (preview):', preview);
+            } catch {
+              try { console.log('Supabase Error: <unserializable object>'); } catch {}
+            }
+          }
+        } catch {
+          // final no-op — absolutely no throws allowed from logging
+        }
+
+        // Defensive extraction for thrown message
+        let errMsg = 'Unknown Supabase error';
+        try {
+          if (error && (error.message || error.msg || error.error)) {
+            errMsg = error.message || error.msg || error.error;
+          } else {
+            errMsg = String(error);
+          }
+        } catch {
+          // fallback unchanged
+        }
+
+        let errCode = 'no-code';
+        try {
+          if (error && (error.code ?? error.status)) {
+            errCode = (error.code ?? error.status);
+          }
+        } catch {
+          // ignore
+        }
+
+        throw new Error(`Supabase Error: ${errMsg} (${errCode})`);
       }
+
 
       const mappedData = (data || []).map((row: any) => this.mapRowToTender(row));
       return {
@@ -487,7 +650,8 @@ class TenderStore {
       const { count: active } = await supabase
         .from('tenders')
         .select('*', { count: 'exact', head: true })
-        .gte('bid_end_datetime', now);
+        .or(`bid_end_datetime.gte.${now},bid_end_datetime.is.null`);
+
 
       return {
         total: total || 0,
