@@ -1,10 +1,6 @@
-// app/(authenticated)/help/page.tsx
 'use client';
 
-export const dynamic = "force-dynamic";
-
-
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,8 +14,18 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase-client';
 
+// ⛔ Prevents static rendering errors
+export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+
 export default function HelpSupportPage() {
-  const supabase = createClient();
+  // ✅ Supabase client created ONLY in browser
+  const supabase = useMemo(() => {
+    if (typeof window !== 'undefined') {
+      return createClient();
+    }
+    return null;
+  }, []);
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -39,16 +45,21 @@ export default function HelpSupportPage() {
       return;
     }
 
+    if (!supabase) {
+      setErrorMsg('Supabase is not ready. Please refresh.');
+      return;
+    }
+
     setLoading(true);
     try {
-      // 🔑 Get logged-in user from Supabase Auth
+      // 🔑 Get logged-in user
       const { data: userData, error: userError } = await supabase.auth.getUser();
       if (userError) {
         console.error('Error fetching user:', userError);
       }
+
       const user_id = userData?.user?.id ?? null;
 
-      // If your DB has user_id NOT NULL, enforce this:
       if (!user_id) {
         setErrorMsg('You must be logged in to submit a support request.');
         setLoading(false);
@@ -68,21 +79,21 @@ export default function HelpSupportPage() {
         data = await res.json();
       } else {
         const text = await res.text();
-        console.error('Non-JSON response from /api/support:', text);
-        throw new Error('Server returned non-JSON response');
+        console.error('Non-JSON response:', text);
+        throw new Error('Invalid server response');
       }
 
       if (!res.ok || !data?.success) {
         setErrorMsg(data?.error || 'Failed to submit request');
       } else {
         setResultMsg('Support request submitted. We will get back to you shortly.');
-        // clear form
         setName('');
         setEmail('');
         setSubject('');
         setMessage('');
       }
     } catch (err: any) {
+      console.error(err);
       setErrorMsg(err?.message || 'Network error');
     } finally {
       setLoading(false);
@@ -94,7 +105,7 @@ export default function HelpSupportPage() {
       {/* Top bar */}
       <div className="bg-white border-b-2 border-gray-200 px-4 py-4 shadow-sm">
         <div className="container mx-auto flex items-center justify-between">
-          <h1 className="text-xl font-bold text-gray-900">Help &amp; Support</h1>
+          <h1 className="text-xl font-bold text-gray-900">Help & Support</h1>
         </div>
       </div>
 
@@ -127,14 +138,9 @@ export default function HelpSupportPage() {
                       <input
                         value={name}
                         onChange={(e) => setName(e.target.value)}
-                        name="name"
                         type="text"
                         placeholder="Your name"
-                        className="
-                          w-full rounded-lg border border-gray-300 bg-white px-3 py-2
-                          text-gray-900 shadow-sm focus:outline-none
-                          focus:ring-2 focus:ring-[#F7C846]
-                        "
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#F7C846]"
                       />
                     </div>
 
@@ -143,14 +149,9 @@ export default function HelpSupportPage() {
                       <input
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        name="email"
                         type="email"
                         placeholder="you@example.com"
-                        className="
-                          w-full rounded-lg border border-gray-300 bg-white px-3 py-2
-                          text-gray-900 shadow-sm focus:outline-none
-                          focus:ring-2 focus:ring-[#F7C846]
-                        "
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#F7C846]"
                       />
                     </div>
                   </div>
@@ -160,14 +161,9 @@ export default function HelpSupportPage() {
                     <input
                       value={subject}
                       onChange={(e) => setSubject(e.target.value)}
-                      name="subject"
                       type="text"
                       placeholder="Brief description of your issue"
-                      className="
-                        w-full rounded-lg border border-gray-300 bg-white px-3 py-2
-                        text-gray-900 shadow-sm focus:outline-none
-                        focus:ring-2 focus:ring-[#F7C846]
-                      "
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#F7C846]"
                     />
                   </div>
 
@@ -176,35 +172,21 @@ export default function HelpSupportPage() {
                     <textarea
                       value={message}
                       onChange={(e) => setMessage(e.target.value)}
-                      name="message"
                       rows={6}
-                      placeholder="Please describe your issue in detail. Include any relevant info."
-                      className="
-                        w-full rounded-lg border border-gray-300 bg-white px-3 py-2
-                        text-gray-900 shadow-sm focus:outline-none resize-none
-                        focus:ring-2 focus:ring-[#F7C846]
-                      "
+                      placeholder="Describe your issue in detail"
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 shadow-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#F7C846]"
                     />
                   </div>
 
-                  {errorMsg && (
-                    <div className="text-sm text-red-600 font-medium">
-                      {errorMsg}
-                    </div>
-                  )}
+                  {errorMsg && <div className="text-sm text-red-600 font-medium">{errorMsg}</div>}
                   {resultMsg && (
-                    <div className="text-sm text-green-600 font-medium">
-                      {resultMsg}
-                    </div>
+                    <div className="text-sm text-green-600 font-medium">{resultMsg}</div>
                   )}
 
                   <div className="flex justify-end">
                     <Button
                       type="submit"
-                      className="
-                        bg-[#F7C846] hover:bg-[#e5b53d] text-[#0E121A]
-                        font-bold rounded-full py-3 px-6 shadow-md shadow-gray-300/40
-                      "
+                      className="bg-[#F7C846] hover:bg-[#e5b53d] text-[#0E121A] font-bold rounded-full py-3 px-6 shadow-md shadow-gray-300/40"
                       disabled={loading}
                     >
                       {loading ? 'Submitting...' : 'Submit Request'}
@@ -214,7 +196,7 @@ export default function HelpSupportPage() {
               </CardContent>
             </Card>
 
-            {/* Remaining cards: Getting started, Troubleshooting, Common questions */}
+            {/* Remaining cards… unchanged */}
             <Card className="border-2 border-gray-200">
               <CardHeader>
                 <CardTitle className="text-base font-bold text-gray-900 flex items-center gap-2">
@@ -226,19 +208,20 @@ export default function HelpSupportPage() {
                 <div>
                   <p className="font-semibold">1. Viewing a tender</p>
                   <p className="text-gray-600 mt-1">
-                    Go to the <span className="font-semibold">Tenders</span> page, pick a row, and open it to see full details, attached bid document, and additional documents.
+                    Go to the <span className="font-semibold">Tenders</span> page and open a row to
+                    view details.
                   </p>
                 </div>
+
                 <div>
                   <p className="font-semibold">2. Shortlisting</p>
-                  <p className="text-gray-600 mt-1">
-                    Use the <span className="font-semibold">Shortlist</span> button to mark important bids.
-                  </p>
+                  <p className="text-gray-600 mt-1">Use Shortlist to mark important bids.</p>
                 </div>
+
                 <div>
                   <p className="font-semibold">3. Additional documents</p>
                   <p className="text-gray-600 mt-1">
-                    Click <span className="font-semibold">Preview Additional Docs</span> to fetch BOQs and annexures linked to the tender.
+                    Click “Preview Additional Docs” to fetch annexures.
                   </p>
                 </div>
               </CardContent>
@@ -254,23 +237,17 @@ export default function HelpSupportPage() {
               <CardContent className="space-y-4 text-sm text-gray-800">
                 <div>
                   <p className="font-semibold">Bid Document Preview is blank</p>
-                  <p className="text-gray-600 mt-1">
-                    This typically means the PDF has not finished syncing yet.
-                  </p>
+                  <p className="text-gray-600 mt-1">The PDF may still be syncing.</p>
                 </div>
 
                 <div>
                   <p className="font-semibold">No Additional Docs found</p>
-                  <p className="text-gray-600 mt-1">
-                    Some tenders do not expose annexures/BOQs as separate links.
-                  </p>
+                  <p className="text-gray-600 mt-1">Some tenders do not expose annexures.</p>
                 </div>
 
                 <div>
                   <p className="font-semibold">Extracted fields look wrong</p>
-                  <p className="text-gray-600 mt-1">
-                    AI parsing can miss items inside complex BOQs. Always verify in the PDF.
-                  </p>
+                  <p className="text-gray-600 mt-1">Always verify in the original PDF.</p>
                 </div>
               </CardContent>
             </Card>
@@ -285,16 +262,12 @@ export default function HelpSupportPage() {
               <CardContent className="space-y-4 text-sm text-gray-800">
                 <div>
                   <p className="font-semibold">Is this linked to my GeM account?</p>
-                  <p className="text-gray-600 mt-1">
-                    No — this tool reads public tender documents; it does not log in or bid.
-                  </p>
+                  <p className="text-gray-600 mt-1">No — this reads public documents.</p>
                 </div>
 
                 <div>
                   <p className="font-semibold">Can I rely only on the AI summary?</p>
-                  <p className="text-gray-600 mt-1">
-                    AI summaries save time, but you must review the official GeM PDF.
-                  </p>
+                  <p className="text-gray-600 mt-1">Always verify the official PDF.</p>
                 </div>
               </CardContent>
             </Card>
@@ -302,52 +275,40 @@ export default function HelpSupportPage() {
 
           {/* Right column */}
           <div className="space-y-4">
-            {/* Tips card */}
             <Card className="border-2 border-gray-200">
               <CardHeader>
-                <CardTitle className="text-base font-bold text-gray-900">Tips for better use</CardTitle>
+                <CardTitle className="text-base font-bold text-gray-900">
+                  Tips for better use
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-sm text-gray-800">
                 <ul className="list-disc list-inside space-y-1 text-gray-600">
                   <li>Always open the GeM link before taking action.</li>
-                  <li>Verify quantities and delivery locations in the PDF.</li>
-                  <li>Use Shortlist to avoid noise.</li>
+                  <li>Verify quantities and locations in the PDF.</li>
+                  <li>Use Shortlist to reduce noise.</li>
                 </ul>
-                <Button
-                  variant="ghost"
-                  className="px-0 text-sm font-semibold text-blue-600 hover:text-blue-700 hover:bg-transparent"
-                >
-                  Read detailed guide
-                  <ArrowRight className="h-4 w-4 ml-1" />
-                </Button>
               </CardContent>
             </Card>
 
-            {/* Quick Links */}
             <Card className="border-2 border-gray-200">
               <CardHeader>
                 <CardTitle className="text-base font-bold text-gray-900">Quick links</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-sm text-gray-800">
-                <div className="space-y-2">
-                  <a
-                    className="block text-blue-600 font-medium hover:underline"
-                    href="mailto:support@example.com"
-                  >
-                    <Mail className="inline h-4 w-4 mr-2 align-text-bottom" />
-                    Email support
-                  </a>
+                <a className="block text-blue-600 font-medium hover:underline" href="mailto:support@example.com">
+                  <Mail className="inline h-4 w-4 mr-2" />
+                  Email support
+                </a>
 
-                  <a
-                    className="block text-blue-600 font-medium hover:underline"
-                    href="https://wa.me/000000000000"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <MessageCircle className="inline h-4 w-4 mr-2 align-text-bottom" />
-                    Chat on WhatsApp
-                  </a>
-                </div>
+                <a
+                  className="block text-blue-600 font-medium hover:underline"
+                  href="https://wa.me/000000000000"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <MessageCircle className="inline h-4 w-4 mr-2" />
+                  Chat on WhatsApp
+                </a>
               </CardContent>
             </Card>
           </div>
