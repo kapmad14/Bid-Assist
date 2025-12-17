@@ -1,6 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
+
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-client';
@@ -8,8 +11,13 @@ import { Loader2, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 
 export default function SignupPage() {
   const router = useRouter();
-  const supabase = createClient();
-  
+
+  // ✅ Prevent Supabase from initializing on server
+  const supabase = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    return createClient();
+  }, []);
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -23,6 +31,8 @@ export default function SignupPage() {
     e.preventDefault();
     setLoading(true);
     setError(null);
+
+    if (!supabase) return;
 
     if (password !== confirmPassword) {
       setError('Passwords do not match');
@@ -54,6 +64,8 @@ export default function SignupPage() {
   };
 
   const handleGoogleSignup = async () => {
+    if (!supabase) return;
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
@@ -66,6 +78,7 @@ export default function SignupPage() {
     }
   };
 
+  // SUCCESS SCREEN
   if (success) {
     return (
       <div className="fixed inset-0 bg-[#0E121A] flex items-center justify-center p-4 z-50">
@@ -93,6 +106,7 @@ export default function SignupPage() {
     <div className="fixed inset-0 bg-[#0E121A] flex items-center justify-center p-4 z-50 overflow-y-auto">
       <div className="w-full max-w-md my-8">
         <div className="bg-white rounded-[32px] p-8 shadow-2xl">
+
           {/* Header */}
           <div className="mb-8 text-center">
             <div className="inline-flex items-center justify-center w-16 h-16 bg-[#F7C846] rounded-2xl mb-4">
@@ -112,9 +126,7 @@ export default function SignupPage() {
           {/* Signup Form */}
           <form onSubmit={handleEmailSignup} className="space-y-5">
             <div>
-              <label className="block text-sm font-semibold text-[#0E121A] mb-2">
-                Email address
-              </label>
+              <label className="block text-sm font-semibold text-[#0E121A] mb-2">Email address</label>
               <input
                 type="email"
                 value={email}
@@ -126,9 +138,7 @@ export default function SignupPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-[#0E121A] mb-2">
-                Password
-              </label>
+              <label className="block text-sm font-semibold text-[#0E121A] mb-2">Password</label>
               <div className="relative">
                 <input
                   type={showPassword ? 'text' : 'password'}
@@ -146,7 +156,6 @@ export default function SignupPage() {
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
-              <p className="text-xs text-gray-500 mt-1.5">Minimum 6 characters</p>
             </div>
 
             <div>
