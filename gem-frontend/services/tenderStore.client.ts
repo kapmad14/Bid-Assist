@@ -156,7 +156,7 @@ class TenderClientStore {
 
         if (!error && data) {
         this.shortlistedIds = new Set(
-            data.map(r => String(r.tender_id))
+            data.map((r: any) => String(r.tender_id))
         );
         this.saveLocal();
         }
