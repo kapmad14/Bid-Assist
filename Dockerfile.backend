@@ -17,7 +17,7 @@ RUN npm run build
 
 # ---------- 2. Runtime stage ----------
 # Use Playwright's official Python image so browsers and required OS deps are present.
-FROM mcr.microsoft.com/playwright/python:latest AS runner
+FROM mcr.microsoft.com/playwright/python:v1.55.0-jammy AS runner
 
 # Install minimal utilities + Node 20 so we can run the built Node app in this image.
 # (Playwright image already includes Python and browsers.)

@@ -653,7 +653,7 @@ def scrape_and_stream(target_date: datetime.date):
     ensure_supabase_env()
 
     with sync_playwright() as p, open(ndjson_path, "a", encoding="utf-8") as ndjson_f:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
         page = browser.new_page()
         try:
             page.set_extra_http_headers({"User-Agent": USER_AGENT})
