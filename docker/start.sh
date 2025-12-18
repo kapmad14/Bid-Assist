@@ -3,9 +3,10 @@
 # Robust startup for Render / container runtime
 # - Starts node backend
 # - Starts parse_supabase_bids.py (background) if present
-# - Starts matcher loop (background) if present
-# - Starts daily scraper script if gem-scraper exists
-# - Tails logs at the end so container stays alive and Render displays logs
+# - Starts matcher loop (background)
+# - Starts daily scraper (if gem-scraper exists)
+# - Starts daily backfill at 07:00 IST
+# - Tails logs so container stays alive
 
 set -o pipefail
 
@@ -15,7 +16,6 @@ DOCKER_SCRIPTS_DIR="${APP_DIR}/docker"
 
 mkdir -p "${LOG_DIR}"
 
-# helper for logging with timestamp
 log() {
   echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') $*"
 }
@@ -23,32 +23,27 @@ log() {
 log "=== STARTUP: $(date -u) ==="
 cd "${APP_DIR}" || log "WARNING: could not cd to ${APP_DIR}"
 
-# ---------- 1) Start node backend ----------
+# ---------- 1) Node backend ----------
 if [ -f "${APP_DIR}/dist/index.js" ]; then
   log "=== starting node backend ==="
   node dist/index.js >> "${LOG_DIR}/node.log" 2>&1 &
 else
   log "WARNING: node dist/index.js not found; skipping node start" >> "${LOG_DIR}/node.log"
 fi
-
 sleep 0.2
 
-# ---------- 2) parse_supabase_bids.py (optional) ----------
+# ---------- 2) parse_supabase_bids.py ----------
 if [ -f "${APP_DIR}/parse_supabase_bids.py" ]; then
-  log "=== starting /app/parse_supabase_bids.py (background) ==="
-  # run in background and restart on failure? current script appears to be a loop; keep it simple
+  log "=== starting parse_supabase_bids.py ==="
   python3 "${APP_DIR}/parse_supabase_bids.py" >> "${LOG_DIR}/parser_loop.log" 2>&1 &
 else
-  log "NOTICE: /app/parse_supabase_bids.py not found; skipping parser_loop" >> "${LOG_DIR}/parser_loop.log"
+  log "NOTICE: parse_supabase_bids.py not found; skipping" >> "${LOG_DIR}/parser_loop.log"
 fi
-
 sleep 0.2
 
 # ---------- 3) worker_matcher.py loop ----------
-# Prefer direct file if present; otherwise fall back to docker helper script if it exists.
 if [ -f "${APP_DIR}/worker_matcher.py" ]; then
-  log "=== starting worker_matcher.py (loop) ==="
-  # run in background as a simple loop wrapper that ensures it restarts after non-zero exit
+  log "=== starting worker_matcher.py loop ==="
   (
     while true; do
       log "=== $(date -u) Starting worker_matcher.py ===" >> "${LOG_DIR}/matcher_worker.log"
@@ -58,41 +53,55 @@ if [ -f "${APP_DIR}/worker_matcher.py" ]; then
     done
   ) &
 elif [ -x "${DOCKER_SCRIPTS_DIR}/run_matcher_loop.sh" ]; then
-  log "=== starting ${DOCKER_SCRIPTS_DIR}/run_matcher_loop.sh ==="
+  log "=== starting run_matcher_loop.sh ==="
   bash "${DOCKER_SCRIPTS_DIR}/run_matcher_loop.sh" >> "${LOG_DIR}/matcher_worker.log" 2>&1 &
 else
-  log "NOTICE: worker_matcher.py and run_matcher_loop.sh not found; skipping matcher." >> "${LOG_DIR}/matcher_worker.log"
+  log "NOTICE: no matcher detected; skipping" >> "${LOG_DIR}/matcher_worker.log"
 fi
-
 sleep 0.2
 
-# ---------- 4) daily scraper (gem-scraper) ----------
-# Your old script attempted `cd /app/gem-scraper` and failed.
-# Only launch the docker wrapper if the directory actually exists.
+# ---------- 4) Daily GeM scraper ----------
 if [ -d "${APP_DIR}/gem-scraper" ]; then
   if [ -x "${DOCKER_SCRIPTS_DIR}/run_daily_gem_scraper.sh" ]; then
-    log "=== starting ${DOCKER_SCRIPTS_DIR}/run_daily_gem_scraper.sh ==="
+    log "=== starting daily gem scraper ==="
     bash "${DOCKER_SCRIPTS_DIR}/run_daily_gem_scraper.sh" >> "${LOG_DIR}/daily_scraper.log" 2>&1 &
   else
-    # try to run a plausible script inside gem-scraper if present (fall-back)
-    if [ -x "${APP_DIR}/gem-scraper/run.sh" ]; then
-      log "=== starting /app/gem-scraper/run.sh ==="
-      bash "${APP_DIR}/gem-scraper/run.sh" >> "${LOG_DIR}/daily_scraper.log" 2>&1 &
-    else
-      log "NOTICE: docker wrapper run_daily_gem_scraper.sh not executable and no gem-scraper/run.sh found; skipping daily scraper" >> "${LOG_DIR}/daily_scraper.log"
-    fi
+    log "NOTICE: run_daily_gem_scraper.sh missing; skipping" >> "${LOG_DIR}/daily_scraper.log"
   fi
 else
-  log "NOTICE: /app/gem-scraper directory not found; skipping daily scraper" >> "${LOG_DIR}/daily_scraper.log"
+  log "NOTICE: gem-scraper directory missing; skipping" >> "${LOG_DIR}/daily_scraper.log"
 fi
+sleep 0.2
 
+# ---------- 5) Daily Backfill (07:00 IST = 01:30 UTC) ----------
+log "=== starting daily backfill loop (07:00 IST) ==="
+
+(
+  BF_LOG="${LOG_DIR}/backfill_loop.log"
+  while true; do
+      NOW_UTC=$(date -u +%s)
+      TARGET_UTC=$(date -u -d "today 01:30" +%s)
+
+      # If 01:30 UTC has passed, schedule for tomorrow
+      if [ "$TARGET_UTC" -le "$NOW_UTC" ]; then
+          TARGET_UTC=$(date -u -d "tomorrow 01:30" +%s)
+      fi
+
+      SLEEP_SECS=$(( TARGET_UTC - NOW_UTC ))
+
+      echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) ⏳ Backfill sleeping $SLEEP_SECS sec until 07:00 IST" >> "$BF_LOG"
+      sleep "$SLEEP_SECS"
+
+      echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) ▶ Starting daily backfill" >> "$BF_LOG"
+
+      python3 backfill_tenders_from_storage.py >> "$BF_LOG" 2>&1 \
+        || echo "$(date -u) ❌ Backfill returned non-zero" >> "$BF_LOG"
+  done
+) &
 sleep 0.2
 
 log "=== background processes started ==="
-# show short process list once
 ps -eo pid,etime,cmd --sort=pid | sed -n '1,200p'
 
 log "=== tailing logs (${LOG_DIR}/*.log) ==="
-# Tail logs so that the container stays alive and Render surfaces logs in the console.
-# Use -F so tail follows recreated files.
 tail -F "${LOG_DIR}"/*.log

@@ -36,3 +36,13 @@ services:
       SUPABASE_URL: ${SUPABASE_URL}
       SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
     restart: unless-stopped
+
+  daily_backfill:
+    build: .
+    command: ["/app/docker/run_daily_backfill.sh"]
+    volumes:
+      - ./:/app
+      - ./logs:/app/logs
+    env_file: .env
+    restart: unless-stopped
+
