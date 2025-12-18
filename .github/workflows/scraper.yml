@@ -11,80 +11,110 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout repository
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    # -----------------------------
+    # 1. Checkout repo
+    # -----------------------------
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      # 2. Set up Python
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
+    # -----------------------------
+    # 2. Prepare environment
+    # -----------------------------
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
 
-      # 3. Install dependencies
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
 
-      # 4. Install Playwright browsers
-      - name: Install Playwright browsers
-        run: python -m playwright install --with-deps
+    - name: Install Playwright browsers
+      run: python -m playwright install --with-deps
 
-      # 5. Run scraper and capture logs
-      - name: Run GeM scraper
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_BUCKET_NAME: gem-pdfs
-          LOG_LEVEL: INFO
-        run: |
-          python gem-scraper/daily_gem_pdf_scraper.py > scraper.log 2>&1 || true
+    - name: Create necessary folders
+      run: |
+        mkdir -p gem-scraper/daily_data
+        mkdir -p gem-scraper/daily_data/failures
 
-      # 6. Upload success JSON to Supabase
-      - name: Upload success JSON to Supabase
-        if: success()  # only if the scraper ran without crashing
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: |
-          JSON_FILE=$(ls gem-scraper/daily_data/*.json | head -n 1 || true)
-          if [ -n "$JSON_FILE" ]; then
-            FILE_NAME=$(basename "$JSON_FILE")
-            curl -X POST \
-              "${SUPABASE_URL}/storage/v1/object/daily_meta/${FILE_NAME}" \
-              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-              -H "Content-Type: application/json" \
-              --data-binary @"$JSON_FILE"
-          fi
+    # -----------------------------
+    # 3. Run scraper
+    # -----------------------------
+    - name: Run GeM scraper
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        SUPABASE_BUCKET_NAME: gem-pdfs
+        LOG_LEVEL: INFO
+      run: |
+        echo "Starting scraper..."
+        python gem-scraper/daily_gem_pdf_scraper.py > scraper.log 2>&1
+        echo "Scraper finished with exit code $?."
 
-      # 7. Upload failure HTML + PNG snapshots (only on failure)
-      - name: Upload failure snapshots to Supabase
-        if: failure()
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: |
-          for FILE in gem-scraper/daily_data/failures/*; do
-            [ -e "$FILE" ] || continue
-            NAME=$(basename "$FILE")
-            curl -X POST \
-              "${SUPABASE_URL}/storage/v1/object/failures/${NAME}" \
-              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-              -H "Content-Type: application/octet-stream" \
-              --data-binary @"$FILE"
-          done
+    # -----------------------------
+    # 4. Upload scraper.log as GitHub Artifact (for debugging)
+    # -----------------------------
+    - name: Upload scraper.log as artifact
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: scraper-log
+        path: scraper.log
 
-      # 8. Upload scraper log (always)
-      - name: Upload scraper log to Supabase
-        if: always()
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: |
-          LOG_NAME="scraper-$(date +'%Y-%m-%d').log"
+    # -----------------------------
+    # 5. Upload success JSON (if file exists)
+    # -----------------------------
+    - name: Upload success JSON to Supabase
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      run: |
+        JSON_FILE=$(ls gem-scraper/daily_data/*.json 2>/dev/null | head -n 1 || true)
+        if [ -n "$JSON_FILE" ]; then
+          FILE_NAME=$(basename "$JSON_FILE")
+          echo "Uploading $FILE_NAME to Supabase..."
           curl -X POST \
-            "${SUPABASE_URL}/storage/v1/object/logs/${LOG_NAME}" \
+            "${SUPABASE_URL}/storage/v1/object/daily_meta/${FILE_NAME}" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -H "Content-Type: text/plain" \
-            --data-binary @"scraper.log"
+            -H "Content-Type: application/json" \
+            --data-binary @"$JSON_FILE"
+        else
+          echo "No success JSON found. Skipping upload."
+        fi
+
+    # -----------------------------
+    # 6. Upload failure snapshots (if any exist)
+    # -----------------------------
+    - name: Upload failure snapshots to Supabase
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      run: |
+        shopt -s nullglob
+        for FILE in gem-scraper/daily_data/failures/*; do
+          NAME=$(basename "$FILE")
+          echo "Uploading failure snapshot $NAME..."
+          curl -X POST \
+            "${SUPABASE_URL}/storage/v1/object/failures/${NAME}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary @"$FILE"
+        done
+
+    # -----------------------------
+    # 7. Upload scraper.log to Supabase
+    # -----------------------------
+    - name: Upload scraper log to Supabase
+      if: always()
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      run: |
+        LOG_NAME="scraper-$(date +'%Y-%m-%d_%H-%M-%S').log"
+        echo "Uploading scraper.log as ${LOG_NAME}..."
+        curl -X POST \
+          "${SUPABASE_URL}/storage/v1/object/logs/${LOG_NAME}" \
+          -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+          -H "Content-Type: text/plain" \
+          --data-binary @"scraper.log"
