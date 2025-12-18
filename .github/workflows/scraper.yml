@@ -2,7 +2,7 @@ name: Run Daily GeM Scraper
 
 on:
   schedule:
-    # Runs every day at 19:00 UTC = 00:30 IST
+    # Runs every day at 19:00 UTC = 00:30 IST for sure
     - cron: "0 19 * * *"
   workflow_dispatch:
 
