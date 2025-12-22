@@ -832,7 +832,7 @@ function TendersContentInner() {
                       <div className="text-right">
                         <p className="text-xs font-bold text-gray-500 uppercase mb-0.5">EMD Amount</p>
                         <p className="text-base font-semibold text-[#0E121A]">
-                          {hasEmd ? formatCurrency(tender.emdAmount ?? 0) : 'N/A'}
+                          {hasEmd ? formatCurrency(tender.emdAmount ?? 0) : 'Not Required'}
                         </p>
                       </div>
 

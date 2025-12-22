@@ -223,7 +223,7 @@ export default function TenderDetailPage() {
 
 
   const formatCurrency = (amount?: string | number | null) => {
-    if (amount === null || amount === undefined || amount === '') return 'N/A';
+    if (amount === null || amount === undefined || amount === '') return 'Not Required';
     const num = typeof amount === 'number' ? amount : parseFloat(String(amount));
     if (Number.isNaN(num)) return 'N/A';
     return new Intl.NumberFormat('en-IN', {
