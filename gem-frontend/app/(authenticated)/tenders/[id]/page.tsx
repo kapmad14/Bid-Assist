@@ -97,7 +97,7 @@ export default function TenderDetailPage() {
   const [urlsExtracted, setUrlsExtracted] = useState(false);
   const [extractedDocs, setExtractedDocs] = useState<ExtractedDocument[]>([]);
   const [clickedDocs, setClickedDocs] = useState<Set<string>>(new Set());
-  const [docsCollapsed, setDocsCollapsed] = useState(false);
+  const [docsCollapsed, setDocsCollapsed] = useState(true);
 
   // Shortlist state (client-side, optimistic)
   const [isShortlisted, setIsShortlisted] = useState<boolean>(false);
@@ -199,6 +199,17 @@ export default function TenderDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenderIdParam, supabase]);
 
+  // Auto-load additional documents on page load
+  useEffect(() => {
+    if (!tender?.id) return;
+
+    // Prevent duplicate fetches
+    if (urlsExtracted || isExtracting) return;
+
+    handlePreviewAdditionalDocs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tender?.id]);
+
   const formatDate = (dateString?: string | null, opts: "date" | "datetime" = "datetime") => {
     if (!dateString) return "N/A";
     const d = new Date(dateString);
@@ -283,6 +294,20 @@ export default function TenderDetailPage() {
     }
   };
 
+const getFilePriority = (fileType: string): number => {
+  const type = fileType.toLowerCase();
+
+  if (type === 'pdf') return 1;
+
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(type)) return 2;
+
+  if (['doc', 'docx', 'txt'].includes(type)) return 3;
+
+  if (['xls', 'xlsx', 'csv'].includes(type)) return 4;
+
+  return 5;
+};
+
 const handlePreviewAdditionalDocs = async () => {
   if (!tender?.id) return;
 
@@ -322,14 +347,19 @@ const handlePreviewAdditionalDocs = async () => {
         }),
       );
 
-      setExtractedDocs(formattedDocs);
+      const sortedDocs = [...formattedDocs].sort((a, b) => {
+        const pA = getFilePriority(a.fileType);
+        const pB = getFilePriority(b.fileType);
+
+        if (pA !== pB) return pA - pB;
+
+        // secondary: stable alphabetical sort
+        return a.filename.localeCompare(b.filename);
+      });
+      setExtractedDocs(sortedDocs);
+
       setUrlsExtracted(true);
 
-      setTimeout(() => {
-        document
-          .getElementById('documents-section')
-          ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 300);
     } else {
       console.error('Unexpected API response:', data);
     }
@@ -510,58 +540,8 @@ const handlePreviewAdditionalDocs = async () => {
                       </span>
                     </button>
                   </div>
-
               </CardContent>
             </Card>
-
-            {/* Actions Card */}
-            <Card className="border-2 border-gray-200">
-              <CardHeader>
-                <CardTitle className="text-base font-bold text-gray-900">
-                  Actions
-                </CardTitle>
-                {urlsExtracted && (
-                  <p className="text-xs text-green-600 font-semibold mt-1">
-                    {extractedDocs.length} additional document
-                    {extractedDocs.length !== 1 ? 's' : ''} found
-                  </p>
-                )}
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <Button
-                  className="
-                    w-full 
-                    bg-[#F7C846] hover:bg-[#e5b53d]
-                    text-[#0E121A] font-bold
-                    rounded-full
-                    py-4 
-                    shadow-md shadow-gray-300/50
-                    disabled:bg-gray-300 disabled:cursor-not-allowed
-                  "
-                  onClick={handlePreviewAdditionalDocs}
-                  disabled={isExtracting || urlsExtracted}
-                >
-                  {isExtracting && (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  )}
-                  Preview Additional Docs
-                </Button>
-
-                <Button
-                  className="
-                    w-full
-                    bg-black hover:bg-neutral-900
-                    !text-white font-bold
-                    rounded-full
-                    py-4
-                    shadow-md shadow-gray-300/50
-                  "
-                >
-                  Analyze Tender with AI
-                </Button>
-              </CardContent>
-            </Card>
-
           </div>
 
           {/* Right Column - Documents + Preview */}
@@ -569,7 +549,27 @@ const handlePreviewAdditionalDocs = async () => {
             {/* Additional Documents List */}
             {extractedDocs.length > 0 && (
               <Card id="documents-section" className="border-2 border-gray-200">
-                <CardHeader className="border-b">
+                <CardHeader
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setDocsCollapsed(prev => !prev)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setDocsCollapsed(prev => !prev);
+                    }
+                  }}
+                  className="
+                    border-b
+                    cursor-pointer
+                    select-none
+                    transition-colors
+                    hover:bg-gray-50
+                    focus:outline-none
+                    focus:ring-2
+                    focus:ring-blue-500
+                  "
+                >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <CardTitle className="text-base font-bold text-gray-900">
@@ -581,22 +581,35 @@ const handlePreviewAdditionalDocs = async () => {
                       </Badge>
                     </div>
 
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setDocsCollapsed(prev => !prev)}
-                      className="text-xs font-semibold"
-                    >
-                      {docsCollapsed ? 'Expand' : 'Collapse'}
-                    </Button>
+                    <span className="text-xs font-semibold text-gray-600">
+                      {docsCollapsed ? 'Click to see all Docs' : 'Click to hide Docs'}
+                    </span>
                   </div>
                 </CardHeader>
+
                 {!docsCollapsed && (
                 <CardContent className="p-4 space-y-3">
                   {extractedDocs.map(doc => (
                     <div
                       key={doc.id}
-                      className="flex items-center justify-between p-3 border-2 border-gray-200 rounded-lg bg-white hover:bg-gray-50 transition-colors"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => handleDocumentAction(doc.id, doc.storageUrl, doc.fileType)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          handleDocumentAction(doc.id, doc.storageUrl, doc.fileType);
+                        }
+                      }}
+                      className={`
+                        flex items-center justify-between p-3
+                        border-2 border-gray-200 rounded-lg
+                        bg-white transition-all
+                        cursor-pointer
+                        hover:bg-gray-50 hover:border-gray-300
+                        focus:outline-none focus:ring-2 focus:ring-blue-500
+                        ${selectedDocUrl === doc.storageUrl ? 'ring-2 ring-blue-500' : ''}
+                      `}
                     >
                       <div className="flex items-center gap-3">
                         {getFileIcon(doc.fileType)}
@@ -615,46 +628,14 @@ const handlePreviewAdditionalDocs = async () => {
                       <div className="flex gap-2">
                         <Button
                           variant="ghost"
-                          onClick={() => handleDownload(doc.storageUrl)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDownload(doc.storageUrl);
+                          }}
                           className="font-semibold"
                           aria-label={`Download ${doc.filename}`}
                         >
                           <Download className="h-4 w-4" aria-hidden />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          onClick={() =>
-                            handleDocumentAction(
-                              doc.id,
-                              doc.storageUrl,
-                              doc.fileType,
-                            )
-                          }
-                          className={`font-semibold ${
-                            clickedDocs.has(doc.id)
-                              ? 'text-gray-400'
-                              : 'text-blue-600'
-                          }`}
-                          aria-label={
-                            canPreview(doc.fileType)
-                              ? `Preview ${doc.filename}`
-                              : `Open ${doc.filename}`
-                          }
-                        >
-                          {canPreview(doc.fileType) ? (
-                            <>
-                              <Eye className="h-4 w-4 mr-1" aria-hidden />
-                              Preview
-                            </>
-                          ) : (
-                            <>
-                              <ExternalLink
-                                className="h-4 w-4 mr-1"
-                                aria-hidden
-                              />
-                              Open
-                            </>
-                          )}
                         </Button>
                       </div>
                     </div>
