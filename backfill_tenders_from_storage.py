@@ -476,7 +476,11 @@ def main():
         root_logger.error('Run JSON is not an object')
         sys.exit(2)
     bids = run_json.get('bids')
-    scraped_at = run_json.get('scraped_at') or run_json.get('scrapedAt')
+    scraped_at = (
+    run_json.get('scraped_at_utc')
+    or run_json.get('scraped_at')
+    or run_json.get('scrapedAt')
+    )
     if not isinstance(bids, list) or not bids:
         root_logger.error('Run JSON missing bids array or it is empty')
         sys.exit(2)

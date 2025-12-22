@@ -96,7 +96,6 @@ export default function TenderDetailPage() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [urlsExtracted, setUrlsExtracted] = useState(false);
   const [extractedDocs, setExtractedDocs] = useState<ExtractedDocument[]>([]);
-  const [extractionLogs, setExtractionLogs] = useState<string[]>([]);
   const [clickedDocs, setClickedDocs] = useState<Set<string>>(new Set());
 
   // Shortlist state (client-side, optimistic)
@@ -283,83 +282,63 @@ export default function TenderDetailPage() {
     }
   };
 
-  const handlePreviewAdditionalDocs = async () => {
-    if (!tender?.id) return;
-    setIsExtracting(true);
-    setExtractionLogs(['Starting URL extraction...']);
+const handlePreviewAdditionalDocs = async () => {
+  if (!tender?.id) return;
 
-    try {
-    const response = await fetch(`/api/extract-documents`, {
+  setIsExtracting(true);
+
+  try {
+    const response = await fetch(`/api/tender-documents`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tenderId: tender.id }),
     });
 
-
-      if (!response.ok) {
-        const txt = await response.text().catch(() => 'Non-JSON error');
-        setExtractionLogs(prev => [
-          ...prev,
-          `Extraction API error: ${response.status} ${txt}`,
-        ]);
-        setIsExtracting(false);
-        return;
-      }
-
-      let data: any;
-      try {
-        data = await response.json();
-      } catch {
-        setExtractionLogs(prev => [
-          ...prev,
-          'Invalid JSON from extraction API',
-        ]);
-        setIsExtracting(false);
-        return;
-      }
-
-      if (data?.success) {
-        setExtractionLogs(prev => [...prev, ...(data.logs || [])]);
-
-        const formattedDocs = (data.documents || []).map(
-          (doc: any, idx: number) =>
-            ({
-              id: String(doc.order ?? idx),
-              filename: doc.filename || `document-${idx + 1}`,
-              fileSize: doc.size ? String(doc.size) : 'N/A',
-              fileType:
-                (doc.filename || '')
-                  .split('.')
-                  .pop()
-                  ?.toLowerCase() || 'unknown',
-              storageUrl: doc.url ? encodeURI(String(doc.url)) : '',
-              extractedAt: new Date().toISOString(),
-            }) as ExtractedDocument,
-        );
-
-        setExtractedDocs(formattedDocs);
-        setUrlsExtracted(true);
-
-        setTimeout(() => {
-          document
-            .getElementById('documents-section')
-            ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }, 500);
-      } else {
-        setExtractionLogs(prev => [
-          ...prev,
-          `Error: ${data?.error || 'Unknown error'}`,
-        ]);
-      }
-    } catch (error: any) {
-      setExtractionLogs(prev => [
-        ...prev,
-        `Network error: ${error?.message || error}`,
-      ]);
-    } finally {
-      if (mountedRef.current) setIsExtracting(false);
+    if (!response.ok) {
+      console.error(
+        'Tender documents API error:',
+        response.status,
+        await response.text().catch(() => 'Non-JSON error'),
+      );
+      return;
     }
-  };
+
+    const data = await response.json();
+
+    if (data?.success) {
+      const formattedDocs = (data.documents || []).map(
+        (doc: any, idx: number) => ({
+          id: String(doc.order_index ?? idx),
+          filename: doc.filename || `document-${idx + 1}`,
+          fileSize: 'N/A',
+          fileType:
+            (doc.filename || '')
+              .split('.')
+              .pop()
+              ?.toLowerCase() || 'unknown',
+          storageUrl: doc.url ? encodeURI(String(doc.url)) : '',
+          extractedAt: new Date().toISOString(),
+        }),
+      );
+
+      setExtractedDocs(formattedDocs);
+      setUrlsExtracted(true);
+
+      setTimeout(() => {
+        document
+          .getElementById('documents-section')
+          ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 300);
+    } else {
+      console.error('Unexpected API response:', data);
+    }
+  } catch (error) {
+    console.error('Network error while fetching tender documents:', error);
+  } finally {
+    setIsExtracting(false);
+  }
+};
+
 
   const canPreview = (fileType: string): boolean => {
     const previewableTypes = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'];
@@ -594,123 +573,6 @@ export default function TenderDetailPage() {
               </CardContent>
             </Card>
 
-            {/* BoQ Items Placeholder Card */}
-            {/* BoQ Items Placeholder Card */}
-            {/* BoQ Items Card */}
-            <Card className="border-2 border-gray-200">
-              <CardHeader>
-                <CardTitle className="text-base font-bold text-gray-900">
-                  BoQ Items
-                </CardTitle>
-                <p className="text-xs text-gray-600 mt-1">
-                  Bill of Quantities from this tender.
-                </p>
-              </CardHeader>
-
-              <CardContent className="space-y-2 text-sm">
-                {(() => {
-                  let boqArray: any[] | null = null;
-
-                  if (tender.boq_items) {
-                    try {
-                      // Handle both JSON string and already-parsed JSON
-                      boqArray =
-                        typeof tender.boq_items === 'string'
-                          ? JSON.parse(tender.boq_items)
-                          : tender.boq_items;
-                    } catch (err) {
-                      console.error('BoQ parse failed:', err);
-                    }
-                  }
-
-                  if (!boqArray || boqArray.length === 0) {
-                    return (
-                      <p className="text-gray-500">
-                        BoQ items are not available for this tender yet.
-                      </p>
-                    );
-                  }
-
-                  return (
-                    <div className="space-y-3">
-                      {boqArray.slice(0, 5).map((item: any, i: number) => (
-                        <div
-                          key={i}
-                          className="p-3 border border-gray-200 rounded-xl bg-white"
-                        >
-                          <p className="font-bold text-sm text-gray-900">
-                            {item.item_title || `Item ${i + 1}`}
-                          </p>
-
-                          {item.category && (
-                            <p className="text-[10px] font-semibold text-blue-700 mt-1">
-                              {item.category}
-                            </p>
-                          )}
-
-                          {item.quantity && (
-                            <p className="text-xs text-gray-600">
-                              Qty: {item.quantity} {item.unit || ''}
-                            </p>
-                          )}
-
-                          {item.delivery_days && (
-                            <p className="text-xs text-gray-600">
-                              Delivery: {item.delivery_days} days
-                            </p>
-                          )}
-
-                          {item.specifications && (
-                            <p className="text-xs text-gray-500 mt-1 line-clamp-2">
-                              {item.specifications}
-                            </p>
-                          )}
-                        </div>
-                      ))}
-
-                      {boqArray.length > 5 && (
-                        <p className="text-xs font-medium text-blue-600">
-                          +{boqArray.length - 5} more items…
-                        </p>
-                      )}
-                    </div>
-                  );
-                })()}
-              </CardContent>
-            </Card>
-
-            {/* Extraction Logs */}
-            {extractionLogs.length > 0 && (
-              <Card className="border-2 border-gray-200">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-base font-bold text-gray-900">
-                      Extraction Logs
-                    </CardTitle>
-                    <Button
-                      variant="ghost"
-                      onClick={() => setExtractionLogs([])}
-                      className="font-semibold text-xs px-2 py-1"
-                      aria-label="Clear extraction logs"
-                    >
-                      Clear extraction logs
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div
-                    className="bg-gray-900 text-green-400 p-3 rounded text-xs font-mono max-h-48 overflow-y-auto"
-                    aria-live="polite"
-                  >
-                    {extractionLogs.map((log, idx) => (
-                      <div key={idx} className="mb-1">
-                        {`> ${log}`}
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
           </div>
 
           {/* Right Column - Documents + Preview */}
@@ -738,7 +600,10 @@ export default function TenderDetailPage() {
                       <div className="flex items-center gap-3">
                         {getFileIcon(doc.fileType)}
                         <div>
-                          <p className="font-bold text-sm text-gray-900">
+                          <p
+                            className="font-bold text-sm text-gray-900 truncate max-w-[480px]"
+                            title={doc.filename}
+                          >
                             {doc.filename}
                           </p>
                           <p className="text-xs text-gray-600 font-medium">
@@ -786,7 +651,7 @@ export default function TenderDetailPage() {
                                 className="h-4 w-4 mr-1"
                                 aria-hidden
                               />
-                              Visit Link
+                              Open
                             </>
                           )}
                         </Button>
