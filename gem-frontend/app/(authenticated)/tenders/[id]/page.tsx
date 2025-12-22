@@ -97,6 +97,7 @@ export default function TenderDetailPage() {
   const [urlsExtracted, setUrlsExtracted] = useState(false);
   const [extractedDocs, setExtractedDocs] = useState<ExtractedDocument[]>([]);
   const [clickedDocs, setClickedDocs] = useState<Set<string>>(new Set());
+  const [docsCollapsed, setDocsCollapsed] = useState(false);
 
   // Shortlist state (client-side, optimistic)
   const [isShortlisted, setIsShortlisted] = useState<boolean>(false);
@@ -570,15 +571,27 @@ const handlePreviewAdditionalDocs = async () => {
               <Card id="documents-section" className="border-2 border-gray-200">
                 <CardHeader className="border-b">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-base font-bold text-gray-900">
-                      Additional Documents
-                    </CardTitle>
-                    <Badge variant="success" className="text-xs font-semibold">
-                      {extractedDocs.length} document
-                      {extractedDocs.length !== 1 ? 's' : ''}
-                    </Badge>
+                    <div className="flex items-center gap-3">
+                      <CardTitle className="text-base font-bold text-gray-900">
+                        Additional Documents
+                      </CardTitle>
+                      <Badge variant="success" className="text-xs font-semibold">
+                        {extractedDocs.length} document
+                        {extractedDocs.length !== 1 ? 's' : ''}
+                      </Badge>
+                    </div>
+
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setDocsCollapsed(prev => !prev)}
+                      className="text-xs font-semibold"
+                    >
+                      {docsCollapsed ? 'Expand' : 'Collapse'}
+                    </Button>
                   </div>
                 </CardHeader>
+                {!docsCollapsed && (
                 <CardContent className="p-4 space-y-3">
                   {extractedDocs.map(doc => (
                     <div
@@ -647,6 +660,7 @@ const handlePreviewAdditionalDocs = async () => {
                     </div>
                   ))}
                 </CardContent>
+                )}
               </Card>
             )}
 
