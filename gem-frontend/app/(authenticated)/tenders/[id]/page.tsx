@@ -470,30 +470,18 @@ const handlePreviewAdditionalDocs = async () => {
                     {tender.item || 'N/A'}
                   </p>
                 </div>
-                <div>
-                  <p className="text-xs text-gray-600 font-semibold">
-                    EMD Amount
-                  </p>
-                  <p className="font-bold text-sm text-gray-900">
-                    {formatCurrency(tender.emd_amount)}
-                  </p>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-gray-600 font-semibold">
-                      Consignee Address
-                    </p>
-                    <p className="font-bold text-sm text-gray-900">
-                      {tender.city && tender.state
-                        ? `${tender.city}, ${tender.state}${
-                            tender.pincode ? ' - ' + tender.pincode : ''
-                          }`
-                        : tender.pincode || 'N/A'}
-                    </p>
-                  </div>
+                  <div className="flex items-start justify-between gap-4">
+                    {/* EMD */}
+                    <div>
+                      <p className="text-xs text-gray-600 font-semibold">
+                        EMD Amount
+                      </p>
+                      <p className="font-bold text-sm text-gray-900">
+                        {formatCurrency(tender.emd_amount)}
+                      </p>
+                    </div>
 
-                  {/* Shortlist toggle */}
-                  <div className="ml-4 self-end">
+                    {/* Shortlist */}
                     <button
                       onClick={handleShortlistToggle}
                       aria-pressed={isShortlisted}
@@ -502,7 +490,7 @@ const handlePreviewAdditionalDocs = async () => {
                           ? 'Remove from shortlist'
                           : 'Add to shortlist'
                       }
-                      className={`flex items-center gap-1.5 px-4 py-2 rounded-lg border text-xs font-bold transition-all justify-center ${
+                      className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold transition-all h-fit ${
                         isShortlisted
                           ? 'bg-yellow-50 border-[#F7C846] text-yellow-700'
                           : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
@@ -516,12 +504,12 @@ const handlePreviewAdditionalDocs = async () => {
                         }`}
                         aria-hidden
                       />
-                      <span className="ml-1">
+                      <span>
                         {isShortlisted ? 'Shortlisted' : 'Shortlist'}
                       </span>
                     </button>
                   </div>
-                </div>
+
               </CardContent>
             </Card>
 
