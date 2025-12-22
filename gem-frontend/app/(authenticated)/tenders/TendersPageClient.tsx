@@ -25,7 +25,7 @@ import { Tender } from '@/types';
 import { useRouter } from 'next/navigation';
 
 type SortOption = 'newest' | 'oldest' | 'closing-soon' | 'closing-latest';
-type TabOption = 'All' | 'Active' | 'Closing Soon' | 'Shortlisted' | 'Archived';
+type TabOption = 'Active' | 'Closing Soon' | 'Shortlisted';
 
 // Simple hover tooltip icon
 const InfoTooltip = ({ text }: { text: string }) => (
@@ -183,11 +183,11 @@ function TendersContentInner() {
 
     try {
       // Map tabs to status filters expected by the store
-      let statusFilter: 'all' | 'open' | 'urgent' | 'closed' | 'closing-soon' | 'shortlisted' = 'all';
+      let statusFilter: 'open' | 'closing-soon' | 'shortlisted';
+      
       if (activeTab === 'Active') statusFilter = 'open';
-      if (activeTab === 'Archived') statusFilter = 'closed';
-      if (activeTab === 'Closing Soon') statusFilter = 'closing-soon';
-      if (activeTab === 'Shortlisted') statusFilter = 'shortlisted';
+      else if (activeTab === 'Closing Soon') statusFilter = 'closing-soon';
+      else statusFilter = 'shortlisted';
 
       const { data, total } = await tenderClientStore.getTenders({
         page: currentPage,
@@ -591,7 +591,7 @@ function TendersContentInner() {
            {/* Tabs */}
            <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0" role="tablist" aria-label="Tender tabs">
               <div className="flex bg-gray-100 p-1 rounded-lg whitespace-nowrap">
-                 {['Active', 'Closing Soon', 'Shortlisted', 'All', 'Archived'].map((tab) => (
+                 {['Active', 'Closing Soon', 'Shortlisted'].map((tab) => (
                    <button 
                       key={tab}
                       onClick={() => handleSetActiveTab(tab as TabOption)}
@@ -701,11 +701,13 @@ function TendersContentInner() {
            <div className="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">
               <Database className="w-12 h-12 text-gray-300 mx-auto mb-4" aria-hidden />
               <h3 className="text-lg font-bold text-gray-900">No tenders found</h3>
-              <p className="text-gray-500">
+                <p className="text-gray-500">
                 {recommendedOnly
-                  ? "No recommended tenders found for your account."
-                  : (activeTab !== 'All' ? `No ${activeTab.toLowerCase()} tenders found matching your criteria.` : "Check your database connection or filters.")}
-              </p>
+                    ? "No recommended tenders found for your account."
+                    : activeTab === 'Closing Soon'
+                    ? "No tenders closing soon match your criteria."
+                    : `No ${activeTab.toLowerCase()} tenders found matching your criteria.`}
+                </p>
               {debugError && (
                 <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded text-left text-xs text-red-700 font-mono overflow-auto max-w-lg mx-auto">
                    <strong>Debug Error:</strong> {debugError}
