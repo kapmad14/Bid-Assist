@@ -261,6 +261,28 @@ export default function TenderDetailPage() {
     return diffDays <= 7 ? 'Closing Soon' : 'Active';
   };
 
+  const getBidTypePill = (bidType?: unknown) => {
+    if (!bidType || typeof bidType !== 'string') return null;
+
+    const normalized = bidType.toLowerCase();
+
+    if (normalized.includes('two')) {
+      return {
+        text: 'Two Packet Bid',
+        classes: 'bg-purple-50 text-purple-700 border border-purple-100',
+      };
+    }
+
+    if (normalized.includes('single')) {
+      return {
+        text: 'Single Packet Bid',
+        classes: 'bg-blue-50 text-blue-700 border border-blue-100',
+      };
+    }
+
+    return null;
+  };
+
 
   const handleShortlistToggle = async () => {
     if (!tender?.id || shortlistPendingRef.current) return;
@@ -462,18 +484,19 @@ const handlePreviewAdditionalDocs = async () => {
                       Tender Details
                     </CardTitle>
                   </div>
-                  <Badge
-                    variant={
-                      status === 'Closed'
-                        ? 'destructive'
-                        : status === 'Closing Soon'
-                          ? 'warning'
-                          : 'success'
-                    }
-                    className="font-semibold"
-                  >
-                    {status}
-                  </Badge>
+                    <span
+                      className={`inline-flex items-center text-[11px] font-semibold px-3 py-1 rounded
+                        ${
+                          status === 'Closed'
+                            ? 'bg-red-600 text-white border border-red-600'
+                            : status === 'Closing Soon'
+                            ? 'bg-orange-50 text-orange-700 border border-orange-100'
+                            : 'bg-green-50 text-green-700 border border-green-100'
+                        }
+                      `}
+                    >
+                      {status}
+                    </span>
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -503,14 +526,43 @@ const handlePreviewAdditionalDocs = async () => {
                 </div>
                   <div className="flex items-start justify-between gap-4">
                     {/* EMD */}
-                    <div>
-                      <p className="text-xs text-gray-600 font-semibold">
-                        EMD Amount
-                      </p>
-                      <p className="font-bold text-sm text-gray-900">
-                        {formatCurrency(tender.emd_amount)}
-                      </p>
+                    <div className="space-y-4">
+                      {/* EMD */}
+                      <div>
+                        <p className="text-xs text-gray-600 font-semibold">
+                          EMD Amount
+                        </p>
+                        <p className="font-bold text-sm text-gray-900">
+                          {formatCurrency(tender.emd_amount)}
+                        </p>
+                      </div>
+
+                      {/* Pills below EMD */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {/* Reverse Auction pill */}
+                        {tender.reverse_auction_enabled && (
+                          <span className="inline-flex items-center text-[11px] font-semibold px-3 py-1 rounded
+                            bg-blue-50 text-blue-700 border border-blue-100">
+                            Reverse Auction
+                          </span>
+                        )}
+
+                        {/* Bid Type pill */}
+                        {(() => {
+                          const pill = getBidTypePill(tender.bid_type);
+                          if (!pill) return null;
+
+                          return (
+                            <span
+                              className={`inline-flex items-center text-[11px] font-semibold px-3 py-1 rounded ${pill.classes}`}
+                            >
+                              {pill.text}
+                            </span>
+                          );
+                        })()}
+                      </div>
                     </div>
+
 
                     {/* Shortlist */}
                     <button

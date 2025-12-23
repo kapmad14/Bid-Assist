@@ -122,6 +122,7 @@ function TendersContentInner() {
   const [activeTab, setActiveTab] = useState<TabOption>('Active');
   const [emdNeeded, setEmdNeeded] = useState<'all' | 'yes' | 'no'>('all');
   const [reverseAuction, setReverseAuction] = useState<'all' | 'yes' | 'no'>('all');
+  const [bidTypeFilter, setBidTypeFilter] = useState<'all' | 'single' | 'two'>('all');
 
 
   const [isLoading, setIsLoading] = useState(true);
@@ -171,9 +172,14 @@ function TendersContentInner() {
   const handleSetActiveTab = (val: TabOption) => { setActiveTab(val); router.push(`/tenders?page=1`); };
   const handleSetEmd = (val: 'all'|'yes'|'no') => { setEmdNeeded(val); router.push(`/tenders?page=1`); };
   const handleSetReverseAuction = (val: 'all' | 'yes' | 'no') => {
-  setReverseAuction(val);
-  router.push(`/tenders?page=1`);
-  };
+    setReverseAuction(val);
+    router.push(`/tenders?page=1`);
+    };
+  const handleSetBidType = (val: 'all' | 'single' | 'two') => {
+    setBidTypeFilter(val);
+    setCurrentPage(1);
+    };
+
 
 
   // Fetch tenders (uses tenderClientStore)
@@ -197,6 +203,7 @@ function TendersContentInner() {
         sortBy,
         emdFilter: emdNeeded,
         reverseAuction, // ← NEW
+        bidType: bidTypeFilter,
         source: initialSource === 'gem' ? 'gem' : 'all',
         recommendationsOnly: recommendedOnly,
       });
@@ -223,12 +230,11 @@ function TendersContentInner() {
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, searchTerm, sortBy, activeTab, emdNeeded, reverseAuction, initialSource, recommendedOnly, logUserEvent, supabase]);
-
+  }, [currentPage, searchTerm, sortBy, activeTab, emdNeeded, reverseAuction, initialSource, bidTypeFilter, recommendedOnly, logUserEvent, supabase]);
 
   useEffect(() => {
     fetchTenders();
-  }, [currentPage, searchTerm, activeTab, sortBy, emdNeeded, reverseAuction, recommendedOnly]);
+  }, [currentPage, searchTerm, activeTab, sortBy, emdNeeded, reverseAuction, bidTypeFilter, recommendedOnly]);
 
 
   // Shortlist toggle with optimistic update and rollback
@@ -323,6 +329,30 @@ function TendersContentInner() {
     if (diffDays <= 7) return 'Closing Soon';
     return 'Active';
   };
+
+  const getBidTypePill = (bidType?: unknown) => {
+    // Defensive existence + type check
+    if (!bidType || typeof bidType !== 'string') return null;
+
+    const normalized = bidType.toLowerCase();
+
+    if (normalized.includes('two')) {
+        return {
+        text: 'Two Packet Bid',
+        classes: 'bg-purple-50 text-purple-700 border border-purple-100',
+        };
+    }
+
+    if (normalized.includes('single')) {
+        return {
+        text: 'Single Packet Bid',
+        classes: 'bg-blue-50 text-blue-700 border border-blue-100',
+        };
+    }
+
+    // Unknown / unsupported bid type → do not render pill
+    return null;
+    };
 
   const formatCurrency = (amount?: number | null) => {
     if (amount == null || Number.isNaN(amount)) return 'N/A';
@@ -555,6 +585,44 @@ function TendersContentInner() {
                   </label>
                 </div>
               </FilterSection>
+                {/* Bid Type - Radio Buttons (collapsed by default) */}
+                <FilterSection title="Bid Type">
+                <div className="space-y-2">
+                    <label className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 cursor-pointer">
+                    <input
+                        type="radio"
+                        name="bidType"
+                        checked={bidTypeFilter === 'all'}
+                        onChange={() => handleSetBidType('all')}
+                        className="w-4 h-4 accent-[#F7C846]"
+                    />
+                    Any
+                    </label>
+
+                    <label className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 cursor-pointer">
+                    <input
+                        type="radio"
+                        name="bidType"
+                        checked={bidTypeFilter === 'single'}
+                        onChange={() => handleSetBidType('single')}
+                        className="w-4 h-4 accent-[#F7C846]"
+                    />
+                    Single Packet Bid
+                    </label>
+
+                    <label className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 cursor-pointer">
+                    <input
+                        type="radio"
+                        name="bidType"
+                        checked={bidTypeFilter === 'two'}
+                        onChange={() => handleSetBidType('two')}
+                        className="w-4 h-4 accent-[#F7C846]"
+                    />
+                    Two Packet Bid
+                    </label>
+                </div>
+                </FilterSection>
+
           </div>
           {/* --- Guidance Banner for New Users --- */}
           <div className="mt-4 bg-gray-50 border border-gray-100 rounded-lg p-3 text-xs leading-relaxed text-gray-600">
@@ -651,7 +719,7 @@ function TendersContentInner() {
                     : 'bg-[#F7C846] text-[#0E121A] shadow-md hover:brightness-95' // INACTIVE
                 }`}
               >
-                {recommendedOnly ? 'Showing Recommended' : 'Recommended for Me'}
+                {recommendedOnly ? 'Show All Tenders' : 'Recommended for Me'}
               </button>
 
               {/* Tooltip for Recommended */}
@@ -804,8 +872,12 @@ function TendersContentInner() {
                         </span>
 
                         <span className="flex items-center gap-1 bg-gray-50 text-gray-600 text-[10px] font-bold px-2 py-1 rounded border border-gray-200">
-                          <FileText className="w-3 h-3" aria-hidden /> {tender.quantity ? `${tender.quantity} Qty` : 'Docs'}
+                        <FileText className="w-3 h-3" aria-hidden />
+                        {typeof tender.quantity === 'number'
+                            ? `Quantity: ${tender.quantity}`
+                            : 'Docs'}
                         </span>
+
 
                         {urgent && (
                           <span className="flex items-center gap-1 bg-orange-50 text-orange-700 text-[10px] font-bold px-2 py-1 rounded border border-orange-100">
@@ -815,15 +887,30 @@ function TendersContentInner() {
                       </div>
 
                       {/* Status pill */}
-                      <div className="mb-3">
+                        <div className="mb-3 flex flex-wrap items-center gap-2">
+                        {/* Status pill */}
                         <span
-                          className={`inline-flex items-center text-[11px] font-semibold px-3 py-1 rounded max-w-max ${computeStatus.classes}`}
-                          title={computeStatus.text}
-                          aria-hidden
+                            className={`inline-flex items-center text-[11px] font-semibold px-3 py-1 rounded ${computeStatus.classes}`}
+                            title={computeStatus.text}
                         >
-                          {computeStatus.text}
+                            {computeStatus.text}
                         </span>
-                      </div>
+
+                        {/* Bid Type pill — rendered only if valid */}
+                        {(() => {
+                            const bidTypePill = getBidTypePill(tender?.bidType);
+                            if (!bidTypePill) return null;
+
+                            return (
+                            <span
+                                className={`inline-flex items-center text-[11px] font-semibold px-3 py-1 rounded ${bidTypePill.classes}`}
+                                title="Bid Type"
+                            >
+                                {bidTypePill.text}
+                            </span>
+                            );
+                        })()}
+                        </div>
                     </div>
 
                     {/* Right Info (EMD, Reverse Auction badge moved here, & Shortlist) */}

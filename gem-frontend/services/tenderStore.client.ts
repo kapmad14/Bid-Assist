@@ -28,6 +28,7 @@ type GetTendersParams = {
   statusFilter?: 'all' | 'open' | 'urgent' | 'closed' | 'closing-soon' | 'shortlisted';
   emdFilter?: 'all' | 'yes' | 'no';
   reverseAuction?: 'all' | 'yes' | 'no';
+  bidType?: 'all' | 'single' | 'two';
   sortBy?: 'newest' | 'oldest' | 'closing-soon' | 'closing-latest';
   recommendationsOnly?: boolean;
   source?: 'gem' | 'all';
@@ -335,6 +336,16 @@ class TenderClientStore {
     else if (params.reverseAuction === 'no') query = query.eq('reverse_auction_enabled', false);
 
     // ------------------------------------------
+    // Bid Type
+    // ------------------------------------------
+    if (params.bidType === 'single') {
+    query = query.filter('bid_type', 'ilike', '%single%');
+    }
+    else if (params.bidType === 'two') {
+    query = query.filter('bid_type', 'ilike', '%two%');
+    }
+
+    // ------------------------------------------
     // SORTING
     // ------------------------------------------
     if (params.sortBy === 'closing-soon') {
@@ -539,6 +550,7 @@ class TenderClientStore {
         pdfStoragePath: row.pdf_storage_path ?? null,
         documentsExtracted: row.documents_extracted ?? null,
 
+        bidType: row.bid_type ?? null, 
         isShortlisted: this.shortlistedIds.has(String(row.id)),
 
         raw: row

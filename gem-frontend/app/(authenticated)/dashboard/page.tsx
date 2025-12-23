@@ -12,6 +12,35 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 
+function fillDateBuckets(
+  rows: { date: string; count: number }[],
+  startOffsetDays: number,
+  endOffsetDays: number,
+  dateKey: 'publish_date' | 'closing_date',
+) {
+  const map = new Map<string, number>();
+
+  rows.forEach((r: any) => {
+    map.set(r[dateKey], Number(r.count));
+  });
+
+  const result: { date: string; count: number }[] = [];
+  const today = new Date();
+
+  for (let i = startOffsetDays; i <= endOffsetDays; i++) {
+    const d = new Date(today);
+    d.setUTCDate(today.getUTCDate() + i);
+
+    const dateStr = d.toISOString().slice(0, 10); // YYYY-MM-DD
+
+    result.push({
+      date: dateStr,
+      count: map.get(dateStr) ?? 0,
+    });
+  }
+
+  return result;
+}
 interface DashboardStats {
   totalTenders: number;
   activeTenders: number;
@@ -23,17 +52,17 @@ interface DashboardStats {
   catalogTotal: number;
 }
 
-// Dummy data for the chart – purely visual, not tied to real stats
-const chartData = [
-  { name: '1', published: 10, recommended: 6 },
-  { name: '2', published: 11, recommended: 6 },
-  { name: '3', published: 10, recommended: 6 },
-  { name: '4', published: 11, recommended: 6 },
-  { name: '5', published: 10, recommended: 6 },
-];
-
 export default function DashboardPage() {
   const router = useRouter();
+
+  const [publishedChart, setPublishedChart] = useState<
+    { date: string; count: number }[]
+  >([]);
+
+  const [closingChart, setClosingChart] = useState<
+    { date: string; count: number }[]
+  >([]);
+
 
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -133,6 +162,8 @@ export default function DashboardPage() {
           shortlistRes,
           catalogActiveRes,
           catalogTotalRes,
+          publishedChartRes,
+          closingChartRes,
         ] = await Promise.all([
           tendersTotalQuery,
           tendersActiveQuery,
@@ -142,7 +173,10 @@ export default function DashboardPage() {
           shortlistQuery,
           catalogActiveQuery,
           catalogTotalQuery,
+          supabase.rpc('dashboard_tenders_published_last_7_days'),
+          supabase.rpc('dashboard_tenders_closing_next_7_days'),
         ]);
+
 
         const allErrors = [
           tendersTotalRes.error,
@@ -153,7 +187,10 @@ export default function DashboardPage() {
           shortlistRes.error,
           catalogActiveRes.error,
           catalogTotalRes.error,
+          publishedChartRes.error,
+          closingChartRes.error,
         ].filter(Boolean);
+
 
         if (allErrors.length > 0) {
           console.error('Dashboard query errors:', allErrors);
@@ -174,6 +211,22 @@ export default function DashboardPage() {
           catalogActive: catalogActiveRes.count ?? 0,
           catalogTotal: catalogTotalRes.count ?? 0,
         });
+          const publishedFilled = fillDateBuckets(
+            publishedChartRes.data ?? [],
+            -7,
+            -1,
+            'publish_date',
+          );
+
+          const closingFilled = fillDateBuckets(
+            closingChartRes.data ?? [],
+            1,
+            7,
+            'closing_date',
+          );
+
+          setPublishedChart(publishedFilled);
+          setClosingChart(closingFilled);
       } catch (err: any) {
         console.error('Dashboard fetch error:', err);
         if (mounted) {
@@ -308,40 +361,82 @@ export default function DashboardPage() {
 
       </div>
 
-      {/* ===================== CHART ======================= */}
-      <div className="rounded-3xl bg-black px-6 py-5 shadow-lg flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative w-full sm:w-3/4 h-28 sm:h-36">
-          <div className="absolute bottom-2 left-[4%] right-[8%] h-[3px] bg-[#F7C846]" />
+      {/* ===================== ANALYTICS ======================= */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart
-              data={chartData}
-              barCategoryGap={40}
-              margin={{ top: 8, right: 16, left: 16, bottom: 8 }}
-            >
-              <XAxis dataKey="name" hide />
-              <YAxis hide domain={[0, 12]} />
-              <Tooltip cursor={{ fill: 'transparent' }} content={() => null} />
+        {/* Published – Last 7 Days */}
+        <div className="rounded-3xl bg-black px-6 py-5 shadow-lg">
+          <p className="text-sm font-semibold text-white/80 mb-4">
+            Tenders Published (Last 7 Days)
+          </p>
 
-              <Bar dataKey="published" fill="#FFFFFF" barSize={20} radius={[4, 4, 0, 0]} />
-              <Bar dataKey="recommended" fill="#F7C846" barSize={16} radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <div className="h-40">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={publishedChart} barCategoryGap={20}>
+                <XAxis
+                  dataKey="date"
+                  tick={{ fill: '#FFFFFF', fontSize: 11 }}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(value: string) => {
+                    const [, month, day] = value.split('-');
+                    return `${day}/${month}`;
+                  }}
+                />
+                <YAxis hide />
+                <Tooltip
+                  cursor={{ fill: 'transparent' }}
+                  contentStyle={{ background: '#000', border: 'none' }}
+                  labelStyle={{ color: '#F7C846' }}
+                />
+                <Bar
+                  dataKey="count"
+                  fill="#FFFFFF"
+                  barSize={18}
+                  radius={[4, 4, 0, 0]}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </div>
 
-        {/* Legend */}
-        <div className="mt-4 sm:mt-0 sm:ml-6 flex flex-col gap-3 text-xs text-white/80">
-          <div className="flex items-center gap-2">
-            <span className="inline-block h-3 w-3 rounded-full bg-white" />
-            <span>Published</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="inline-block h-3 w-3 rounded-full bg-[#F7C846]" />
-            <span>Recommended</span>
+        {/* Closing – Next 7 Days */}
+        <div className="rounded-3xl bg-black px-6 py-5 shadow-lg">
+          <p className="text-sm font-semibold text-white/80 mb-4">
+            Tenders Closing (Next 7 Days)
+          </p>
+
+          <div className="h-40">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={closingChart} barCategoryGap={20}>
+                <XAxis
+                  dataKey="date"
+                  tick={{ fill: '#FFFFFF', fontSize: 11 }}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(value: string) => {
+                    const [, month, day] = value.split('-');
+                    return `${day}/${month}`;
+                  }}
+                />
+                <YAxis hide />
+                <Tooltip
+                  cursor={{ fill: 'transparent' }}
+                  contentStyle={{ background: '#000', border: 'none' }}
+                  labelStyle={{ color: '#F7C846' }}
+                />
+                <Bar
+                  dataKey="count"
+                  fill="#F7C846"
+                  barSize={18}
+                  radius={[4, 4, 0, 0]}
+                />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
         </div>
+
       </div>
-
     </div>
   );
 }
