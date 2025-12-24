@@ -27,8 +27,11 @@ import random
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List, Tuple
 from urllib.parse import quote
+from dotenv import load_dotenv
 
 import requests
+
+load_dotenv()
 
 # ------------------------- Configuration & env -------------------------
 SUPABASE_URL = os.environ.get("SUPABASE_URL")

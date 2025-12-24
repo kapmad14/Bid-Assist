@@ -16,10 +16,12 @@ import sys
 import tempfile
 import requests
 import re
+import json
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from pypdf import PdfReader
-from typing import Optional, List
+from pdf_url_extractor import extract_urls_from_pdf
+
 
 # ---------------- env / rest ----------------
 load_dotenv()
@@ -42,8 +44,6 @@ HEADERS = {
 # ---------------- config ----------------
 PAGE_SIZE = 100  # how many rows to fetch per request
 SIMPLE_EXTRACTION_COL = "simple_extraction"
-ENABLE_PDF_EMBEDDED_URLS = os.getenv("ENABLE_PDF_EMBEDDED_URLS", "1") == "1"
-
 
 # -------- Text helpers & extraction (UNCHANGED) --------
 DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]+")
@@ -51,75 +51,6 @@ NON_ASCII_RE = re.compile(r"[^\x00-\x7F]+")
 CONTROL_RE = re.compile(r"[\x00-\x1F\u007F]+")
 MULTI_WHITESPACE_RE = re.compile(r"\s+")
 ALLOWED_FINAL_RE = re.compile(r"[^A-Za-z0-9\s\-\.,:/\(\)%&\|]+")
-
-# --------------------------------------------------------------------
-# Embedded URL extraction from PDF text (VERBATIM from V3)
-# --------------------------------------------------------------------
-
-URL_REGEX = re.compile(
-    r'(https?://[^\s\)\]\}<>"]+)',
-    flags=re.IGNORECASE
-)
-
-def extract_urls_from_pdf_text(text: str) -> List[str]:
-    if not text:
-        return []
-
-    matches = URL_REGEX.findall(text)
-    urls = set()
-
-    for url in matches:
-        cleaned = url.strip().rstrip('.,;:')
-        if len(cleaned) < 10:
-            continue
-        urls.add(cleaned)
-
-    return list(urls)
-
-
-def build_tender_document_row(
-    tender_id: Optional[int],
-    bid_number: Optional[str],
-    document_url: str
-) -> dict:
-    return {
-        "tender_id": tender_id,
-        "bid_number": bid_number,
-        "document_url": document_url,
-        "source": "pdf",
-    }
-
-
-def insert_tender_documents(
-    tender_id: Optional[int],
-    bid_number: Optional[str],
-    urls: List[str]
-):
-    if not urls:
-        return
-
-    endpoint = REST_BASE + "/tender_documents"
-
-    for url in urls:
-        row = build_tender_document_row(
-            tender_id=tender_id,
-            bid_number=bid_number,
-            document_url=url,
-        )
-
-        try:
-            r = requests.post(
-                endpoint,
-                headers=HEADERS,
-                json=row,
-                timeout=30,
-            )
-            r.raise_for_status()
-        except Exception as e:
-            print(
-                f"[TENDER_DOC_INSERT_FAIL] "
-                f"tender_id={tender_id} url={url} err={e}"
-            )
 
 
 def normalize_whitespace(s: str) -> str:
@@ -318,6 +249,40 @@ def extract_selected_fields_from_pdf(pdf_path: str) -> dict:
         "pages_count": pages_count_out,
     }
 
+def insert_tender_documents(tender_id: int, urls: list[dict], extraction_version: str):
+    """
+    Best-effort insert of document URLs.
+    - Uses tender_id (tenders.id)
+    - Ignores duplicates
+    - Never raises
+    """
+    if not urls:
+        return
+
+    for u in urls:
+        payload = {
+            "tender_id": tender_id,
+            "url": u.get("url"),
+            "filename": u.get("filename"),
+            "source": u.get("source"),
+            "order_index": u.get("order"),
+            "extraction_version": extraction_version,
+        }
+
+        try:
+            requests.post(
+                REST_BASE + "/tender_documents",
+                headers={
+                    **HEADERS,
+                    "Prefer": "resolution=ignore-duplicates"
+                },
+                json=payload,
+                timeout=30,
+            )
+        except Exception:
+            # Never fail tender parsing because of document URLs
+            pass
+
 
 # ---------------- download ----------------
 def download_pdf_public_url(url: str) -> str:
@@ -406,6 +371,7 @@ def map_reverse_auction_to_json_bool(val: str):
 def main():
     last_id = 0
     total_processed = 0
+    MAX_TEST_ROWS = 1
 
     while True:
         rows = fetch_pending_rows(limit=PAGE_SIZE, last_id=last_id)
@@ -415,7 +381,7 @@ def main():
 
         max_id_in_batch = last_id
 
-        for row in rows:
+        for row in rows[:MAX_TEST_ROWS]:
             row_id = row.get("id")
             pdf_url = row.get("pdf_public_url")
             if not row_id:
@@ -444,6 +410,20 @@ def main():
 
             try:
                 extracted = extract_selected_fields_from_pdf(tmp)
+
+                # --- NEW: extract additional document URLs ---
+                try:
+                    doc_urls = extract_urls_from_pdf(tmp)
+                    insert_tender_documents(
+                        tender_id=row_id,
+                        urls=doc_urls,
+                        extraction_version="doc_urls_v1"
+                    )
+                except Exception:
+                    # absolutely no impact on tender extraction
+                    pass
+
+
                 # full payload using fixed mapping (organization_name spelled with 'z')
                 full_payload = {
                     "ministry": extracted.get("ministry_state_name") or "N/A",
@@ -478,31 +458,6 @@ def main():
                 if ok:
                     total_processed += 1
                     print(f"[OK] id={row_id} patched keys={list(payload_to_send.keys())} at {attempt_time}")
-                    # ------------------------------------------------------------
-                    # Embedded PDF URL extraction → tender_documents (VERBATIM)
-                    # ------------------------------------------------------------
-                    if ENABLE_PDF_EMBEDDED_URLS:
-                        try:
-                            # NOTE:
-                            # Field extraction parses the PDF internally.
-                            # We intentionally re-parse here for embedded URL extraction
-                            # to avoid refactoring extraction logic at this stage.
-                            pages = load_pdf_pages(tmp)
-                            full_text = "\n\n".join(pages)
-                            urls = extract_urls_from_pdf_text(full_text)
-                            
-                            print(f"[PDF_URLS] id={row_id} count={len(urls)}")
-
-                            if urls:
-                                insert_tender_documents(
-                                    tender_id=row_id,
-                                    bid_number=None,
-                                    urls=urls,
-                                )
-                        except Exception as e:
-                            print(
-                                f"[PDF_URL_WARN] id={row_id} err={e}"
-                            )
                 else:
                     # mark as failed for retry later (ensure updated_at has attempt_time too)
                     patch_tender_row(row_id, {"updated_at": attempt_time, SIMPLE_EXTRACTION_COL: "error"})
