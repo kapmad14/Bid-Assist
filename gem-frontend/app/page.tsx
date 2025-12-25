@@ -18,12 +18,28 @@ export default function HomePage() {
             <span className="font-bold text-white text-sm">MATCH</span>
           </div>
           
-          <button
-            onClick={() => router.push('/login')}
-            className="px-6 py-2.5 bg-[#F7C846] text-[#0E121A] font-semibold rounded-xl hover:bg-[#F7C846]/90 transition-all"
-          >
-            Login
-          </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => router.push('/login')}
+                className="w-[96px] px-0 py-2.5 bg-[#F7C846] text-[#0E121A] font-semibold rounded-xl
+                          hover:bg-[#F7C846]/90 transition-all text-center"
+              >
+                Login
+              </button>
+
+              <button
+                onClick={() => router.push('/signup')}
+                className="w-[96px] px-0 py-2.5 bg-white text-[#0E121A] font-semibold rounded-xl
+                          border border-white/60
+                          hover:bg-white hover:border-[#F7C846]
+                          hover:shadow-[0_0_0_2px_rgba(247,200,70,0.35)]
+                          transition-all text-center"
+              >
+                Sign Up
+              </button>
+
+            </div>
+
         </div>
       </header>
 
