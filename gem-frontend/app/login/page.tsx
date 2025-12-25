@@ -30,7 +30,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     return () => {
-      authListenerRef.current?.subscription.unsubscribe();
+      authListenerRef.current?.unsubscribe();
       authListenerRef.current = null;
     };
   }, []);
@@ -54,7 +54,7 @@ export default function LoginPage() {
 
     authListenerRef.current = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' && session) {
-        authListenerRef.current?.subscription.unsubscribe();
+        authListenerRef.current?.unsubscribe();
         authListenerRef.current = null;
         router.replace('/dashboard');
       }
