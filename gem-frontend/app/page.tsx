@@ -48,7 +48,7 @@ export default function HomePage() {
         <div className="max-w-4xl mx-auto text-center">
           <h1 className="text-6xl font-bold text-white mb-6 leading-tight">
             Win More Tenders with{' '}
-            <span className="text-[#F7C846] whitespace-nowrap">AI-Powered</span> Insights
+            <span className="text-[#F7C846] whitespace-nowrap">Data-Powered</span> Insights
           </h1>
           <p className="text-xl text-[#F0F0F0]/70 mb-10 max-w-2xl mx-auto">
             Analyze competitors, match your catalogue, and never miss a tender opportunity.
