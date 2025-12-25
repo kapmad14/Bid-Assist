@@ -85,13 +85,21 @@ export default function SignupPage() {
         <div className="bg-white rounded-[32px] p-8 shadow-2xl">
 
           {/* Header */}
-          <div className="mb-8 text-center">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-[#F7C846] rounded-2xl mb-4">
+          <div className="mb-8 flex items-center gap-4">
+            <div className="flex items-center justify-center w-16 h-16 bg-[#F7C846] rounded-2xl shrink-0">
               <span className="text-2xl font-bold text-[#0E121A]">TM</span>
             </div>
-            <h1 className="text-3xl font-bold text-[#0E121A] mb-2">Create Account</h1>
-            <p className="text-gray-600 text-sm">Join TenderMatch to get started</p>
+
+            <div className="flex flex-col">
+              <h1 className="text-2xl font-bold text-[#0E121A] leading-tight">
+                Create Account
+              </h1>
+              <p className="text-gray-600 text-sm">
+                Join TenderMatch to get started
+              </p>
+            </div>
           </div>
+
 
           {/* Error Message */}
           {error && (

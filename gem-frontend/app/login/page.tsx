@@ -59,13 +59,21 @@ export default function LoginPage() {
         <div className="bg-white rounded-[32px] p-8 shadow-2xl">
 
           {/* Header */}
-          <div className="mb-8 text-center">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-[#F7C846] rounded-2xl mb-4">
+          <div className="mb-8 flex items-center gap-4">
+            <div className="flex items-center justify-center w-16 h-16 bg-[#F7C846] rounded-2xl shrink-0">
               <span className="text-2xl font-bold text-[#0E121A]">TM</span>
             </div>
-            <h1 className="text-3xl font-bold text-[#0E121A] mb-2">TenderMatch</h1>
-            <p className="text-gray-600 text-sm">Welcome back! Sign in to continue</p>
+
+            <div className="flex flex-col">
+              <h1 className="text-2xl font-bold text-[#0E121A] leading-tight">
+                TenderMatch
+              </h1>
+              <p className="text-gray-600 text-sm">
+                Welcome back! Sign in to continue
+              </p>
+            </div>
           </div>
+
 
           {/* Error */}
           {error && (
@@ -121,15 +129,25 @@ export default function LoginPage() {
               </label>
               <Link href="/forgot-password" className="text-sm font-semibold">Forgot password?</Link>
             </div>
+              <button
+                type="button"
+                onClick={handleEmailLogin}
+                disabled={loading}
+                className="w-full py-4 px-6 bg-[#F7C846] text-[#0E121A] font-bold rounded-2xl
+                          hover:bg-[#F7C846]/90 transform hover:scale-[1.02] transition-all
+                          shadow-[0_4px_12px_rgba(247,200,70,0.4)]
+                          disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+              >
+                {loading ? (
+                  <span className="flex items-center justify-center">
+                    <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                    Signing in...
+                  </span>
+                ) : (
+                  <span>Sign in</span>
+                )}
+              </button>
 
-            <button
-              type="button"
-              onClick={handleEmailLogin}
-              disabled={loading}
-              className="w-full py-4 px-6 bg-[#F7C846] text-[#0E121A] rounded-2xl"
-            >
-              {loading ? <Loader2 className="w-5 h-5 animate-spin inline" /> : 'Sign in'}
-            </button>
           </div>
 
           {/* Divider */}
