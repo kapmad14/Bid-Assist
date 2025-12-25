@@ -3,13 +3,12 @@ export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
 
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-client';
 import { Loader2, Eye, EyeOff } from 'lucide-react';
 
 export default function LoginPage() {
-  const router = useRouter();
+
 
   // ✅ Supabase client must only be created in the browser
   const supabase = useMemo(() => {
@@ -31,7 +30,7 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
 
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
@@ -39,24 +38,8 @@ export default function LoginPage() {
     if (error) {
       setError(error.message);
       setLoading(false);
-      return;
     }
-
-    // Wait for session to be committed
-    for (let i = 0; i < 10; i++) {
-      const { data: check } = await supabase.auth.getUser();
-      if (check?.user) {
-        router.replace('/dashboard');
-        return;
-      }
-      await new Promise(r => setTimeout(r, 150));
-    }
-
-    setError('Login failed');
-    setLoading(false);
-
   };
-
 
 
   const handleGoogleLogin = async () => {

@@ -29,15 +29,10 @@ export default function SignupPage() {
 
   const handleEmailSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (loading) return;
+    if (!supabase || loading) return;
+
     setLoading(true);
     setError(null);
-
-    if (!supabase) {
-      setLoading(false);
-      return;
-    }
-
 
     if (password !== confirmPassword) {
       setError('Passwords do not match');
@@ -65,20 +60,9 @@ export default function SignupPage() {
       return;
     }
 
-    // Wait for session to be committed
-    for (let i = 0; i < 20; i++) {
-      const { data: check } = await supabase.auth.getUser();
-      if (check?.user) {
-        router.replace('/dashboard');
-        return;
-      }
-      await new Promise(r => setTimeout(r, 200));
-    }
-
-
-    setError('Signup failed');
-    setLoading(false);
+    // ✅ DO NOTHING ELSE — callback handles navigation
   };
+
 
   const handleGoogleSignup = async () => {
     if (!supabase) return;
