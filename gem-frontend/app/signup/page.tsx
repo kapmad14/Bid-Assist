@@ -8,7 +8,6 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-client';
 import { Loader2, CheckCircle2, Eye, EyeOff } from 'lucide-react';
-import type { Subscription } from '@supabase/supabase-js';
 
 export default function SignupPage() {
   const router = useRouter();
@@ -19,7 +18,6 @@ export default function SignupPage() {
     return createClient();
   }, []);
 
-  const authListenerRef = useRef<Subscription | null>(null);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -28,14 +26,6 @@ export default function SignupPage() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    return () => {
-      authListenerRef.current?.unsubscribe();
-      authListenerRef.current = null;
-    };
-  }, []);
-
 
   const handleEmailSignup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -75,13 +65,19 @@ export default function SignupPage() {
       return;
     }
 
-    authListenerRef.current = supabase.auth.onAuthStateChange((event: string, session: any) => {
-      if (event === 'SIGNED_IN' && session) {
-        authListenerRef.current?.unsubscribe();
-        authListenerRef.current = null;
+    // Wait for session to be committed
+    for (let i = 0; i < 20; i++) {
+      const { data: check } = await supabase.auth.getUser();
+      if (check?.user) {
         router.replace('/dashboard');
+        return;
       }
-    });
+      await new Promise(r => setTimeout(r, 200));
+    }
+
+
+    setError('Signup failed');
+    setLoading(false);
   };
 
   const handleGoogleSignup = async () => {

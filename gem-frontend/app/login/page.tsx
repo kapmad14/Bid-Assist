@@ -3,7 +3,6 @@ export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
 
 import { useState, useMemo, useRef, useEffect } from 'react';
-import type { Subscription } from '@supabase/supabase-js';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-client';
@@ -20,20 +19,11 @@ export default function LoginPage() {
     return null; // during prerender this prevents the crash
   }, []);
 
-  const authListenerRef = useRef<Subscription | null>(null);
-
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    return () => {
-      authListenerRef.current?.unsubscribe();
-      authListenerRef.current = null;
-    };
-  }, []);
 
   const handleEmailLogin = async () => {
     if (!supabase || loading) return;
@@ -41,7 +31,7 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
@@ -52,14 +42,21 @@ export default function LoginPage() {
       return;
     }
 
-    authListenerRef.current = supabase.auth.onAuthStateChange((event: string, session: any) => {
-      if (event === 'SIGNED_IN' && session) {
-        authListenerRef.current?.unsubscribe();
-        authListenerRef.current = null;
+    // Wait for session to be committed
+    for (let i = 0; i < 10; i++) {
+      const { data: check } = await supabase.auth.getUser();
+      if (check?.user) {
         router.replace('/dashboard');
+        return;
       }
-    });
+      await new Promise(r => setTimeout(r, 150));
+    }
+
+    setError('Login failed');
+    setLoading(false);
+
   };
+
 
 
   const handleGoogleLogin = async () => {
