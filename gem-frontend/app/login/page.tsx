@@ -2,7 +2,8 @@
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
+import type { AuthSubscription } from '@supabase/supabase-js';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-client';
@@ -19,56 +20,47 @@ export default function LoginPage() {
     return null; // during prerender this prevents the crash
   }, []);
 
+  const authListenerRef = useRef<AuthSubscription | null>(null);
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    return () => {
+      authListenerRef.current?.subscription.unsubscribe();
+      authListenerRef.current = null;
+    };
+  }, []);
+
   const handleEmailLogin = async () => {
-    if (!supabase) return; // SSR safety
-    if (!email || !password) {
-      setError('Please enter email and password');
-      return;
-    }
+    if (!supabase || loading) return;
 
     setLoading(true);
     setError(null);
 
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-      if (error) {
-        await new Promise((r) => setTimeout(r, 1000));
-        const { data: check } = await supabase.auth.getUser();
-        if (check?.user) {
-          window.location.href = '/dashboard';
-          return;
-        }
-        setError(error.message);
-        setLoading(false);
-      } else if (data.user) {
-        window.location.href = '/dashboard';
-      } else {
-        setError('Login failed - no user returned');
-        setLoading(false);
-      }
-    } catch (err: any) {
-      await new Promise((r) => setTimeout(r, 1000));
-      try {
-        const { data: check } = await supabase?.auth.getUser();
-        if (check?.user) {
-          window.location.href = '/dashboard';
-          return;
-        }
-      } catch {}
-      setError(err.message || 'An unexpected error occurred');
+    if (error) {
+      setError(error.message);
       setLoading(false);
+      return;
     }
+
+    authListenerRef.current = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session) {
+        authListenerRef.current?.subscription.unsubscribe();
+        authListenerRef.current = null;
+        router.replace('/dashboard');
+      }
+    });
   };
+
 
   const handleGoogleLogin = async () => {
     if (!supabase) return; // SSR safety

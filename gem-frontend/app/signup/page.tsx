@@ -3,11 +3,12 @@
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-client';
 import { Loader2, CheckCircle2, Eye, EyeOff } from 'lucide-react';
+import type { AuthSubscription } from '@supabase/supabase-js';
 
 export default function SignupPage() {
   const router = useRouter();
@@ -18,6 +19,8 @@ export default function SignupPage() {
     return createClient();
   }, []);
 
+  const authListenerRef = useRef<AuthSubscription | null>(null);
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -25,14 +28,26 @@ export default function SignupPage() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      authListenerRef.current?.subscription.unsubscribe();
+      authListenerRef.current = null;
+    };
+  }, []);
+
 
   const handleEmailSignup = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     setLoading(true);
     setError(null);
 
-    if (!supabase) return;
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+
 
     if (password !== confirmPassword) {
       setError('Passwords do not match');
@@ -57,10 +72,16 @@ export default function SignupPage() {
     if (error) {
       setError(error.message);
       setLoading(false);
-    } else {
-      setSuccess(true);
-      setLoading(false);
+      return;
     }
+
+    authListenerRef.current = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session) {
+        authListenerRef.current?.subscription.unsubscribe();
+        authListenerRef.current = null;
+        router.replace('/dashboard');
+      }
+    });
   };
 
   const handleGoogleSignup = async () => {
@@ -77,30 +98,6 @@ export default function SignupPage() {
       setError(error.message);
     }
   };
-
-  // SUCCESS SCREEN
-  if (success) {
-    return (
-      <div className="fixed inset-0 bg-[#0E121A] flex items-center justify-center p-4 z-50">
-        <div className="w-full max-w-md">
-          <div className="bg-white rounded-[32px] p-8 shadow-2xl text-center">
-            <div className="inline-flex items-center justify-center w-20 h-20 bg-[#8AE98D]/20 rounded-full mb-6">
-              <CheckCircle2 className="w-10 h-10 text-[#8AE98D]" />
-            </div>
-            <h2 className="text-2xl font-bold text-[#0E121A] mb-3">Account Created!</h2>
-            <p className="text-gray-600 mb-8">
-              Your account has been created successfully. You can now sign in.
-            </p>
-            <Link href="/login">
-              <button className="w-full py-4 px-6 bg-[#F7C846] text-[#0E121A] font-bold rounded-2xl hover:bg-[#F7C846]/90 transform hover:scale-[1.02] transition-all shadow-[0_4px_12px_rgba(247,200,70,0.4)]">
-                Go to Login
-              </button>
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="fixed inset-0 bg-[#0E121A] flex items-center justify-center p-4 z-50 overflow-y-auto">

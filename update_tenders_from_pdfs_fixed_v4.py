@@ -42,7 +42,7 @@ HEADERS = {
 }
 
 # ---------------- config ----------------
-PAGE_SIZE = 100  # how many rows to fetch per request
+PAGE_SIZE = 80  # how many rows to fetch per request
 SIMPLE_EXTRACTION_COL = "simple_extraction"
 
 # -------- Text helpers & extraction (UNCHANGED) --------
@@ -371,7 +371,7 @@ def map_reverse_auction_to_json_bool(val: str):
 def main():
     last_id = 0
     total_processed = 0
-    MAX_TEST_ROWS = 1
+
 
     while True:
         rows = fetch_pending_rows(limit=PAGE_SIZE, last_id=last_id)
@@ -381,7 +381,7 @@ def main():
 
         max_id_in_batch = last_id
 
-        for row in rows[:MAX_TEST_ROWS]:
+        for row in rows:
             row_id = row.get("id")
             pdf_url = row.get("pdf_public_url")
             if not row_id:
@@ -414,7 +414,7 @@ def main():
 
                 # Merge – extractor values take precedence if present
                 extracted = {**legacy, **{k:v for k,v in extra.items() if v not in (None,"",[],{})}}
-                
+
                 # --- NEW: extract additional document URLs ---
                 try:
                     doc_urls = extract_urls_from_pdf(tmp)
@@ -437,8 +437,13 @@ def main():
                     "emd_amount": extracted.get("emd_amount"),   # int or None
                     "page_count": extracted.get("pages_count"),
 
-                    "item_category": extracted.get("item_category"),
+                    #"item": extracted.get("item"),
                     "documents_required": extracted.get("documents_required"),
+                    "arbitration_clause": extracted.get("arbitration_clause"),
+                    "mediation_clause": extracted.get("mediation_clause"),
+                    "show_documents_to_all": extracted.get("show_documents_to_all"),
+                    "evaluation_method": extracted.get("evaluation_method"),
+
 
                     # always write the attempted time into updated_at
                     "updated_at": attempt_time,
@@ -469,7 +474,7 @@ def main():
                     total_processed += 1
                     print(f"[OK] id={row_id} patched keys={list(payload_to_send.keys())} at {attempt_time}")
                 else:
-                    # mark as failed for retry later (ensure updated_at has attempt_time too)
+                    # mark as permanently failed — requires manual review
                     patch_tender_row(row_id, {"updated_at": attempt_time, SIMPLE_EXTRACTION_COL: "error"})
                     print(f"[FAIL] id={row_id} patch failed; marked error at {attempt_time}")
 
@@ -484,11 +489,12 @@ def main():
                     except Exception:
                         pass
 
-        # move forward using the maximum id we saw in this batch
-        last_id = max_id_in_batch
-        # If we didn't advance (no ids > last_id) break to avoid infinite loop
-        if last_id == 0:
+        if max_id_in_batch <= last_id:
+            print(f"[CURSOR_STALL] last_id did not advance (last_id={last_id}, max_id_in_batch={max_id_in_batch}). Breaking.")
             break
+
+        last_id = max_id_in_batch
+
 
     print(f"Done. Total processed: {total_processed}")
 
