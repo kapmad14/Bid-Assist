@@ -52,7 +52,7 @@ export default function LoginPage() {
       return;
     }
 
-    authListenerRef.current = supabase.auth.onAuthStateChange((event: string, session) => {
+    authListenerRef.current = supabase.auth.onAuthStateChange((event: string, session: any) => {
       if (event === 'SIGNED_IN' && session) {
         authListenerRef.current?.unsubscribe();
         authListenerRef.current = null;
