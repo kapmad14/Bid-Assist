@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
 
 import { useState, useMemo, useRef, useEffect } from 'react';
-import type { AuthSubscription } from '@supabase/supabase-js';
+import type { Subscription } from '@supabase/supabase-js';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-client';
@@ -20,7 +20,7 @@ export default function LoginPage() {
     return null; // during prerender this prevents the crash
   }, []);
 
-  const authListenerRef = useRef<AuthSubscription | null>(null);
+  const authListenerRef = useRef<Subscription | null>(null);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

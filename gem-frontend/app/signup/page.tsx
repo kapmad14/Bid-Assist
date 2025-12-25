@@ -8,7 +8,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-client';
 import { Loader2, CheckCircle2, Eye, EyeOff } from 'lucide-react';
-import type { AuthSubscription } from '@supabase/supabase-js';
+import type { Subscription } from '@supabase/supabase-js';
 
 export default function SignupPage() {
   const router = useRouter();
@@ -19,7 +19,7 @@ export default function SignupPage() {
     return createClient();
   }, []);
 
-  const authListenerRef = useRef<AuthSubscription | null>(null);
+  const authListenerRef = useRef<Subscription | null>(null);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
