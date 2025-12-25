@@ -2,27 +2,20 @@ import { createBrowserClient } from '@supabase/ssr';
 
 let browserClient: any = null;
 
-/**
- * Browser-only Supabase client.
- * 
- * IMPORTANT:
- * - This must never be called on the server.
- * - Server code should use the helper in `supabase-server.ts` instead.
- */
 export function createClient() {
   if (typeof window === 'undefined') {
     throw new Error(
-      'createClient() was called on the server. Use the server Supabase helper (supabase-server.ts) instead.'
+      'createClient() was called on the server. Use the server Supabase helper instead.'
     );
   }
 
-  // Singleton pattern – reuse the same browser client
   if (!browserClient) {
     browserClient = createBrowserClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         auth: {
+          flowType: 'pkce',          // 🔑 REQUIRED
           persistSession: true,
           autoRefreshToken: true,
           detectSessionInUrl: true,
