@@ -30,8 +30,9 @@ jobs:
           SUPABASE_BUCKET_NAME: gem-pdfs
           LOG_LEVEL: INFO
         run: |
-          if [ -z "${{ github.event.inputs.target_date }}" ]; then
-            python gem_bids_scraper.py
-          else
-            python gem_bids_scraper.py ${{ github.event.inputs.target_date }}
-          fi
+            cd
+            if [ -z "${{ github.event.inputs.target_date }}" ]; then
+                python gem_bids_scraper.py
+            else
+                python gem_bids_scraper.py ${{ github.event.inputs.target_date }}
+            fi
