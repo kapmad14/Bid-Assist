@@ -32,7 +32,7 @@ jobs:
         run: |
             cd gem-scraper
             if [ -z "${{ github.event.inputs.target_date }}" ]; then
-                python gem_bids_scraper.py
+                python daily_gem_pdf_scraper.py
             else
-                python gem_bids_scraper.py ${{ github.event.inputs.target_date }}
+                python daily_gem_pdf_scraper.py ${{ github.event.inputs.target_date }}
             fi
