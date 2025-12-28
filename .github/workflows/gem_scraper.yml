@@ -46,3 +46,4 @@ jobs:
           else
             python gem_bids_scraper.py ${{ github.event.inputs.target_date }}
           fi
+# refresh
