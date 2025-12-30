@@ -437,13 +437,17 @@ def main():
                     "emd_amount": extracted.get("emd_amount"),   # int or None
                     "page_count": extracted.get("pages_count"),
 
-                    #"item": extracted.get("item"),
+                    "item": extracted.get("item"),
                     "documents_required": extracted.get("documents_required"),
                     "arbitration_clause": extracted.get("arbitration_clause"),
                     "mediation_clause": extracted.get("mediation_clause"),
                     "show_documents_to_all": extracted.get("show_documents_to_all"),
                     "evaluation_method": extracted.get("evaluation_method"),
-
+                    "past_performance_percentage": (
+                        float(extracted["past_performance_percentage"])
+                        if isinstance(extracted.get("past_performance_percentage"), (int, float))
+                        else None
+                    ),
 
                     # always write the attempted time into updated_at
                     "updated_at": attempt_time,
