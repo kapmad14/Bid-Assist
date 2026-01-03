@@ -3,7 +3,7 @@ import re
 import json
 import warnings
 from pypdf import PdfReader
-from llm_item_category_primary import extract_item_category as llm_extract_item_category
+from item_category_extractor import get_item_category
 
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -60,18 +60,8 @@ def extract_bid_number(text):
     m = BID_REGEX.search(text)
     return m.group(1) if m else None
 
-def extract_item_category_regex(text):
-    m = LABEL_ITEM.search(text)
-    if not m:
-        return None
-    raw = clean_text(m.group(1))
-    raw = re.sub(r"\s+GeMARPTS.*$", "", raw, flags=re.I)
-    return raw.strip()
-
-def extract_item_category(text_raw):
-    cat = llm_extract_item_category(text_raw)
-    return cat.strip() if cat else ""
-
+def extract_item_category(pdf_path):
+    return get_item_category(pdf_path)
 
 def extract_documents(text):
     m = LABEL_DOCS.search(text)
@@ -136,7 +126,7 @@ def parse_pdf(path):
     return {
         "file": os.path.basename(path),
         "bid_number": extract_bid_number(text_ascii),
-        "item": extract_item_category(text_raw),
+        "item": extract_item_category(path),
         "documents_required": extract_documents(text_ascii),
         "arbitration_clause": extract_bool(LABEL_ARBITRATION, text_ascii),
         "mediation_clause": extract_bool(LABEL_MEDIATION, text_ascii),
