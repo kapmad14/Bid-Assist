@@ -47,6 +47,12 @@ export interface Tender {
 
   bidType?: string | null;
 
+  // 🔽 REQUIRED for Bid Conditions UI
+  documentsRequired?: string[];
+  arbitrationClause?: boolean | null;
+  mediationClause?: boolean | null;
+  evaluationMethod?: string | null;
+
 }
 
 

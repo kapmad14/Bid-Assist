@@ -394,42 +394,28 @@ class TenderClientStore {
     return { data: [], total: 0 };
     }
 
-    if (qErr || !Array.isArray(data)) {
-    // qErr may be empty object — make logging resilient
-    let qErrStr: string;
-    try {
-        qErrStr = JSON.stringify(qErr);
-    } catch {
-        qErrStr = String(qErr);
-    }
-
-    console.error("❌ SUPABASE QUERY ERROR", {
-        err: qErr,
-        raw: qErrStr,
-        details: qErr?.details,
-        hint: qErr?.hint,
-        status: qErr?.status,
-        context: {
-        page: params.page,
-        filter: params.statusFilter,
-        search: params.search,
-        shortlistSample: this.getAllLocalShortlist().slice(0, 12),
-        numericShortlistCount: (() => {
-            try { return this.getAllLocalShortlist().map(id => Number(id)).filter(n => Number.isInteger(n) && n > 0).length; } catch { return null; }
-        })()
-        }
-    });
+    if (qErr) {
+    console.error("❌ REAL SUPABASE ERROR", qErr);
     return { data: [], total: 0 };
     }
 
 
 
-    return {
-      data: (data || []).map((r: any) => this.mapRowToTender(r)),
-      total: count || 0
-    };
-  }
+    const safeRows: Tender[] = [];
 
+    for (const r of data || []) {
+    try {
+        safeRows.push(this.mapRowToTender(r));
+    } catch (e) {
+        console.error("🔥 ROW MAPPING CRASH", r, e);
+    }
+    }
+
+    return {
+    data: safeRows,
+    total: count || 0
+    };
+}
   // ---------------------------------------------------------
   // ROBUST MAPPER (restored from earlier working logic)
   // ---------------------------------------------------------
@@ -552,6 +538,11 @@ class TenderClientStore {
 
         bidType: row.bid_type ?? null, 
         isShortlisted: this.shortlistedIds.has(String(row.id)),
+
+        documentsRequired: row.documents_required ?? [],
+        arbitrationClause: row.arbitration_clause ?? null,
+        mediationClause: row.mediation_clause ?? null,
+        evaluationMethod: row.evaluation_method ?? null,
 
         raw: row
         };

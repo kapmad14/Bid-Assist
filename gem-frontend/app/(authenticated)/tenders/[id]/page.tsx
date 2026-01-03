@@ -591,6 +591,75 @@ const handlePreviewAdditionalDocs = async () => {
                   </div>
               </CardContent>
             </Card>
+            {/* Bid Conditions */}
+            <Card className="border-2 border-gray-200">
+              <CardHeader>
+                <CardTitle className="text-base font-bold text-gray-900">
+                  Bid Conditions
+                </CardTitle>
+              </CardHeader>
+
+              <CardContent className="space-y-4">
+                {/* Clause pills */}
+                <div className="flex flex-wrap gap-2">
+                  {tender.arbitration_clause && (
+                    <span className="inline-flex items-center text-[11px] font-semibold px-3 py-1 rounded
+                      bg-green-50 text-green-700 border border-green-100">
+                      Arbitration
+                    </span>
+                  )}
+
+                  {tender.mediation_clause && (
+                    <span className="inline-flex items-center text-[11px] font-semibold px-3 py-1 rounded
+                      bg-green-50 text-green-700 border border-green-100">
+                      Mediation
+                    </span>
+                  )}
+
+                  {!tender.arbitration_clause && !tender.mediation_clause && (
+                    <span className="text-xs text-gray-500">
+                      No dispute resolution clauses specified
+                    </span>
+                  )}
+                </div>
+
+                {/* Evaluation Method */}
+                <div>
+                  <p className="text-xs text-gray-600 font-semibold">Evaluation Method</p>
+                  <p className="font-bold text-sm text-gray-900">
+                    {tender.evaluation_method || 'Not specified'}
+                  </p>
+                </div>
+
+                {/* Documents Required placeholder – next step */}
+                <div>
+                  <p className="text-xs text-gray-600 font-semibold mb-1">Documents Required</p>
+
+                  {Array.isArray(tender.documents_required) && tender.documents_required.length > 0 ? (
+                    <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto pr-1">
+                      {tender.documents_required.slice(0, 8).map((doc: string, idx: number) => (
+                        <span
+                          key={idx}
+                          className="inline-flex items-center text-[11px] font-semibold px-2 py-1 rounded
+                            bg-gray-100 text-gray-700 border border-gray-200"
+                          title={doc}
+                        >
+                          {doc}
+                        </span>
+                      ))}
+
+                      {tender.documents_required.length > 8 && (
+                        <span className="text-[11px] text-gray-500 self-center">
+                          +{tender.documents_required.length - 8} more
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">No mandatory documents specified</p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
           </div>
 
           {/* Right Column - Documents + Preview */}
