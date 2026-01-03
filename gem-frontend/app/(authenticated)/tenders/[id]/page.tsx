@@ -202,13 +202,10 @@ export default function TenderDetailPage() {
   // Auto-load additional documents on page load
   useEffect(() => {
     if (!tender?.id) return;
-
-    // Prevent duplicate fetches
-    if (urlsExtracted || isExtracting) return;
-
     handlePreviewAdditionalDocs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tender?.id]);
+
 
   const formatDate = (dateString?: string | null, opts: "date" | "datetime" = "datetime") => {
     if (!dateString) return "N/A";
@@ -599,7 +596,6 @@ const handlePreviewAdditionalDocs = async () => {
           {/* Right Column - Documents + Preview */}
           <div className="lg:col-span-2 space-y-4">
             {/* Additional Documents List */}
-            {extractedDocs.length > 0 && (
               <Card id="documents-section" className="border-2 border-gray-200">
                 <CardHeader
                   role="button"
@@ -628,8 +624,9 @@ const handlePreviewAdditionalDocs = async () => {
                         Additional Documents
                       </CardTitle>
                       <Badge variant="success" className="text-xs font-semibold">
-                        {extractedDocs.length} document
-                        {extractedDocs.length !== 1 ? 's' : ''}
+                        {isExtracting
+                          ? 'Loading…'
+                          : `${extractedDocs.length} document${extractedDocs.length !== 1 ? 's' : ''}`}
                       </Badge>
                     </div>
 
@@ -641,6 +638,17 @@ const handlePreviewAdditionalDocs = async () => {
 
                 {!docsCollapsed && (
                 <CardContent className="p-4 space-y-3">
+                  {isExtracting && extractedDocs.length === 0 && (
+                    <p className="text-sm text-gray-500 text-center py-6">
+                      Fetching additional documents…
+                    </p>
+                  )}
+
+                  {!isExtracting && extractedDocs.length === 0 && (
+                    <p className="text-sm text-gray-500 text-center py-6">
+                      No additional documents found.
+                    </p>
+                  )}                  
                   {extractedDocs.map(doc => (
                     <div
                       key={doc.id}
@@ -695,7 +703,6 @@ const handlePreviewAdditionalDocs = async () => {
                 </CardContent>
                 )}
               </Card>
-            )}
 
             {/* Bid Document Preview */}
             <Card className="border-2 border-gray-200">
