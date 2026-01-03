@@ -123,6 +123,9 @@ function TendersContentInner() {
   const [emdNeeded, setEmdNeeded] = useState<'all' | 'yes' | 'no'>('all');
   const [reverseAuction, setReverseAuction] = useState<'all' | 'yes' | 'no'>('all');
   const [bidTypeFilter, setBidTypeFilter] = useState<'all' | 'single' | 'two'>('all');
+  const [evaluationType, setEvaluationType] =
+    useState<'all' | 'item' | 'total'>('all');
+
 
 
   const [isLoading, setIsLoading] = useState(true);
@@ -168,6 +171,7 @@ function TendersContentInner() {
 
 
   // Reset page to 1 for filter changes
+
   const handleSetSortBy = (val: SortOption) => { setSortBy(val); router.push(`/tenders?page=1`); };
   const handleSetActiveTab = (val: TabOption) => { setActiveTab(val); router.push(`/tenders?page=1`); };
   const handleSetEmd = (val: 'all'|'yes'|'no') => { setEmdNeeded(val); router.push(`/tenders?page=1`); };
@@ -180,6 +184,10 @@ function TendersContentInner() {
     setCurrentPage(1);
     };
 
+  const handleSetEvaluationType = (val: 'all' | 'item' | 'total') => {
+  setEvaluationType(val);
+  setCurrentPage(1);
+    };
 
 
   // Fetch tenders (uses tenderClientStore)
@@ -204,6 +212,7 @@ function TendersContentInner() {
         emdFilter: emdNeeded,
         reverseAuction, // ← NEW
         bidType: bidTypeFilter,
+        evaluationType,
         source: initialSource === 'gem' ? 'gem' : 'all',
         recommendationsOnly: recommendedOnly,
       });
@@ -217,6 +226,7 @@ function TendersContentInner() {
         statusFilter,
         sortBy,
         emdNeeded,
+        evaluationType,
         recommendedOnly,
         source: initialSource === 'gem' ? 'gem' : 'all',
         page: currentPage,
@@ -230,11 +240,11 @@ function TendersContentInner() {
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, searchTerm, sortBy, activeTab, emdNeeded, reverseAuction, initialSource, bidTypeFilter, recommendedOnly, logUserEvent, supabase]);
+  }, [currentPage, searchTerm, sortBy, activeTab, emdNeeded, reverseAuction, initialSource, bidTypeFilter, evaluationType, recommendedOnly, logUserEvent, supabase]);
 
   useEffect(() => {
     fetchTenders();
-  }, [currentPage, searchTerm, activeTab, sortBy, emdNeeded, reverseAuction, bidTypeFilter, recommendedOnly]);
+  }, [currentPage, searchTerm, activeTab, sortBy, emdNeeded, reverseAuction, bidTypeFilter, evaluationType, recommendedOnly]);
 
 
   // Shortlist toggle with optimistic update and rollback
@@ -329,6 +339,16 @@ function TendersContentInner() {
     if (diffDays <= 7) return 'Closing Soon';
     return 'Active';
   };
+
+  const formatCamelCase = (val?: string | null) => {
+  if (!val) return null;
+
+  return val
+    .toLowerCase()
+    .split(/[\s_]+/)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+    };
 
   const getBidTypePill = (bidType?: unknown) => {
     // Defensive existence + type check
@@ -508,7 +528,7 @@ function TendersContentInner() {
           {/* Accordion Filters */}
           <div className="divide-y divide-gray-100">
              {/* EMD Needed - Radio Buttons */}
-             <FilterSection title="EMD Needed" isOpen>
+             <FilterSection title="EMD Needed">
                 <div className="space-y-2">
                    <label className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 cursor-pointer">
                       <input 
@@ -546,7 +566,7 @@ function TendersContentInner() {
                 </div>
              </FilterSection>
              {/* Reverse Auction - Radio Buttons */}
-              <FilterSection title="Reverse Auction" isOpen>
+              <FilterSection title="Reverse Auction">
                 <div className="space-y-2">
                   <label className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 cursor-pointer">
                     <input
@@ -622,6 +642,28 @@ function TendersContentInner() {
                     </label>
                 </div>
                 </FilterSection>
+                <FilterSection title="Evaluation Type">
+                <div className="space-y-2">
+                    {[
+                    ['all','Any'],
+                    ['item','Item Wise'],
+                    ['total','Total Value Wise'],
+                    ].map(([val,label]) => (
+
+                    <label key={val} className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 cursor-pointer">
+                        <input
+                        type="radio"
+                        name="evaluationType"
+                        checked={evaluationType === val}
+                        onChange={() => handleSetEvaluationType(val as any)}
+                        className="w-4 h-4 accent-[#F7C846]"
+                        />
+                        {label}
+                    </label>
+                    ))}
+                </div>
+                </FilterSection>
+
 
           </div>
           {/* --- Guidance Banner for New Users --- */}
@@ -787,6 +829,8 @@ function TendersContentInner() {
                       setSearchInput('');
                       setSearchTerm('');
                       setEmdNeeded('all');
+                      setBidTypeFilter('all');
+                      setEvaluationType('all');
                       setActiveTab('Active'); // reset to default
                       setRecommendedOnly(false);
                       setCurrentPage(1);
@@ -859,7 +903,7 @@ function TendersContentInner() {
                     <div className="flex-1 pr-8">
                       {/* Title — show `item` first as requested */}
                       <h3
-                        className="text-lg font-bold text-[#0E121A] group-hover:text-blue-700 transition-colors line-clamp-2 mb-2"
+                        className="text-lg font-semibold text-[#0E121A] group-hover:text-blue-700 transition-colors line-clamp-2 mb-4"
                         title={(tender.item || tender.category || tender.title) ?? undefined}
                       >
                         {tender.item || tender.category || tender.title || 'Untitled tender'}
@@ -878,6 +922,11 @@ function TendersContentInner() {
                             : 'Docs'}
                         </span>
 
+                        {Array.isArray(tender.documentsRequired) && tender.documentsRequired.length > 0 && (
+                        <span className="flex items-center gap-1 bg-gray-50 text-gray-600 text-[10px] font-bold px-2 py-1 rounded border border-gray-200">
+                            📄 Docs Required: {tender.documentsRequired.length}
+                        </span>
+                        )}
 
                         {urgent && (
                           <span className="flex items-center gap-1 bg-orange-50 text-orange-700 text-[10px] font-bold px-2 py-1 rounded border border-orange-100">
@@ -910,6 +959,17 @@ function TendersContentInner() {
                             </span>
                             );
                         })()}
+
+                        {tender.evaluationMethod && (
+                        <span
+                            className="inline-flex items-center text-[11px] font-semibold px-3 py-1 rounded
+                            bg-slate-50 text-slate-700 border border-slate-200"
+                            title="Evaluation Method"
+                        >
+                            {formatCamelCase(tender.evaluationMethod)}
+                        </span>
+                        )}
+
                         </div>
                     </div>
 

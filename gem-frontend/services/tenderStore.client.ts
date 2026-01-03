@@ -29,6 +29,7 @@ type GetTendersParams = {
   emdFilter?: 'all' | 'yes' | 'no';
   reverseAuction?: 'all' | 'yes' | 'no';
   bidType?: 'all' | 'single' | 'two';
+  evaluationType?: 'all' | 'item' | 'total';
   sortBy?: 'newest' | 'oldest' | 'closing-soon' | 'closing-latest';
   recommendationsOnly?: boolean;
   source?: 'gem' | 'all';
@@ -212,10 +213,10 @@ class TenderClientStore {
     // SEARCH (single OR block)
     // -------------------------
     if (params.search?.trim()) {
-      const term = params.search.trim();
-      const like = `%${term}%`;
+    const term = params.search.trim();
+    const like = `%${term}%`;
 
-      const cols = [
+    const cols = [
         'gem_bid_id',
         'detail_url',
         'pdf_storage_path',
@@ -242,10 +243,10 @@ class TenderClientStore {
         'payment_terms',
         'delivery_terms',
         'simple_extraction'
-      ];
+    ];
 
-      const clauses = cols.map(c => `${c}.ilike.${like}`);
-        query = query.or(clauses.join(','));
+    const clauses = cols.map(c => `${c}.ilike.${like}`);
+    query = query.or(clauses.join(','));
     }
 
     // ------------------------------------------
@@ -256,8 +257,11 @@ class TenderClientStore {
     }
 
     else if (params.statusFilter === 'open') {
-      query = query.or(`end_datetime.gte.${nowIso},end_datetime.is.null`);
+    query = query.or(
+        `end_datetime.gte.${nowIso},end_datetime.is.null`
+    );
     }
+
 
     else if (params.statusFilter === 'urgent' || params.statusFilter === 'closing-soon') {
       const nextWeek = new Date();
@@ -327,7 +331,11 @@ class TenderClientStore {
     // EMD FILTER
     // ------------------------------------------
     if (params.emdFilter === 'yes') query = query.gt('emd_amount', 0);
-    else if (params.emdFilter === 'no') query = query.or('emd_amount.is.null,emd_amount.eq.0');
+    else if (params.emdFilter === 'no') {
+    query = query.or('emd_amount.is.null,emd_amount.eq.0');
+    }
+
+
 
     // ------------------------------------------
     // Reverse Auction
@@ -343,6 +351,16 @@ class TenderClientStore {
     }
     else if (params.bidType === 'two') {
     query = query.filter('bid_type', 'ilike', '%two%');
+    }
+
+    // ------------------------------------------
+    // EVALUATION TYPE
+    // ------------------------------------------
+    if (params.evaluationType === 'item') {
+    query = query.ilike('evaluation_method', '%item%');
+    }
+    else if (params.evaluationType === 'total') {
+    query = query.ilike('evaluation_method', '%total%');
     }
 
     // ------------------------------------------
@@ -381,6 +399,15 @@ class TenderClientStore {
 
     try {
     const res = await query.range(from, to);
+    if (res.error) {
+    console.error("🧨 SUPABASE RAW ERROR", {
+        message: res.error.message,
+        details: res.error.details,
+        hint: res.error.hint,
+        code: res.error.code,
+    });
+    }
+
     data = res.data ?? null;
     qErr = res.error ?? null;
     count = res.count ?? null;
