@@ -6,6 +6,8 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Calculator } from 'lucide-react';
+
 
 import {
   ArrowLeft,
@@ -517,7 +519,7 @@ const handlePreviewAdditionalDocs = async () => {
                   <p className="text-xs text-gray-600 font-semibold">
                     Item
                   </p>
-                  <p className="font-bold text-sm text-gray-900 line-clamp-5">
+                  <p className="font-bold text-sm text-gray-900 line-clamp-2">
                     {tender.item || 'N/A'}
                   </p>
                 </div>
@@ -599,66 +601,86 @@ const handlePreviewAdditionalDocs = async () => {
                 </CardTitle>
               </CardHeader>
 
-              <CardContent className="space-y-4">
-                {/* Clause pills */}
-                <div className="flex flex-wrap gap-2">
-                  {tender.arbitration_clause && (
-                    <span className="inline-flex items-center text-[11px] font-semibold px-3 py-1 rounded
-                      bg-green-50 text-green-700 border border-green-100">
-                      Arbitration
-                    </span>
-                  )}
+                <CardContent className="space-y-5 text-sm">
 
-                  {tender.mediation_clause && (
-                    <span className="inline-flex items-center text-[11px] font-semibold px-3 py-1 rounded
-                      bg-green-50 text-green-700 border border-green-100">
-                      Mediation
-                    </span>
-                  )}
-
-                  {!tender.arbitration_clause && !tender.mediation_clause && (
-                    <span className="text-xs text-gray-500">
-                      No dispute resolution clauses specified
-                    </span>
-                  )}
-                </div>
-
-                {/* Evaluation Method */}
-                <div>
-                  <p className="text-xs text-gray-600 font-semibold">Evaluation Method</p>
-                  <p className="font-bold text-sm text-gray-900">
-                    {tender.evaluation_method || 'Not specified'}
-                  </p>
-                </div>
-
-                {/* Documents Required placeholder – next step */}
-                <div>
-                  <p className="text-xs text-gray-600 font-semibold mb-1">Documents Required</p>
-
-                  {Array.isArray(tender.documents_required) && tender.documents_required.length > 0 ? (
-                    <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto pr-1">
-                      {tender.documents_required.slice(0, 8).map((doc: string, idx: number) => (
-                        <span
-                          key={idx}
-                          className="inline-flex items-center text-[11px] font-semibold px-2 py-1 rounded
-                            bg-gray-100 text-gray-700 border border-gray-200"
-                          title={doc}
-                        >
-                          {doc}
-                        </span>
-                      ))}
-
-                      {tender.documents_required.length > 8 && (
-                        <span className="text-[11px] text-gray-500 self-center">
-                          +{tender.documents_required.length - 8} more
-                        </span>
-                      )}
+                  {/* Clause Status Grid */}
+                  <div className="rounded-lg bg-gray-50 border border-gray-200 divide-y">
+                    <div className="grid grid-cols-2 px-4 py-2.5 items-center">
+                      <span className="text-gray-600 font-medium">Arbitration Clause</span>
+                      <span className={`text-right font-bold ${tender.arbitration_clause ? 'text-green-700 tracking-wide' : 'text-gray-500 italic'}`}>
+                        {tender.arbitration_clause ? 'YES' : 'NO'}
+                      </span>
                     </div>
-                  ) : (
-                    <p className="text-sm text-gray-500">No mandatory documents specified</p>
+
+                    <div className="grid grid-cols-2 px-4 py-2.5 items-center">
+                      <span className="text-gray-600 font-medium">Mediation Clause</span>
+                      <span className={`text-right font-bold ${tender.mediation_clause ? 'text-green-700 tracking-wide' : 'text-gray-500 italic'}`}>
+                        {tender.mediation_clause ? 'YES' : 'NO'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Evaluation Method */}
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Evaluation Method</p>
+                    <p className="text-base font-bold text-gray-900 flex items-center gap-2">
+                      <Calculator className="w-4 h-4 text-gray-500" />
+                      <span>{tender.evaluation_method || 'Not specified'}</span>
+                    </p>
+                  </div>
+
+                  {/* Compliance Load */}
+                  {Array.isArray(tender.documents_required) && (
+                    <p className="text-sm text-gray-600 font-medium">
+                      Compliance Load:&nbsp;
+                      <span className="font-semibold text-gray-700">
+                        {tender.documents_required.length <= 2 && 'Low'}
+                        {tender.documents_required.length >= 3 && tender.documents_required.length <= 5 && 'Medium'}
+                        {tender.documents_required.length >= 6 && 'High'}
+                      </span>
+                      &nbsp;({tender.documents_required.length} documents)
+                    </p>
                   )}
-                </div>
-              </CardContent>
+
+                  {/* Documents Required */}
+                  <div className="flex flex-wrap gap-2">
+                    {Array.isArray(tender.documents_required) && tender.documents_required.length > 0 ? (
+                      <>
+                        {tender.documents_required.slice(0, 4).map((doc: string, idx: number) => (
+                          <span
+                            key={idx}
+                            title={doc}
+                              className="
+                                bg-white
+                                border border-gray-500/40
+                                text-gray-700
+                                px-3 py-1
+                                rounded-full
+                                text-[11px] font-medium
+                                max-w-[220px] truncate
+                                shadow-[0_1px_1px_rgba(0,0,0,0.04)]
+                                hover:bg-gray-50 hover:border-gray-500/60
+                                transition
+                              "
+                          >
+                            {doc}
+                          </span>
+
+                        ))}
+
+                        {tender.documents_required.length > 4 && (
+                          <span className="text-[11px] text-gray-500 self-center">
+                            +{tender.documents_required.length - 4} more
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-sm text-gray-500">No mandatory documents specified</p>
+                    )}
+                  </div>
+
+                </CardContent>
+
             </Card>
           </div>
 
