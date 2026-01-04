@@ -195,13 +195,18 @@ class TenderClientStore {
       const first = rpcRows[0];
       const total = first ? Number(first.total_count) || 0 : 0;
 
-      return {
+    return {
         data: rpcRows.map((r: any) => {
-          const { total_count, ...rest } = r;
-          return this.mapRowToTender(rest);
+        const { total_count, ...rest } = r;
+
+        // 🔧 Inject bid_date into row shape expected by mapper
+        return this.mapRowToTender({
+            ...rest,
+            bid_date: r.bid_date,   // ← THIS IS THE FIX
+        });
         }),
         total
-      };
+    };
     }
 
     // ------------------------------------------

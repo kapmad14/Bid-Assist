@@ -172,21 +172,29 @@ function TendersContentInner() {
 
   // Reset page to 1 for filter changes
 
-  const handleSetSortBy = (val: SortOption) => { setSortBy(val); router.push(`/tenders?page=1`); };
-  const handleSetActiveTab = (val: TabOption) => { setActiveTab(val); router.push(`/tenders?page=1`); };
-  const handleSetEmd = (val: 'all'|'yes'|'no') => { setEmdNeeded(val); router.push(`/tenders?page=1`); };
-  const handleSetReverseAuction = (val: 'all' | 'yes' | 'no') => {
-    setReverseAuction(val);
-    router.push(`/tenders?page=1`);
-    };
-  const handleSetBidType = (val: 'all' | 'single' | 'two') => {
-    setBidTypeFilter(val);
-    setCurrentPage(1);
-    };
-
-  const handleSetEvaluationType = (val: 'all' | 'item' | 'total') => {
-  setEvaluationType(val);
+  const resetToFirstPage = () => {
   setCurrentPage(1);
+  router.replace('/tenders?page=1', { scroll: false });
+};
+
+    const handleSetSortBy = (val: SortOption) => { setSortBy(val); resetToFirstPage(); };
+    const handleSetActiveTab = (val: TabOption) => { setActiveTab(val); resetToFirstPage(); };
+    const handleSetEmd = (val: 'all'|'yes'|'no') => { setEmdNeeded(val); resetToFirstPage(); };
+    const handleSetReverseAuction = (val: 'all' | 'yes' | 'no') => { setReverseAuction(val); resetToFirstPage(); };
+    const handleSetBidType = (val: 'all' | 'single' | 'two') => { setBidTypeFilter(val); resetToFirstPage(); };
+    const handleSetEvaluationType = (val: 'all' | 'item' | 'total') => { setEvaluationType(val); resetToFirstPage(); };
+
+    const handleClearAllFilters = () => {
+    setSearchInput('');
+    setSearchTerm('');
+    setSortBy('newest');
+    setActiveTab('Active');
+    setEmdNeeded('all');
+    setReverseAuction('all');
+    setBidTypeFilter('all');
+    setEvaluationType('all');
+    setRecommendedOnly(false);
+    resetToFirstPage();
     };
 
 
@@ -469,15 +477,24 @@ function TendersContentInner() {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row gap-8 pb-12">
-      
+    <div className="flex flex-col lg:flex-row gap-8 pb-12">      
       {/* --- LEFT SIDEBAR FILTERS --- */}
       <div className="w-full lg:w-72 flex-shrink-0 space-y-6">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4" aria-hidden={isLoading}>
-          <div className="flex items-center gap-2 mb-4">
-            <Filter className="w-5 h-5 text-[#0E121A]" aria-hidden />
-            <h2 className="text-lg font-bold text-[#0E121A]">Filters</h2>
-          </div>
+            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+                <Filter className="w-5 h-5 text-[#0E121A]" />
+                <h2 className="text-lg font-bold text-[#0E121A]">Filters</h2>
+            </div>
+
+            <button
+                onClick={handleClearAllFilters}
+                className="text-xs font-semibold text-blue-600 hover:underline"
+            >
+                Clear all
+            </button>
+            </div>
+
 
           {/* Keyword Search */}
           <div className="mb-4">
@@ -528,7 +545,7 @@ function TendersContentInner() {
           {/* Accordion Filters */}
           <div className="divide-y divide-gray-100">
              {/* EMD Needed - Radio Buttons */}
-             <FilterSection title="EMD Needed">
+             <FilterSection title="EMD Needed" isOpen={false}>
                 <div className="space-y-2">
                    <label className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 cursor-pointer">
                       <input 
@@ -566,7 +583,7 @@ function TendersContentInner() {
                 </div>
              </FilterSection>
              {/* Reverse Auction - Radio Buttons */}
-              <FilterSection title="Reverse Auction">
+              <FilterSection title="Reverse Auction" isOpen={false}>
                 <div className="space-y-2">
                   <label className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 cursor-pointer">
                     <input
@@ -694,8 +711,7 @@ function TendersContentInner() {
 
       
       {/* --- MAIN CONTENT AREA --- */}
-      <div className="flex-1 min-w-0" aria-busy={isLoading}>
-        
+      <div className="flex-1 min-w-0 flex flex-col" aria-busy={isLoading}>        
         {/* Top Controls */}
         <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
            {/* Tabs */}
@@ -801,14 +817,15 @@ function TendersContentInner() {
           </div>
         </div>
 
-        {/* Tenders List */}
+        {/* Scrollable Tender Container */}
+        <div className="pr-2">
         {isLoading ? (
-           <div className="py-20 text-center">
-              <Loader2 className="w-10 h-10 text-gray-300 animate-spin mx-auto" aria-hidden />
-              <p className="text-gray-400 mt-3 font-medium">Loading opportunities...</p>
-           </div>
+            <div className="py-20 text-center">
+            <Loader2 className="w-10 h-10 text-gray-300 animate-spin mx-auto" aria-hidden />
+            <p className="text-gray-400 mt-3 font-medium">Loading opportunities...</p>
+            </div>
         ) : tenders.length === 0 ? (
-           <div className="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">
+            <div className="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">
               <Database className="w-12 h-12 text-gray-300 mx-auto mb-4" aria-hidden />
               <h3 className="text-lg font-bold text-gray-900">No tenders found</h3>
                 <p className="text-gray-500">
@@ -1063,92 +1080,85 @@ function TendersContentInner() {
               </div>
             );
           })}
-
            </div>
         )}
-
-        {/* Pagination (Numbered + Ellipses) */}
-        {totalRecords > 0 && (
-          <div className="mt-8 flex justify-center">
-            <div className="flex items-center gap-2">
-
-              {/* Prev Button */}
-              <button
-                onClick={() => router.push(`/tenders?page=${currentPage - 1}`)}
-                disabled={currentPage === 1}
-                className={`px-3 py-1.5 rounded-md border text-sm font-medium transition-all
-                  ${
-                    currentPage === 1
-                      ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
-                      : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
-                  }
-                `}
-              >
-                Prev
-              </button>
-
-              {/* Page Numbers */}
-              {(() => {
-                const pages: (number | string)[] = [];
-                const total = lastPage;
-
-                const add = (p: number | string) => pages.push(p);
-
-                add(1);
-
-                if (currentPage > 4) add("...");
-
-                const start = Math.max(2, currentPage - 2);
-                const end = Math.min(total - 1, currentPage + 2);
-
-                for (let i = start; i <= end; i++) add(i);
-
-                if (currentPage < total - 3) add("...");
-
-                if (total > 1) add(total);
-
-                return pages.map((p, idx) =>
-                  p === "..." ? (
-                    <span key={`ellipsis-${idx}`} className="px-2 text-gray-500">…</span>
-                  ) : (
+            {totalRecords > 0 && (
+                <div className="py-8 flex justify-center">
+                    <div className="flex items-center gap-2">
+                    {/* Prev Button */}
                     <button
-                      key={`page-${p}`}
-                      onClick={() => router.push(`/tenders?page=${p}`)}
-                      className={`px-3 py-1.5 rounded-md border text-sm font-medium transition-all
+                        onClick={() => router.push(`/tenders?page=${currentPage - 1}`)}
+                        disabled={currentPage === 1}
+                        className={`px-3 py-1.5 rounded-md border text-sm font-medium transition-all
                         ${
-                          p === currentPage
-                            ? "bg-blue-600 text-white border-blue-600 shadow"
+                            currentPage === 1
+                            ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
                             : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
                         }
-                      `}
+                        `}
                     >
-                      {p}
+                        Prev
                     </button>
-                  )
-                );
-              })()}
 
-              {/* Next Button */}
-              <button
-                onClick={() => router.push(`/tenders?page=${Math.min(lastPage, currentPage + 1)}`)}
-                disabled={currentPage === lastPage}
-                className={`px-3 py-1.5 rounded-md border text-sm font-medium transition-all
-                  ${
-                    currentPage === lastPage
-                      ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
-                      : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
-                  }
-                `}
-              >
-                Next
-              </button>
+                    {/* Page Numbers */}
+                    {(() => {
+                        const pages: (number | string)[] = [];
+                        const total = lastPage;
 
-            </div>
+                        const add = (p: number | string) => pages.push(p);
+
+                        add(1);
+
+                        if (currentPage > 4) add("...");
+
+                        const start = Math.max(2, currentPage - 2);
+                        const end = Math.min(total - 1, currentPage + 2);
+
+                        for (let i = start; i <= end; i++) add(i);
+
+                        if (currentPage < total - 3) add("...");
+
+                        if (total > 1) add(total);
+
+                        return pages.map((p, idx) =>
+                        p === "..." ? (
+                            <span key={`ellipsis-${idx}`} className="px-2 text-gray-500">…</span>
+                        ) : (
+                            <button
+                            key={`page-${p}`}
+                            onClick={() => router.push(`/tenders?page=${p}`)}
+                            className={`px-3 py-1.5 rounded-md border text-sm font-medium transition-all
+                                ${
+                                p === currentPage
+                                    ? "bg-blue-600 text-white border-blue-600 shadow"
+                                    : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
+                                }
+                            `}
+                            >
+                            {p}
+                            </button>
+                        )
+                        );
+                    })()}
+
+                    {/* Next Button */}
+                    <button
+                        onClick={() => router.push(`/tenders?page=${Math.min(lastPage, currentPage + 1)}`)}
+                        disabled={currentPage === lastPage}
+                        className={`px-3 py-1.5 rounded-md border text-sm font-medium transition-all
+                        ${
+                            currentPage === lastPage
+                            ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
+                            : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
+                        }
+                        `}
+                    >
+                        Next
+                    </button>
+                    </div>
+                </div>
+                )}
           </div>
-        )}
-
-
-
       </div>
     </div>
   );
