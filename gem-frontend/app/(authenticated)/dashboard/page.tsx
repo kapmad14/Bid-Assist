@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-client';
+import { Search, PackagePlus } from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -42,15 +43,15 @@ function fillDateBuckets(
   return result;
 }
 interface DashboardStats {
-  totalTenders: number;
   activeTenders: number;
   closingSoon: number;
-  archived: number;
   recommended: number;
   shortlisted: number;
   catalogActive: number;
   catalogTotal: number;
+  catalogPaused: number;
 }
+
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -68,14 +69,13 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<DashboardStats>({
-    totalTenders: 0,
     activeTenders: 0,
     closingSoon: 0,
-    archived: 0,
     recommended: 0,
     shortlisted: 0,
     catalogActive: 0,
     catalogTotal: 0,
+    catalogPaused: 0,
   });
 
   useEffect(() => {
@@ -112,9 +112,6 @@ export default function DashboardPage() {
         const sevenDaysLaterIso = sevenDaysLater.toISOString();
 
         // ======================= Queries ==========================
-        const tendersTotalQuery = supabase
-          .from('tenders')
-          .select('id', { count: 'exact', head: true });
 
         const tendersActiveQuery = supabase
           .from('tenders')
@@ -127,11 +124,6 @@ export default function DashboardPage() {
           .gt('bid_end_datetime', nowIso)
           .lt('bid_end_datetime', sevenDaysLaterIso);
 
-        const tendersArchivedQuery = supabase
-          .from('tenders')
-          .select('id', { count: 'exact', head: true })
-          .lt('bid_end_datetime', nowIso);
-
         const recommendedQuery = supabase
           .from('recommendations')
           .select('id', { count: 'exact', head: true })
@@ -141,6 +133,12 @@ export default function DashboardPage() {
           .from('user_shortlists')
           .select('id', { count: 'exact', head: true })
           .eq('user_id', currentUser.id);
+
+        const catalogPausedQuery = supabase
+          .from('catalog_items')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', currentUser.id)
+          .eq('status', 'paused');
 
         const catalogActiveQuery = supabase
           .from('catalog_items')
@@ -154,38 +152,35 @@ export default function DashboardPage() {
           .eq('user_id', currentUser.id);
 
         const [
-          tendersTotalRes,
           tendersActiveRes,
           tendersClosingSoonRes,
-          tendersArchivedRes,
           recommendedRes,
           shortlistRes,
           catalogActiveRes,
           catalogTotalRes,
+          catalogPausedRes,
           publishedChartRes,
           closingChartRes,
         ] = await Promise.all([
-          tendersTotalQuery,
           tendersActiveQuery,
           tendersClosingSoonQuery,
-          tendersArchivedQuery,
           recommendedQuery,
           shortlistQuery,
           catalogActiveQuery,
           catalogTotalQuery,
+          catalogPausedQuery,
           supabase.rpc('dashboard_tenders_published_last_7_days'),
           supabase.rpc('dashboard_tenders_closing_next_7_days'),
         ]);
 
 
         const allErrors = [
-          tendersTotalRes.error,
           tendersActiveRes.error,
           tendersClosingSoonRes.error,
-          tendersArchivedRes.error,
           recommendedRes.error,
           shortlistRes.error,
           catalogActiveRes.error,
+          catalogPausedRes.error,
           catalogTotalRes.error,
           publishedChartRes.error,
           closingChartRes.error,
@@ -201,16 +196,16 @@ export default function DashboardPage() {
 
         if (!mounted) return;
 
-        setStats({
-          totalTenders: tendersTotalRes.count ?? 0,
-          activeTenders: tendersActiveRes.count ?? 0,
-          closingSoon: tendersClosingSoonRes.count ?? 0,
-          archived: tendersArchivedRes.count ?? 0,
-          recommended: recommendedRes.count ?? 0,
-          shortlisted: shortlistRes.count ?? 0,
-          catalogActive: catalogActiveRes.count ?? 0,
-          catalogTotal: catalogTotalRes.count ?? 0,
-        });
+          setStats({
+            activeTenders: tendersActiveRes.count ?? 0,
+            closingSoon: tendersClosingSoonRes.count ?? 0,
+            recommended: recommendedRes.count ?? 0,
+            shortlisted: shortlistRes.count ?? 0,
+            catalogActive: catalogActiveRes.count ?? 0,
+            catalogTotal: catalogTotalRes.count ?? 0,
+            catalogPaused: catalogPausedRes.count ?? 0,
+          });
+
           const publishedFilled = fillDateBuckets(
             publishedChartRes.data ?? [],
             -7,
@@ -268,43 +263,12 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-[#F5F5F7] p-6">
 
-      {/* Top yellow header */}
-      <div className="mb-6 rounded-3xl bg-[#F7C846] px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between shadow-md">
-        <div>
-          <h1 className="text-2xl font-bold text-black">Dashboard</h1>
-          <p className="text-sm text-black/80">Plan, Prioritize and Accomplish with ease</p>
-        </div>
-        <div className="mt-3 sm:mt-0 text-sm text-black/80">
-          Welcome back{userEmail ? `, ${userEmail}` : ''}!
-        </div>
+      <div className="mb-6 px-2">
+        <h1 className="text-2xl font-bold text-black">
+          ::
+        </h1>
       </div>
 
-      {/* 📌 CTA now triggers when catalogTotal < 4 */}
-      {stats.catalogTotal < 4 && (
-        <div className="mb-6 rounded-3xl bg-white p-5 shadow-lg border border-black/5">
-          <p className="font-bold text-lg mb-1 text-black">Quick Start Guide 🚀</p>
-          <p className="text-black/70 mb-4">
-            Browse tenders and add products in Catalogue page to unlock personalized recommendations.
-          </p>
-
-          <div className="flex flex-wrap gap-4">
-            <button
-              onClick={() => router.push('/tenders')}
-              className="flex-1 min-w-[140px] rounded-2xl bg-black !text-white py-3 font-semibold hover:opacity-85 transition"
-            >
-              🔍 Browse Tenders
-            </button>
-
-
-            <button
-              onClick={() => router.push('/catalog')}
-              className="flex-1 min-w-[140px] rounded-2xl bg-[#F7C846] text-black py-3 font-semibold hover:brightness-95 transition"
-            >
-              📦 Add Products to Catalogue
-            </button>
-          </div>
-        </div>
-      )}
 
       {error && (
         <div className="mb-6 p-4 bg-[#FC574E]/10 border-2 border-[#FC574E]/20 rounded-2xl">
@@ -312,54 +276,145 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ===================== CARDS ==============test========= */}
+      {/* ===================== CARDS ===================== */}
       <div className="grid gap-4 lg:grid-cols-4 mb-6">
 
-        <div className="space-y-4">
-          <div className="rounded-3xl bg-[#F7C846] px-5 py-6 shadow-lg min-h-[140px] flex flex-col justify-center">
-            <p className="text-sm font-semibold text-black/80 mb-1">Total Tenders</p>
-            <p className="text-3xl font-bold text-black">{stats.totalTenders}</p>
+        {/* LEFT YELLOW WELCOME BLOCK */}
+        <div className="rounded-3xl bg-[#F7C846] p-7 shadow-lg flex flex-col justify-between min-h-[296px]">
+
+          {/* Top identity */}
+          <div>
+            <div className="flex items-end gap-2">
+              <p className="text-5xl font-extrabold text-black leading-none">Hi!</p>
+            </div>
+            <p className="mt-1 text-sm font-medium text-black/70 truncate">
+              {userEmail}
+            </p>
           </div>
-          <div className="rounded-3xl bg-[#F7C846] px-5 py-6 shadow-lg min-h-[140px] flex flex-col justify-center">
-            <p className="text-sm font-semibold text-black/80 mb-1">Recommended</p>
-            <p className="text-3xl font-bold text-black">{stats.recommended}</p>
-          </div>
+
+          {/* Divider */}
+          <div className="h-px w-full bg-black/15 my-4" />
+
+          {/* CTA */}
+          <button
+            onClick={() => router.push('/tenders')}
+            className="w-full rounded-2xl bg-black text-white py-2 font-semibold
+                      transition-all duration-200
+                      flex items-center justify-center gap-2
+                      hover:bg-[#1a1a1a] hover:scale-[1.02] active:scale-[0.98]
+                      shadow-md hover:shadow-lg"
+          >
+            <Search size={18} />
+            View all tenders
+          </button>
+
         </div>
 
+
+
+        {/* BLACK METRIC BLOCKS */}
         <div className="space-y-4">
           <div className="rounded-3xl bg-black px-5 py-6 shadow-lg min-h-[140px] flex flex-col justify-center">
             <p className="text-sm font-semibold text-[#F7C846] mb-1">Active</p>
             <p className="text-3xl font-bold text-white">{stats.activeTenders}</p>
           </div>
           <div className="rounded-3xl bg-black px-5 py-6 shadow-lg min-h-[140px] flex flex-col justify-center">
-            <p className="text-sm font-semibold text-[#F7C846] mb-1">Shortlisted</p>
-            <p className="text-3xl font-bold text-white">{stats.shortlisted}</p>
+            <p className="text-sm font-semibold text-[#F7C846] mb-1">Closing Soon</p>
+            <p className="text-3xl font-bold text-white">{stats.closingSoon}</p>
           </div>
         </div>
 
         <div className="space-y-4">
           <div className="rounded-3xl bg-black px-5 py-6 shadow-lg min-h-[140px] flex flex-col justify-center">
-            <p className="text-sm font-semibold text-[#F7C846] mb-1">Closing Soon</p>
-            <p className="text-3xl font-bold text-white">{stats.closingSoon}</p>
+            <p className="text-sm font-semibold text-[#F7C846] mb-1">Shortlisted</p>
+            <p className="text-3xl font-bold text-white">{stats.shortlisted}</p>
           </div>
           <div className="rounded-3xl bg-black px-5 py-6 shadow-lg min-h-[140px] flex flex-col justify-center">
-            <p className="text-sm font-semibold text-[#F7C846] mb-1">Archived</p>
-            <p className="text-3xl font-bold text-white">{stats.archived}</p>
+            <p className="text-sm font-semibold text-[#F7C846] mb-1">Recommended</p>
+            <p className="text-3xl font-bold text-white">{stats.recommended}</p>
           </div>
         </div>
 
-        <div className="rounded-3xl bg-white px-5 py-6 shadow-lg flex flex-col justify-between min-h-[140px]">
+        {/* CATALOGUE BLOCK */}
+        <div className="rounded-3xl bg-white px-6 py-6 shadow-lg flex flex-col justify-between min-h-[296px]">
           <div>
-            <p className="text-sm font-semibold text-black/70 mb-1">Catalogue</p>
-            <p className="text-3xl font-bold text-black">{stats.catalogActive}</p>
-            <p className="text-sm text-black/70">Active</p>
-          </div>
-          <div className="mt-4">
-            <p className="text-sm text-black/60">/ {stats.catalogTotal} Products</p>
-          </div>
-        </div>
+            <p className="text-sm font-semibold text-black/70 mb-6 text-center">
+              Catalogue
+            </p>
 
+          {stats.catalogTotal === 0 ? (
+            <>
+              <div className="flex flex-col items-center text-center mt-6">
+                <div className="flex items-center justify-center w-14 h-14 rounded-full bg-[#F7C846]/20 mb-3">
+                  <PackagePlus size={28} className="text-[#F7C846]" strokeWidth={2.2} />
+                </div>
+
+                <p className="text-sm text-black/60">
+                  No products in your catalogue yet
+                </p>
+              </div>
+
+              <div className="flex justify-center mt-4">
+                <button
+                  onClick={() => router.push('/catalog')}
+                  className="rounded-xl bg-[#F7C846] text-black px-5 py-2 text-sm font-semibold hover:brightness-95 transition"
+                >
+                  Add product
+                </button>
+              </div>
+            </>
+          ) : (
+
+            <div className="flex justify-center">
+              <div className="flex gap-4">
+
+
+                <div className="w-[71px] h-[80px] rounded-2xl bg-[#F5F5F7] flex flex-col items-center justify-center shrink-0">
+                  <p className="text-xs text-black/60">Total</p>
+                  <p className="text-2xl font-bold text-black">{stats.catalogTotal}</p>
+                </div>
+
+                <div className="w-[71px] h-[80px] rounded-2xl bg-green-50 border border-green-200 flex flex-col items-center justify-center shrink-0">
+                  <p className="text-xs text-green-700">Active</p>
+                  <p className="text-2xl font-bold text-green-800">{stats.catalogActive}</p>
+                </div>
+
+                <div className="w-[71px] h-[80px] rounded-2xl bg-amber-50 border border-amber-200 flex flex-col items-center justify-center shrink-0">
+                  <p className="text-xs text-amber-700">Paused</p>
+                  <p className="text-2xl font-bold text-amber-800">{stats.catalogPaused}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {stats.catalogTotal > 0 && (
+            <div className="mt-4">
+              <div className="h-1 w-full bg-black/5 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-green-500"
+                  style={{
+                    width: `${stats.catalogTotal
+                      ? (stats.catalogActive / stats.catalogTotal) * 100
+                      : 0}%`,
+                  }}
+                />
+              </div>
+              <p className="text-xs text-black/40 mt-2">
+                {stats.catalogActive} of {stats.catalogTotal} products active
+              </p>
+            </div>
+          )}
+          </div>
+
+          <div className="mt-4 flex justify-center text-center">
+            <p className="text-xs text-black/40 max-w-[220px]">
+              Keep your catalogue updated to improve tender matching accuracy.
+            </p>
+          </div>
+
+        </div>
       </div>
+
 
       {/* ===================== ANALYTICS ======================= */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
