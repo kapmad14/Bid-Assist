@@ -314,25 +314,49 @@ export default function DashboardPage() {
 
         {/* BLACK METRIC BLOCKS */}
         <div className="space-y-4">
-          <div className="rounded-3xl bg-black px-5 py-6 shadow-lg min-h-[140px] flex flex-col justify-center">
+          <div
+            onClick={() => router.push('/tenders?tab=Active&from=dashboard')}
+            className="rounded-3xl bg-black px-5 py-6 shadow-lg min-h-[140px]
+                      flex flex-col justify-center cursor-pointer
+                      transition-all hover:scale-[1.02] hover:bg-[#111]"
+          >
             <p className="text-sm font-semibold text-[#F7C846] mb-1">Active</p>
             <p className="text-3xl font-bold text-white">{stats.activeTenders}</p>
           </div>
-          <div className="rounded-3xl bg-black px-5 py-6 shadow-lg min-h-[140px] flex flex-col justify-center">
+
+          <div
+            onClick={() => router.push('/tenders?tab=Closing%20Soon&from=dashboard')}
+            className="rounded-3xl bg-black px-5 py-6 shadow-lg min-h-[140px]
+                      flex flex-col justify-center cursor-pointer
+                      transition-all hover:scale-[1.02] hover:bg-[#111]"
+          >
             <p className="text-sm font-semibold text-[#F7C846] mb-1">Closing Soon</p>
             <p className="text-3xl font-bold text-white">{stats.closingSoon}</p>
           </div>
+
         </div>
 
         <div className="space-y-4">
-          <div className="rounded-3xl bg-black px-5 py-6 shadow-lg min-h-[140px] flex flex-col justify-center">
+          <div
+            onClick={() => router.push('/tenders?tab=Shortlisted&from=dashboard')}
+            className="rounded-3xl bg-black px-5 py-6 shadow-lg min-h-[140px]
+                      flex flex-col justify-center cursor-pointer
+                      transition-all hover:scale-[1.02] hover:bg-[#111]"
+          >
             <p className="text-sm font-semibold text-[#F7C846] mb-1">Shortlisted</p>
             <p className="text-3xl font-bold text-white">{stats.shortlisted}</p>
           </div>
-          <div className="rounded-3xl bg-black px-5 py-6 shadow-lg min-h-[140px] flex flex-col justify-center">
+
+          <div
+            onClick={() => router.push('/tenders?recommended=true&from=dashboard')}
+            className="rounded-3xl bg-black px-5 py-6 shadow-lg min-h-[140px]
+                      flex flex-col justify-center cursor-pointer
+                      transition-all hover:scale-[1.02] hover:bg-[#111]"
+          >
             <p className="text-sm font-semibold text-[#F7C846] mb-1">Recommended</p>
             <p className="text-3xl font-bold text-white">{stats.recommended}</p>
           </div>
+
         </div>
 
         {/* CATALOGUE BLOCK */}
@@ -406,11 +430,30 @@ export default function DashboardPage() {
           )}
           </div>
 
-          <div className="mt-4 flex justify-center text-center">
+          <div className="mt-4 flex flex-col items-center gap-3 text-center">
+
+            {stats.catalogTotal > 0 && (
+              <button
+                onClick={() => router.push('/catalog')}
+                className="
+                  flex items-center gap-1
+                  px-3 py-1.5 rounded-full
+                  text-xs font-semibold
+                  bg-[#F5F5F7] text-[#0E121A]
+                  hover:bg-[#ECECEC]
+                  transition
+                "
+              >
+                Manage catalogue
+                <span className="text-sm">→</span>
+              </button>
+            )}
+
             <p className="text-xs text-black/40 max-w-[220px]">
               Keep your catalogue updated to improve tender matching accuracy.
             </p>
           </div>
+
 
         </div>
       </div>

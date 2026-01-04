@@ -67,6 +67,8 @@ const FilterSection: React.FC<{
 
 function TendersContentInner() {
   const searchParams = useSearchParams();
+  const qpTab = searchParams.get('tab');
+  const qpRecommended = searchParams.get('recommended') === 'true';
   const initialPage = Number(searchParams.get("page") ?? 1);
   const fromDashboard = searchParams?.get('from') === 'dashboard'; // detect CTA entry
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -119,7 +121,11 @@ function TendersContentInner() {
   const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('newest');
-  const [activeTab, setActiveTab] = useState<TabOption>('Active');
+  const [activeTab, setActiveTab] = useState<TabOption>(() => {
+    if (qpTab === 'Closing Soon') return 'Closing Soon';
+    if (qpTab === 'Shortlisted') return 'Shortlisted';
+    return 'Active';
+    });
   const [emdNeeded, setEmdNeeded] = useState<'all' | 'yes' | 'no'>('all');
   const [reverseAuction, setReverseAuction] = useState<'all' | 'yes' | 'no'>('all');
   const [bidTypeFilter, setBidTypeFilter] = useState<'all' | 'single' | 'two'>('all');
@@ -130,7 +136,14 @@ function TendersContentInner() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [debugError, setDebugError] = useState<string | null>(null);
-  const [recommendedOnly, setRecommendedOnly] = useState(false);
+  const [recommendedOnly, setRecommendedOnly] = useState(qpRecommended);
+
+  useEffect(() => {
+    if (qpRecommended) {
+        setRecommendedOnly(true);
+    }
+    }, [qpRecommended]);
+
 
   // UI-only prompt state for unauthenticated recommended attempts
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
