@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase-client';
 import toast, { Toaster } from 'react-hot-toast';
+import { Plus, Search, Zap, Target } from 'lucide-react';
 
 // ---------------------
 // Types
@@ -373,7 +374,7 @@ export default function CatalogPage() {
         <h1 className="text-3xl font-bold">My Product Catalogue</h1>
         <button
           onClick={() => setShowAddModal(true)}
-          className="px-4 py-2 rounded-lg font-semibold bg-[#F7C846]"
+          className="px-5 py-2.5 rounded-lg font-semibold bg-yellow-400 hover:bg-yellow-500 shadow-sm transition"
         >
           + Add Product
         </button>
@@ -391,7 +392,7 @@ export default function CatalogPage() {
       </form>
 
       {/* Toolbar */}
-      <div className="flex gap-3 items-center mb-4">
+      <div className={`flex gap-3 items-center mb-4 ${products.length === 0 ? 'opacity-40 pointer-events-none' : ''}`}>
         <button
           className={`px-3 py-2 rounded-lg border ${actionMode === 'modify' ? 'ring-2 ring-yellow-400' : ''}`}
           onClick={() => setActionMode('modify')}
@@ -477,10 +478,58 @@ export default function CatalogPage() {
           ))}
         </div>
       ) : products.length === 0 ? (
-        <p className="mt-6 text-lg text-gray-700">No products found.</p>
+          <div className="mt-8 bg-white rounded-2xl p-12 shadow-lg ring-1 ring-gray-200 max-w-2xl mx-auto text-center">
+
+            <h2 className="text-2xl font-semibold tracking-tight text-gray-800">
+              Your product catalogue is empty
+            </h2>
+
+            <p className="mt-3 text-gray-600">
+              Add your products to start receiving relevant tender matches automatically.
+              This is the foundation of how TenderMatch works.
+            </p>
+
+            <div className="mt-10 grid grid-cols-3 gap-10 max-w-xl mx-auto text-gray-700">
+              <div className="flex flex-col items-center text-center">
+                <div className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-200/80 mb-2 ring-1 ring-gray-300">
+                  <Search className="w-5 h-5 text-gray-500" />
+                </div>
+
+                <span className="text-sm font-medium leading-tight">Better tender matches</span>
+              </div>
+
+              <div className="flex flex-col items-center text-center">
+                <div className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-200/80 mb-2 ring-1 ring-gray-300">
+                  <Zap className="w-5 h-5 text-gray-500" />
+                </div>
+                <span className="text-sm font-medium leading-tight">Faster discovery</span>
+              </div>
+
+              <div className="flex flex-col items-center text-center">
+                <div className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-200/80 mb-2 ring-1 ring-gray-300">
+                  <Target className="w-5 h-5 text-gray-500" />
+                </div>
+                <span className="text-sm font-medium leading-tight">Higher relevance</span>
+              </div>
+            </div>
+
+
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="mt-8 px-7 py-3.5 bg-yellow-400 rounded-xl font-semibold text-lg shadow-md hover:shadow-lg hover:bg-yellow-500 transition active:scale-95"
+            >
+              + Add Your First Product
+            </button>
+
+            <p className="mt-3 text-xs text-gray-500">
+              Tip: Add product categories exactly as they appear in tenders for best results.
+            </p>
+          </div>
+
+
       ) : (
         <>
-          <table className="w-full border border-gray-300 bg-white">
+          <table className="w-full border border-gray-200 rounded-xl overflow-hidden bg-white">
             <thead>
               <tr className="bg-gray-100">
                 <th className="p-3 border text-left">#</th>
@@ -493,7 +542,7 @@ export default function CatalogPage() {
 
             <tbody>
               {products.map((p, idx) => (
-                <tr key={p.id} className="hover:bg-gray-50">
+                <tr key={p.id} className="hover:bg-yellow-50 transition">
                   <td className="p-3 border">
                     {actionMode === 'modify' ? (
                       <input
@@ -522,7 +571,16 @@ export default function CatalogPage() {
 
                   <td className="p-3 border">{p.title}</td>
                   <td className="p-3 border">{p.category}</td>
-                  <td className="p-3 border capitalize">{p.status}</td>
+                  <td className="p-3 border">
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium
+                      ${p.status === 'active'
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-gray-200 text-gray-700'}
+                    `}>
+                      {p.status}
+                    </span>
+                  </td>
+
                   <td className="p-3 border">
                     {new Date(p.updated_at).toLocaleDateString()}
                   </td>
