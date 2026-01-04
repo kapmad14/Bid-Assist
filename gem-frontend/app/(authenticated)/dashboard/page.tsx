@@ -440,7 +440,7 @@ export default function DashboardPage() {
             )}
 
             <p className="text-xs text-black/40 max-w-[220px]">
-              Keep your catalogue updated to improve tender matching accuracy.
+              Needed for Recommendations
             </p>
           </div>
 
