@@ -2,7 +2,7 @@
 # docker/start.sh
 # Robust startup for Render / container runtime
 # - Starts node backend
-# - Starts parse_supabase_bids.py (background) if present
+# - Starts update_tenders_from_pdfs_fixed_v4.py (background) if present
 # - Starts matcher loop (background)
 # - Starts daily scraper (if gem-scraper exists)
 # - Starts daily backfill at 07:00 IST
@@ -32,12 +32,12 @@ else
 fi
 sleep 0.2
 
-# ---------- 2) parse_supabase_bids.py ----------
-if [ -f "${APP_DIR}/parse_supabase_bids.py" ]; then
-  log "=== starting parse_supabase_bids.py ==="
-  python3 "${APP_DIR}/parse_supabase_bids.py" >> "${LOG_DIR}/parser_loop.log" 2>&1 &
+# ---------- 2) update_tenders_from_pdfs_fixed_v4.py ----------
+if [ -f "${APP_DIR}/update_tenders_from_pdfs_fixed_v4.py" ]; then
+  log "=== starting update_tenders_from_pdfs_fixed_v4.py ==="
+  python3 "${APP_DIR}/update_tenders_from_pdfs_fixed_v4.py" >> "${LOG_DIR}/parser_loop.log" 2>&1 &
 else
-  log "NOTICE: parse_supabase_bids.py not found; skipping" >> "${LOG_DIR}/parser_loop.log"
+  log "NOTICE: update_tenders_from_pdfs_fixed_v4.py not found; skipping" >> "${LOG_DIR}/parser_loop.log"
 fi
 sleep 0.2
 

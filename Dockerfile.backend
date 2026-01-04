@@ -38,7 +38,7 @@ COPY --from=builder /app/dist ./dist
 
 # Copy repo-root python scripts, scraper folder and the docker/ folder (loops + start script)
 COPY extract_document_urls.py ./extract_document_urls.py
-COPY parse_supabase_bids.py ./parse_supabase_bids.py
+COPY update_tenders_from_pdfs_fixed_v4.py ./update_tenders_from_pdfs_fixed_v4.py
 COPY worker_matcher.py ./worker_matcher.py
 COPY gem-scraper ./gem-scraper
 COPY docker/ /app/docker/
