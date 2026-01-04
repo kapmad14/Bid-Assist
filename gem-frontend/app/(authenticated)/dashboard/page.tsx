@@ -479,7 +479,7 @@ export default function DashboardPage() {
                     <LabelList
                       dataKey="count"
                       content={({ x, y, width, value }) =>
-                        value > 0 ? (
+                        typeof value === 'number' && value > 0 ? (
                           <g>
                             <rect
                               x={x}
@@ -538,7 +538,7 @@ export default function DashboardPage() {
                     <LabelList
                       dataKey="count"
                       content={({ x, y, width, value }) =>
-                        value > 0 ? (
+                        typeof value === 'number' && value > 0 ? (
                           <g>
                             <rect
                               x={x}
