@@ -4,14 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-client';
 import { Search, PackagePlus } from 'lucide-react';
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, LabelList } from 'recharts';
 
 function fillDateBuckets(
   rows: { date: string; count: number }[],
@@ -264,9 +257,6 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-[#F5F5F7] p-6">
 
       <div className="mb-6 px-2">
-        <h1 className="text-2xl font-bold text-black">
-          ::
-        </h1>
       </div>
 
 
@@ -463,12 +453,12 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
         {/* Published – Last 7 Days */}
-        <div className="rounded-3xl bg-black px-6 py-5 shadow-lg">
+        <div className="rounded-3xl bg-black px-8 pt-8 pb-6 shadow-lg">
           <p className="text-sm font-semibold text-white/80 mb-4">
             Tenders Published (Last 7 Days)
           </p>
 
-          <div className="h-40">
+          <div className="h-[260px] mt-6">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={publishedChart} barCategoryGap={20}>
                 <XAxis
@@ -481,30 +471,52 @@ export default function DashboardPage() {
                     return `${day}/${month}`;
                   }}
                 />
-                <YAxis hide />
-                <Tooltip
-                  cursor={{ fill: 'transparent' }}
-                  contentStyle={{ background: '#000', border: 'none' }}
-                  labelStyle={{ color: '#F7C846' }}
+                <YAxis
+                  hide
+                  domain={[0, (dataMax: number) => dataMax * 1.25]}
                 />
-                <Bar
-                  dataKey="count"
-                  fill="#FFFFFF"
-                  barSize={18}
-                  radius={[4, 4, 0, 0]}
-                />
+                  <Bar dataKey="count" fill="#FFFFFF" barSize={38} radius={[6, 6, 0, 0]}>
+                    <LabelList
+                      dataKey="count"
+                      content={({ x, y, width, value }) =>
+                        value > 0 ? (
+                          <g>
+                            <rect
+                              x={x}
+                              y={(y as number) - 24}
+                              width={width}
+                              height={20}
+                              rx="6"
+                              fill="#FFFFFF"
+                            />
+                            <text
+                              x={(x as number) + (width as number) / 2}
+                              y={(y as number) - 14}
+                              textAnchor="middle"
+                              dominantBaseline="middle"
+                              fill="#000000"
+                              fontSize="12"
+                              fontWeight="700"
+                            >
+                              {value}
+                            </text>
+                          </g>
+                        ) : null
+                      }
+                    />
+                  </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
 
         {/* Closing – Next 7 Days */}
-        <div className="rounded-3xl bg-black px-6 py-5 shadow-lg">
+        <div className="rounded-3xl bg-black px-8 pt-8 pb-6 shadow-lg">
           <p className="text-sm font-semibold text-white/80 mb-4">
             Tenders Closing (Next 7 Days)
           </p>
 
-          <div className="h-40">
+          <div className="h-[260px] mt-6">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={closingChart} barCategoryGap={20}>
                 <XAxis
@@ -517,18 +529,42 @@ export default function DashboardPage() {
                     return `${day}/${month}`;
                   }}
                 />
-                <YAxis hide />
-                <Tooltip
-                  cursor={{ fill: 'transparent' }}
-                  contentStyle={{ background: '#000', border: 'none' }}
-                  labelStyle={{ color: '#F7C846' }}
-                />
-                <Bar
-                  dataKey="count"
-                  fill="#F7C846"
-                  barSize={18}
-                  radius={[4, 4, 0, 0]}
-                />
+                  <YAxis
+                    hide
+                    domain={[0, (dataMax: number) => dataMax * 1.25]}
+                  />
+
+                  <Bar dataKey="count" fill="#F7C846" barSize={38} radius={[6, 6, 0, 0]}>
+                    <LabelList
+                      dataKey="count"
+                      content={({ x, y, width, value }) =>
+                        value > 0 ? (
+                          <g>
+                            <rect
+                              x={x}
+                              y={(y as number) - 24}
+                              width={width}
+                              height={20}
+                              rx="6"
+                              fill="#F7C846"
+                            />
+                            <text
+                              x={(x as number) + (width as number) / 2}
+                              y={(y as number) - 14}
+                              textAnchor="middle"
+                              dominantBaseline="middle"
+                              fill="#0E121A"
+                              fontSize="12"
+                              fontWeight="700"
+                            >
+                              {value}
+                            </text>
+                          </g>
+                        ) : null
+                      }
+                    />
+                  </Bar>
+
               </BarChart>
             </ResponsiveContainer>
           </div>
