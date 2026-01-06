@@ -62,7 +62,8 @@ export default function CatalogPage() {
 
   // Page Loading
   const [loading, setLoading] = useState(false);
-
+  const TOOLBAR_BTN_BASE =
+  'h-10 px-4 rounded-lg text-sm font-medium transition border border-gray-300 bg-white hover:bg-gray-50 shadow-sm';
   const mountedRef = useRef(false);
 
   // -------------------------------------
@@ -112,7 +113,11 @@ export default function CatalogPage() {
         .from('catalog_items')
         .select('id, title, category, status, updated_at, user_id')
         .eq('user_id', user.id)
+        // 1️⃣ Active first, paused later
+        .order('status', { ascending: true }) // active comes before paused alphabetically
+        // 2️⃣ Newest first inside each group
         .order('updated_at', { ascending: false });
+
 
       // Search filter
       if (searchTerm.trim()) {
@@ -387,12 +392,15 @@ export default function CatalogPage() {
   // -------------------------------------
   // Render
   // -------------------------------------
+
+  const hasSelection = Object.values(selectedIds).some(Boolean);
+
   return (
     <div className="p-8 bg-white min-h-screen">
       <Toaster position="top-right" />
 
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-start justify-between mb-6">
         <div>
           <h1 className="text-3xl font-bold">My Product Catalogue</h1>
           <p className="text-sm text-gray-500 mt-1">
@@ -402,11 +410,13 @@ export default function CatalogPage() {
 
         <button
           onClick={() => setShowAddModal(true)}
-          className="px-5 py-2.5 rounded-lg font-semibold bg-yellow-400 hover:bg-yellow-500 shadow-sm transition"
+          className="h-11 px-6 rounded-xl bg-yellow-400 text-gray-900 font-semibold shadow-sm
+                    hover:bg-yellow-500 hover:shadow-md transition active:scale-[0.98]"
         >
           + Add Product
         </button>
       </div>
+
 
       {/* Search */}
       <form onSubmit={(e) => { e.preventDefault(); setCurrentPage(1); }}>
@@ -419,118 +429,127 @@ export default function CatalogPage() {
         />
       </form>
 
-      {/* Toolbar */}
-      <div className={`flex items-center gap-3 mb-4 ${products.length === 0 ? 'opacity-40 pointer-events-none' : ''}`}>
-        <button
-          onClick={() => {
-            if (actionMode === 'modify') {
-              setActionMode('none');
-              setSelectedRadioId(null);
-              return;
-            }
-            setActionMode('modify');
-          }}
-          className={`${TOOLBAR_BTN_WIDTH} px-3 py-1.5 rounded-lg text-sm font-medium text-center
-            ${actionMode === 'modify'
-              ? 'bg-blue-100 text-blue-800'
-              : 'border border-gray-300 hover:bg-gray-50'}
-          `}
-        >
-          {actionMode === 'modify' ? 'Cancel Modify' : 'Modify'}
-        </button>
+      {products.length > 0 && (
+        <>
+          {/* Toolbar */}
+          <div className="flex items-center gap-3 mb-4">
+            {/* Modify */}
+            <button
+              onClick={() => {
+                if (actionMode === 'modify') {
+                  setActionMode('none');
+                  setSelectedRadioId(null);
+                  return;
+                }
+                setActionMode('modify');
+              }}
+              className={`${TOOLBAR_BTN_WIDTH} px-3 py-1.5 rounded-lg text-sm font-medium text-center
+                ${actionMode === 'modify'
+                  ? 'bg-blue-100 text-blue-800'
+                  : 'border border-gray-300 hover:bg-gray-50'}
+              `}
+            >
+              {actionMode === 'modify' ? 'Cancel Modify' : 'Modify'}
+            </button>
+
+            {/* Pause */}
+            <button
+              onClick={() => {
+                const hasSelection = Object.values(selectedIds).some(Boolean);
+
+                if (actionMode !== 'bulk-pause') {
+                  setActionMode('bulk-pause');
+                  return;
+                }
+
+                if (!hasSelection) {
+                  setActionMode('none');
+                  setSelectedIds({});
+                  return;
+                }
+
+                applyBulkStatus('paused');
+              }}
+              className={`${TOOLBAR_BTN_WIDTH} px-3 py-1.5 rounded-lg text-sm font-medium transition
+                ${actionMode !== 'bulk-pause'
+                  ? 'border border-gray-300 hover:bg-gray-50'
+                  : !Object.values(selectedIds).some(Boolean)
+                    ? 'bg-amber-100 text-amber-800'
+                    : 'bg-amber-500 text-white ring-2 ring-amber-300 hover:bg-amber-600'}
+              `}
+            >
+              {actionMode === 'bulk-pause' ? 'Apply Pause' : 'Pause'}
+            </button>
+
+            {/* Resume */}
+            <button
+              onClick={() => {
+                const hasSelection = Object.values(selectedIds).some(Boolean);
+
+                if (actionMode !== 'bulk-resume') {
+                  setActionMode('bulk-resume');
+                  return;
+                }
+
+                if (!hasSelection) {
+                  setActionMode('none');
+                  setSelectedIds({});
+                  return;
+                }
+
+                applyBulkStatus('active');
+              }}
+              className={`${TOOLBAR_BTN_WIDTH} px-3 py-1.5 rounded-lg text-sm font-medium transition
+                ${actionMode !== 'bulk-resume'
+                  ? 'border border-gray-300 hover:bg-gray-50'
+                  : !Object.values(selectedIds).some(Boolean)
+                    ? 'bg-green-100 text-green-800'
+                    : 'bg-green-500 text-white ring-2 ring-green-300 hover:bg-green-600'}
+              `}
+            >
+              {actionMode === 'bulk-resume' ? 'Apply Resume' : 'Resume'}
+            </button>
+
+            {/* Delete */}
+            <button
+              onClick={() => {
+                const ids = Object.keys(selectedIds).filter(id => selectedIds[id]);
+
+                if (actionMode !== 'bulk-delete') {
+                  setActionMode('bulk-delete');
+                  return;
+                }
+
+                if (!ids.length) {
+                  setActionMode('none');
+                  setSelectedIds({});
+                  return;
+                }
+
+                setDeleteTargetIds(ids);
+                setShowDeleteConfirm(true);
+              }}
+              className={`${TOOLBAR_BTN_WIDTH} px-3 py-1.5 rounded-lg text-sm font-medium transition
+                ${actionMode !== 'bulk-delete'
+                  ? 'border border-gray-300 hover:bg-gray-50'
+                  : !Object.values(selectedIds).some(Boolean)
+                    ? 'bg-red-100 text-red-800'
+                    : 'bg-red-500 text-white ring-2 ring-red-300 hover:bg-red-600'}
+              `}
+            >
+              {actionMode === 'bulk-delete' ? 'Confirm Delete' : 'Delete'}
+            </button>
+          </div>
+
+          {/* Info Tip */}
+          <div className="mt-3 mb-6 flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/70 px-4 py-2 text-sm text-blue-700">
+            <Info className="w-4 h-4 text-blue-500" />
+            <span className="font-medium">{getToolbarHint(actionMode)}</span>
+          </div>
+        </>
+      )}
 
 
-        <button
-          onClick={() => {
-            const hasSelection = Object.values(selectedIds).some(Boolean);
-
-            if (actionMode !== 'bulk-pause') {
-              setActionMode('bulk-pause');
-              return;
-            }
-
-            if (!hasSelection) {
-              setActionMode('none');
-              setSelectedIds({});
-              return;
-            }
-
-            applyBulkStatus('paused');
-          }}
-          className={`${TOOLBAR_BTN_WIDTH} px-3 py-1.5 rounded-lg text-sm font-medium text-center
-            ${actionMode !== 'bulk-pause'
-              ? 'border border-gray-300 hover:bg-gray-50'
-              : !Object.values(selectedIds).some(Boolean)
-                ? 'bg-amber-100 text-amber-800'
-                : 'bg-amber-400 text-white hover:bg-amber-500'
-            }`}
-        >
-          {actionMode === 'bulk-pause' ? 'Apply Pause' : 'Pause'}
-        </button>
-
-
-        <button
-          onClick={() => {
-            const hasSelection = Object.values(selectedIds).some(Boolean);
-
-            if (actionMode !== 'bulk-resume') {
-              setActionMode('bulk-resume');
-              return;
-            }
-
-            if (!hasSelection) {
-              setActionMode('none');
-              setSelectedIds({});
-              return;
-            }
-
-            applyBulkStatus('active');
-          }}
-          className={`${TOOLBAR_BTN_WIDTH} px-3 py-1.5 rounded-lg text-sm font-medium text-center
-            ${actionMode !== 'bulk-resume'
-              ? 'border border-gray-300 hover:bg-gray-50'
-              : !Object.values(selectedIds).some(Boolean)
-                ? 'bg-green-100 text-green-800'
-                : 'bg-green-500 text-white hover:bg-green-600'
-            }`}
-        >
-          {actionMode === 'bulk-resume' ? 'Apply Resume' : 'Resume'}
-        </button>
-
-
-        <button
-          onClick={() => {
-            const ids = Object.keys(selectedIds).filter(id => selectedIds[id]);
-
-            if (actionMode !== 'bulk-delete') {
-              setActionMode('bulk-delete');
-              return;
-            }
-
-            if (!ids.length) {
-              setActionMode('none');
-              setSelectedIds({});
-              return;
-            }
-
-            setDeleteTargetIds(ids);
-            setShowDeleteConfirm(true);
-          }}
-          className={`${TOOLBAR_BTN_WIDTH} px-3 py-1.5 rounded-lg text-sm font-medium text-center
-            ${actionMode !== 'bulk-delete'
-              ? 'border border-gray-300 hover:bg-gray-50'
-              : !Object.values(selectedIds).some(Boolean)
-                ? 'bg-red-100 text-red-800'
-                : 'bg-red-500 text-white hover:bg-red-600'
-            }`}
-        >
-          {actionMode === 'bulk-delete' ? 'Confirm Delete' : 'Delete'}
-        </button>
-      </div> 
-      <div className="mt-3 mb-6 flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/70 px-4 py-2 text-sm text-blue-700">
-        <Info className="w-4 h-4 text-blue-500" />
-        <span className="font-medium">{getToolbarHint(actionMode)}</span>
-      </div>
       
       {/* Table or loading */}
       {loading ? (
