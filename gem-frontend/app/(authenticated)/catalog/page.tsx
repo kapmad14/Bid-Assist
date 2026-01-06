@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase-client';
 import toast, { Toaster } from 'react-hot-toast';
-import { Plus, Search, Zap, Target } from 'lucide-react';
+import { Search, Zap, Target, Info } from 'lucide-react';
 
 // ---------------------
 // Types
@@ -22,6 +22,8 @@ interface CatalogItem {
 }
 
 type ActionMode = 'none' | 'modify' | 'bulk-pause' | 'bulk-resume' | 'bulk-delete';
+const TOOLBAR_BTN_WIDTH = 'w-[140px]';
+
 
 // ---------------------
 // Component
@@ -217,7 +219,7 @@ export default function CatalogPage() {
         return;
       }
 
-      toast.success('Product added');
+      toast.success('Product added! TenderMatch will start scanning tenders within a few minutes.');
 
       const newItem = data?.[0];
       if (newItem?.id) enqueueMatch('create', [newItem.id]);
@@ -311,7 +313,12 @@ export default function CatalogPage() {
         return;
       }
 
-      toast.success(`Updated ${ids.length} item(s)`);
+      toast.success(
+        newStatus === 'paused'
+          ? 'Products paused. You will no longer receive tender matches for these items.'
+          : 'Products resumed. Tender matching is active again for these items.'
+      );
+
       enqueueMatch(newStatus === 'paused' ? 'pause' : 'resume', ids);
 
       fetchProducts(currentPage);
@@ -362,6 +369,21 @@ export default function CatalogPage() {
     }
   }
 
+  function getToolbarHint(actionMode: ActionMode) {
+    switch (actionMode) {
+      case 'modify':
+        return 'Select a product using the radio button to edit its details.';
+      case 'bulk-pause':
+        return 'Select one or more products to pause recommendations for them.';
+      case 'bulk-resume':
+        return 'Select one or more paused products to resume recommendations.';
+      case 'bulk-delete':
+        return 'Select products you want to permanently remove from your catalogue.';
+      default:
+        return 'Use the tools above to manage which products are used for tender recommendations.';
+    }
+  }
+
   // -------------------------------------
   // Render
   // -------------------------------------
@@ -371,7 +393,13 @@ export default function CatalogPage() {
 
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold">My Product Catalogue</h1>
+        <div>
+          <h1 className="text-3xl font-bold">My Product Catalogue</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            {products.length} products actively monitored
+          </p>
+        </div>
+
         <button
           onClick={() => setShowAddModal(true)}
           className="px-5 py-2.5 rounded-lg font-semibold bg-yellow-400 hover:bg-yellow-500 shadow-sm transition"
@@ -392,84 +420,118 @@ export default function CatalogPage() {
       </form>
 
       {/* Toolbar */}
-      <div className={`flex gap-3 items-center mb-4 ${products.length === 0 ? 'opacity-40 pointer-events-none' : ''}`}>
+      <div className={`flex items-center gap-3 mb-4 ${products.length === 0 ? 'opacity-40 pointer-events-none' : ''}`}>
         <button
-          className={`px-3 py-2 rounded-lg border ${actionMode === 'modify' ? 'ring-2 ring-yellow-400' : ''}`}
-          onClick={() => setActionMode('modify')}
-        >
-          Modify (single)
-        </button>
-
-        <button
-          className={`px-3 py-2 rounded-lg border ${actionMode === 'bulk-pause' ? 'ring-2 ring-yellow-400' : ''}`}
-          onClick={() => setActionMode('bulk-pause')}
-        >
-          Pause Selected
-        </button>
-
-        <button
-          className={`px-3 py-2 rounded-lg border ${actionMode === 'bulk-resume' ? 'ring-2 ring-yellow-400' : ''}`}
-          onClick={() => setActionMode('bulk-resume')}
-        >
-          Resume Selected
-        </button>
-
-        <button
-          className={`px-3 py-2 rounded-lg border ${actionMode === 'bulk-delete' ? 'ring-2 ring-red-400' : ''}`}
-          onClick={() => setActionMode('bulk-delete')}
-        >
-          Delete Selected
-        </button>
-
-        <button
-          className="px-3 py-2 rounded-lg border bg-gray-100"
           onClick={() => {
-            setActionMode('none');
-            setSelectedIds({});
-            setSelectedRadioId(null);
+            if (actionMode === 'modify') {
+              setActionMode('none');
+              setSelectedRadioId(null);
+              return;
+            }
+            setActionMode('modify');
           }}
+          className={`${TOOLBAR_BTN_WIDTH} px-3 py-1.5 rounded-lg text-sm font-medium text-center
+            ${actionMode === 'modify'
+              ? 'bg-blue-100 text-blue-800'
+              : 'border border-gray-300 hover:bg-gray-50'}
+          `}
         >
-          Cancel Selection
+          {actionMode === 'modify' ? 'Cancel Modify' : 'Modify'}
         </button>
 
-        {/* Right-Aligned Bulk Buttons */}
-        <div className="ml-auto flex gap-2">
-          {actionMode === 'bulk-pause' && (
-            <button
-              onClick={() => applyBulkStatus('paused')}
-              disabled={!Object.values(selectedIds).some(Boolean)}
-              className="px-3 py-2 rounded-lg bg-yellow-400"
-            >
-              Apply Pause
-            </button>
-          )}
-          {actionMode === 'bulk-resume' && (
-            <button
-              onClick={() => applyBulkStatus('active')}
-              disabled={!Object.values(selectedIds).some(Boolean)}
-              className="px-3 py-2 rounded-lg bg-green-300"
-            >
-              Apply Resume
-            </button>
-          )}
-          {actionMode === 'bulk-delete' && (
-            <button
-              onClick={() => {
-                const ids = Object.keys(selectedIds).filter(id => selectedIds[id]);
-                if (ids.length) {
-                  setDeleteTargetIds(ids);
-                  setShowDeleteConfirm(true);
-                }
-              }}
-              disabled={!Object.values(selectedIds).some(Boolean)}
-              className="px-3 py-2 rounded-lg bg-red-500 text-white"
-            >
-              Confirm Delete
-            </button>
-          )}
-        </div>
-      </div>
 
+        <button
+          onClick={() => {
+            const hasSelection = Object.values(selectedIds).some(Boolean);
+
+            if (actionMode !== 'bulk-pause') {
+              setActionMode('bulk-pause');
+              return;
+            }
+
+            if (!hasSelection) {
+              setActionMode('none');
+              setSelectedIds({});
+              return;
+            }
+
+            applyBulkStatus('paused');
+          }}
+          className={`${TOOLBAR_BTN_WIDTH} px-3 py-1.5 rounded-lg text-sm font-medium text-center
+            ${actionMode !== 'bulk-pause'
+              ? 'border border-gray-300 hover:bg-gray-50'
+              : !Object.values(selectedIds).some(Boolean)
+                ? 'bg-amber-100 text-amber-800'
+                : 'bg-amber-400 text-white hover:bg-amber-500'
+            }`}
+        >
+          {actionMode === 'bulk-pause' ? 'Apply Pause' : 'Pause'}
+        </button>
+
+
+        <button
+          onClick={() => {
+            const hasSelection = Object.values(selectedIds).some(Boolean);
+
+            if (actionMode !== 'bulk-resume') {
+              setActionMode('bulk-resume');
+              return;
+            }
+
+            if (!hasSelection) {
+              setActionMode('none');
+              setSelectedIds({});
+              return;
+            }
+
+            applyBulkStatus('active');
+          }}
+          className={`${TOOLBAR_BTN_WIDTH} px-3 py-1.5 rounded-lg text-sm font-medium text-center
+            ${actionMode !== 'bulk-resume'
+              ? 'border border-gray-300 hover:bg-gray-50'
+              : !Object.values(selectedIds).some(Boolean)
+                ? 'bg-green-100 text-green-800'
+                : 'bg-green-500 text-white hover:bg-green-600'
+            }`}
+        >
+          {actionMode === 'bulk-resume' ? 'Apply Resume' : 'Resume'}
+        </button>
+
+
+        <button
+          onClick={() => {
+            const ids = Object.keys(selectedIds).filter(id => selectedIds[id]);
+
+            if (actionMode !== 'bulk-delete') {
+              setActionMode('bulk-delete');
+              return;
+            }
+
+            if (!ids.length) {
+              setActionMode('none');
+              setSelectedIds({});
+              return;
+            }
+
+            setDeleteTargetIds(ids);
+            setShowDeleteConfirm(true);
+          }}
+          className={`${TOOLBAR_BTN_WIDTH} px-3 py-1.5 rounded-lg text-sm font-medium text-center
+            ${actionMode !== 'bulk-delete'
+              ? 'border border-gray-300 hover:bg-gray-50'
+              : !Object.values(selectedIds).some(Boolean)
+                ? 'bg-red-100 text-red-800'
+                : 'bg-red-500 text-white hover:bg-red-600'
+            }`}
+        >
+          {actionMode === 'bulk-delete' ? 'Confirm Delete' : 'Delete'}
+        </button>
+      </div> 
+      <div className="mt-3 mb-6 flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/70 px-4 py-2 text-sm text-blue-700">
+        <Info className="w-4 h-4 text-blue-500" />
+        <span className="font-medium">{getToolbarHint(actionMode)}</span>
+      </div>
+      
       {/* Table or loading */}
       {loading ? (
         <div className="animate-pulse space-y-2">
@@ -529,59 +591,82 @@ export default function CatalogPage() {
 
       ) : (
         <>
-          <table className="w-full border border-gray-200 rounded-xl overflow-hidden bg-white">
+          <table className="w-full border border-gray-50 rounded-xl overflow-hidden bg-white shadow-sm">
             <thead>
-              <tr className="bg-gray-100">
-                <th className="p-3 border text-left">#</th>
-                <th className="p-3 border text-left">Product Name</th>
-                <th className="p-3 border text-left">Category</th>
-                <th className="p-3 border text-left">Status</th>
-                <th className="p-3 border text-left">Updated At</th>
+              <tr className="bg-gray-50 text-gray-600 text-sm uppercase tracking-wide">
+                <th className="p-3 border border-gray-300 text-center w-[60px]">
+                  {actionMode.includes('bulk') && (
+                    <input
+                      type="checkbox"
+                      checked={products.every(p => selectedIds[p.id])}
+                      onChange={() => {
+                        const allSelected = products.every(p => selectedIds[p.id]);
+                        const next: any = {};
+                        products.forEach(p => (next[p.id] = !allSelected));
+                        setSelectedIds(next);
+                      }}
+                    />
+                  )}
+                </th>
+                <th className="p-3 border border-gray-300 text-center">Product Name</th>
+                <th className="p-3 border border-gray-300 text-center">Category</th>
+                <th className="p-3 border border-gray-300 text-center w-[305px]">
+                  <div className="flex flex-col items-center leading-tight">
+                    <span>Status</span>
+                    <span className="text-xs text-gray-400 font-normal">
+                      (Active = Recommendations Enabled)
+                    </span>
+                  </div>
+                </th>
+                <th className="p-3 border border-gray-300 text-center">Updated At</th>
               </tr>
             </thead>
 
             <tbody>
               {products.map((p, idx) => (
-                <tr key={p.id} className="hover:bg-yellow-50 transition">
-                  <td className="p-3 border">
-                    {actionMode === 'modify' ? (
-                      <input
-                        type="radio"
-                        checked={selectedRadioId === p.id}
-                        onChange={() => {
-                          setSelectedRadioId(p.id);
-                          setEditId(p.id);
-                          setEditTitle(p.title);
-                          setEditCategory(p.category);
-                          setShowEditModal(true);
-                        }}
-                      />
-                    ) : actionMode.includes('bulk') ? (
-                      <input
-                        type="checkbox"
-                        checked={!!selectedIds[p.id]}
-                        onChange={() =>
-                          setSelectedIds(prev => ({ ...prev, [p.id]: !prev[p.id] }))
-                        }
-                      />
-                    ) : (
-                      <span>{(currentPage - 1) * PAGE_SIZE + idx + 1}</span>
-                    )}
+                <tr key={p.id} className="hover:bg-gray-50 transition">
+                  <td className="p-3 border border-gray-300 w-[60px]">
+                    <div className="flex items-center justify-center h-full">
+                      {actionMode === 'modify' ? (
+                        <input
+                          type="radio"
+                          checked={selectedRadioId === p.id}
+                          onChange={() => {
+                            setSelectedRadioId(p.id);
+                            setEditId(p.id);
+                            setEditTitle(p.title);
+                            setEditCategory(p.category);
+                            setShowEditModal(true);
+                          }}
+                        />
+                      ) : actionMode.includes('bulk') ? (
+                        <input
+                          type="checkbox"
+                          checked={!!selectedIds[p.id]}
+                          onChange={() =>
+                            setSelectedIds(prev => ({ ...prev, [p.id]: !prev[p.id] }))
+                          }
+                        />
+                      ) : (
+                        <span className="text-sm font-medium">
+                          {(currentPage - 1) * PAGE_SIZE + idx + 1}
+                        </span>
+                      )}
+                    </div>
                   </td>
-
-                  <td className="p-3 border">{p.title}</td>
-                  <td className="p-3 border">{p.category}</td>
-                  <td className="p-3 border">
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium
+                  <td className="p-3 border border-gray-300 text-center">{p.title}</td>
+                  <td className="p-3 border border-gray-300 text-center">{p.category}</td>
+                  <td className="p-3 border border-gray-300 text-center w-[180px]">
+                    <span className={`inline-flex justify-center min-w-[70px] px-3 py-1 rounded-full text-xs font-medium
                       ${p.status === 'active'
-                        ? 'bg-green-100 text-green-700'
+                        ? 'bg-green-50 text-green-600'
                         : 'bg-gray-200 text-gray-700'}
                     `}>
                       {p.status}
                     </span>
                   </td>
 
-                  <td className="p-3 border">
+                  <td className="p-3 border border-gray-300 text-center">
                     {new Date(p.updated_at).toLocaleDateString()}
                   </td>
                 </tr>
@@ -590,11 +675,11 @@ export default function CatalogPage() {
           </table>
 
           {/* Pagination */}
-          <div className="flex justify-between items-center mt-6">
+          <div className="flex justify-center items-center gap-6 mt-10 text-sm text-gray-600">
             <button
               onClick={() => currentPage > 1 && setCurrentPage(p => p - 1)}
               disabled={currentPage === 1}
-              className="px-4 py-2 bg-gray-200 rounded"
+              className="px-4 py-2 bg-gray-100 rounded-full hover:bg-gray-200 disabled:opacity-40"
             >
               Previous
             </button>
@@ -604,11 +689,12 @@ export default function CatalogPage() {
             <button
               onClick={() => products.length === PAGE_SIZE && setCurrentPage(p => p + 1)}
               disabled={products.length < PAGE_SIZE}
-              className="px-4 py-2 bg-gray-200 rounded"
+              className="px-4 py-2 bg-gray-100 rounded-full hover:bg-gray-200 disabled:opacity-40"
             >
               Next
             </button>
           </div>
+
         </>
       )}
 
@@ -616,8 +702,16 @@ export default function CatalogPage() {
       {showAddModal && (
         <Modal title="Add Product" onClose={() => setShowAddModal(false)}>
           <form onSubmit={handleAddProduct}>
-            <Input value={newTitle} onChange={setNewTitle} placeholder="Product Name" required />
-            <Input value={newCategory} onChange={setNewCategory} placeholder="Product Category" required />
+              <Input value={newTitle} onChange={setNewTitle} placeholder="Product Name" required />
+              <p className="text-xs text-gray-500 mb-3">
+                Mention the name of your product
+              </p>
+
+              <Input value={newCategory} onChange={setNewCategory} placeholder="Product Category" required />
+              <p className="text-xs text-gray-500 mb-3">
+                Example: “Hospital Bed”, “Blood Gas Analyzer”, “Electrical Cable 4sqmm”
+              </p>
+
 
             <ModalActions
               loading={adding}

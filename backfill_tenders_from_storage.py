@@ -36,7 +36,6 @@ load_dotenv()
 # ------------------------- Configuration & env -------------------------
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY")
-SUPABASE_BUCKET = os.environ.get("SUPABASE_BUCKET_NAME", "gem-pdfs")
 TENDERS_TABLE = os.environ.get("TENDERS_TABLE", "tenders")
 
 # timeouts / retries
@@ -48,8 +47,10 @@ MAX_DOWNLOAD_BYTES = int(os.environ.get("BACKFILL_MAX_DOWNLOAD_BYTES", 200 * 102
 
 # local paths
 SCRIPT_DIR = os.path.dirname(__file__)
-DAILY_DATA_DIR = os.path.join(SCRIPT_DIR, "daily_data")
+SCRAPER_DIR = os.path.join(SCRIPT_DIR, "gem-scraper")
+DAILY_DATA_DIR = os.path.join(SCRAPER_DIR, "daily_data")
 LOCAL_META_DIR = DAILY_DATA_DIR
+
 
 # ------------------------- Logging & session -------------------------
 root_logger = logging.getLogger("backfill")
@@ -95,34 +96,9 @@ def run_meta_filename(date: datetime.date) -> str:
 
 # ------------------------- Load run JSON -------------------------
 
-def fetch_run_json_from_storage(object_name: str) -> Optional[dict]:
-    """Try to GET the run JSON from Supabase storage public object endpoint using Service key headers."""
-    ensure_env()
-    url = f"{SUPABASE_URL.rstrip('/')}/storage/v1/object/{SUPABASE_BUCKET}/{quote(object_name, safe='/')}"
-    try:
-        resp = SESSION.get(url, headers=AUTH_HEADERS, timeout=DB_TIMEOUT)
-        if resp.status_code == 200:
-            return resp.json()
-        # treat 404 as missing
-        if resp.status_code in (404, 400):
-            root_logger.debug("Run JSON not found in storage: %s (status %s)", object_name, resp.status_code)
-            return None
-        root_logger.warning("Unexpected status fetching run JSON %s: %s", object_name, resp.status_code)
-        return None
-    except Exception as e:
-        root_logger.warning("Failed to fetch run JSON from storage %s: %s", object_name, e)
-        return None
-
-
 def load_run_json(target_date: datetime.date) -> dict:
     filename = run_meta_filename(target_date)
     storage_path = f"daily_meta/{filename}"
-
-    # 1) try storage
-    js = fetch_run_json_from_storage(storage_path)
-    if js:
-        root_logger.info("Loaded run JSON from storage: %s", storage_path)
-        return js
 
     # 2) try local file
     local_path = os.path.join(LOCAL_META_DIR, filename)
@@ -164,72 +140,6 @@ def extract_gem_bid_id_from_bid_number(bid_number: str) -> Optional[int]:
             return None
     return None
 
-
-# ------------------------- Storage HEAD/stream helpers -------------------------
-
-def get_sha_via_head(object_name: str) -> Optional[str]:
-    ensure_env()
-    encoded = quote(object_name, safe='/')
-    url = f"{SUPABASE_URL.rstrip('/')}/storage/v1/object/{SUPABASE_BUCKET}/{encoded}"
-    headers = AUTH_HEADERS
-    last_exc = None
-    for attempt in range(1, 4):
-        try:
-            resp = SESSION.head(url, headers=headers, timeout=STORAGE_HEAD_TIMEOUT)
-        except Exception as e:
-            last_exc = e
-            root_logger.debug("HEAD attempt %d failed for %s: %s", attempt, object_name, e)
-            time.sleep(2 ** attempt)
-            continue
-        if resp.status_code in (404, 400):
-            return None
-        if resp.status_code == 200:
-            return resp.headers.get('x-meta-sha256') or resp.headers.get('X-Meta-Sha256')
-        if resp.status_code == 429:
-            wait = int(resp.headers.get('Retry-After', '5'))
-            root_logger.debug('HEAD 429 for %s, sleeping %s', object_name, wait)
-            time.sleep(wait)
-            continue
-        # treat other statuses as error/absent
-        root_logger.debug('HEAD returned %s for %s', resp.status_code, object_name)
-        return None
-    root_logger.debug('HEAD exhausted for %s: %s', object_name, last_exc)
-    return None
-
-
-def compute_sha_streaming(object_name: str, max_bytes: Optional[int]) -> Optional[str]:
-    ensure_env()
-    encoded = quote(object_name, safe='/')
-    url = f"{SUPABASE_URL.rstrip('/')}/storage/v1/object/{SUPABASE_BUCKET}/{encoded}"
-    headers = AUTH_HEADERS
-    try:
-        resp = SESSION.get(url, headers=headers, stream=True, timeout=DOWNLOAD_TIMEOUT)
-    except Exception as e:
-        root_logger.debug('GET streaming failed for %s: %s', object_name, e)
-        return None
-    if resp.status_code != 200:
-        root_logger.debug('Streaming GET returned %s for %s', resp.status_code, object_name)
-        return None
-    h = hashlib.sha256()
-    total = 0
-    try:
-        for chunk in resp.iter_content(chunk_size=8192):
-            if not chunk:
-                continue
-            total += len(chunk)
-            if max_bytes and total > max_bytes:
-                root_logger.error('Exceeded max download bytes for %s', object_name)
-                return None
-            h.update(chunk)
-    except Exception as e:
-        root_logger.debug('Error streaming content for %s: %s', object_name, e)
-        return None
-    return h.hexdigest()
-
-
-def make_public_pdf_url(object_name: str) -> str:
-    encoded = "/".join(quote(p, safe='') for p in object_name.split('/'))
-    return f"{SUPABASE_URL.rstrip('/')}/storage/v1/object/public/{SUPABASE_BUCKET}/{encoded}"
 
 
 # ------------------------- DB helpers (Supabase REST) -------------------------
@@ -371,30 +281,8 @@ def process_bids(bids: List[Dict[str, Any]], scraped_at: Optional[str], dry_run:
         if not existing:
             existing = db_select_by_bid_number(bid_number)
 
-        # Only validate pdf_sha256 if missing in payload
-        if 'pdf_sha256' not in payload and payload.get('pdf_storage_path'):
-            # try HEAD
-            try:
-                head_sha = get_sha_via_head(payload['pdf_storage_path'])
-                if head_sha:
-                    payload['pdf_sha256'] = head_sha
-                    root_logger.debug('Recovered SHA via HEAD for %s', payload['pdf_storage_path'])
-                else:
-                    # streaming fallback only if we need the sha to decide; prefer to defer unless inserting
-                    if not existing:
-                        streaming_sha = compute_sha_streaming(payload['pdf_storage_path'], max_download_bytes)
-                        if streaming_sha:
-                            payload['pdf_sha256'] = streaming_sha
-                            root_logger.debug('Computed SHA via streaming for %s', payload['pdf_storage_path'])
-            except Exception as e:
-                root_logger.debug('SHA recovery attempt failed for %s: %s', payload.get('pdf_storage_path'), e)
-
-        # ensure pdf_public_url if storage path present and no public url
-        if payload.get('pdf_storage_path') and not payload.get('pdf_public_url'):
-            try:
-                payload['pdf_public_url'] = make_public_pdf_url(payload['pdf_storage_path'])
-            except Exception:
-                payload['pdf_public_url'] = None
+        # pdf_public_url must already exist in scraper JSON
+        # never auto-generate URLs here
 
         # Decide insert vs patch
         if not existing:
@@ -426,9 +314,13 @@ def process_bids(bids: List[Dict[str, Any]], scraped_at: Optional[str], dry_run:
                     to_patch['pdf_public_url'] = payload.get('pdf_public_url')
         else:
             # no new sha: we can still populate missing path/public url and other metadata
-            if payload.get('pdf_storage_path') and not existing.get('pdf_storage_path'):
-                to_patch['pdf_storage_path'] = payload['pdf_storage_path']
-                to_patch['pdf_public_url'] = payload.get('pdf_public_url')
+            if payload.get('pdf_public_url') and not existing.get('pdf_public_url'):
+                to_patch['pdf_public_url'] = payload['pdf_public_url']
+
+                # preserve storage_path only if it already exists in DB
+                if existing.get('pdf_storage_path'):
+                    to_patch['pdf_storage_path'] = existing.get('pdf_storage_path')
+
 
         # fill other fields if missing in DB
         for f in ('bid_number', 'detail_url', 'start_datetime', 'end_datetime', 'item', 'quantity', 'department', 'scraped_at'):

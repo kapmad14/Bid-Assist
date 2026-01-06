@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Calculator } from 'lucide-react';
+import { createClient } from '@/lib/supabase-client';
 
 
 import {
@@ -26,6 +27,7 @@ import { tenderClientStore as tenderStore } from '@/services/tenderStore.client'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
+const supabase = createClient();
 interface Tender {
   id: number;
   bid_number: string | null;
@@ -72,15 +74,6 @@ export default function TenderDetailPage() {
   const tenderIdParam = params?.id;
   const tenderIdNum = tenderIdParam ? Number(tenderIdParam) : NaN;
 
-  // ✅ Supabase client (dynamic import to avoid Turbopack SSR evaluation issues)
-  const [supabase, setSupabase] = useState<any>(null);
-
-  useEffect(() => {
-    import('@/lib/supabase-client').then(({ createClient }) => {
-      setSupabase(createClient());
-    });
-  }, []);
-
   // Sync shortlist from DB so detail page always shows correct state
   useEffect(() => {
     tenderStore.loadServerShortlist();
@@ -115,41 +108,17 @@ export default function TenderDetailPage() {
   }, []);
 
   const initPreviewUrlFromTender = (row: Tender | null) => {
-    if (!row) {
+    if (!row?.pdf_public_url) {
       setSelectedDocUrl(null);
       return;
     }
 
-    // 1️⃣ Prefer pdf_public_url if present
-    if (row.pdf_public_url) {
-      const url = String(row.pdf_public_url);
-      if (/^https?:\/\//i.test(url)) {
-        setSelectedDocUrl(encodeURI(url));
-        return;
-      }
+    const url = String(row.pdf_public_url);
+    if (/^https?:\/\//i.test(url)) {
+      setSelectedDocUrl(encodeURI(url));
+    } else {
+      setSelectedDocUrl(null);
     }
-
-    // 2️⃣ Fallback: derive from pdf_storage_path via supabase.storage.getPublicUrl
-    if (row.pdf_storage_path) {
-      try {
-        if (supabase) {
-          const { data } = supabase.storage
-            .from('gem-pdfs')
-            .getPublicUrl(String(row.pdf_storage_path));
-
-          if (data?.publicUrl && /^https?:\/\//i.test(data.publicUrl)) {
-            setSelectedDocUrl(encodeURI(data.publicUrl));
-            return;
-          }
-        }
-
-      } catch (e) {
-        console.warn('Failed to derive public URL from pdf_storage_path', e);
-      }
-    }
-
-    // 3️⃣ If nothing works, clear URL
-    setSelectedDocUrl(null);
   };
 
   useEffect(() => {
@@ -164,7 +133,6 @@ export default function TenderDetailPage() {
       }
 
       try {
-        if (!supabase) return;  // ⬅️ REQUIRED: prevents calling supabase=null
 
         const { data, error } = await supabase
           .from('tenders')
@@ -828,7 +796,7 @@ const handlePreviewAdditionalDocs = async () => {
                         const link = document.createElement('a');
                         link.href = selectedDocUrl;
                         link.download =
-                          tender.pdf_storage_path?.split('/').pop() ||
+                          tender.pdf_public_url?.split('/').pop() ||
                           'document.pdf';
                         link.target = '_blank';
                         link.rel = 'noopener noreferrer';
