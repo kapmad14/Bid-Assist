@@ -22,6 +22,7 @@ from dotenv import load_dotenv
 from pypdf import PdfReader
 from pdf_url_extractor import extract_urls_from_pdf
 from extractor import parse_pdf
+import time
 
 # ---------------- env / rest ----------------
 load_dotenv()
@@ -52,6 +53,11 @@ CONTROL_RE = re.compile(r"[\x00-\x1F\u007F]+")
 MULTI_WHITESPACE_RE = re.compile(r"\s+")
 ALLOWED_FINAL_RE = re.compile(r"[^A-Za-z0-9\s\-\.,:/\(\)%&\|]+")
 
+LOG_EVERY = 20
+
+def log_progress(done, total):
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"{ts} INFO Progress: {done} / {total} rows processed")
 
 def normalize_whitespace(s: str) -> str:
     return MULTI_WHITESPACE_RE.sub(" ", s).strip()
@@ -299,27 +305,27 @@ def download_pdf_public_url(url: str) -> str:
 
 # ---------------- supabase helpers ----------------
 def fetch_pending_rows(limit: int = PAGE_SIZE, last_id: int = 0):
-    """
-    Fetch rows where simple_extraction IS NULL and id > last_id.
-    Uses keyset pagination (id > last_id) so we always progress from lowest id to
-    highest id without skipping rows if earlier rows are updated while the script runs.
-    """
     params = {
         "select": "id,pdf_public_url,simple_extraction,updated_at",
         "order": "id.asc",
         "limit": str(limit),
         "id": f"gt.{last_id}",
-        "simple_extraction": "is.null",
     }
 
     r = requests.get(TENDERS_ENDPOINT, headers=HEADERS, params=params, timeout=60)
-    try:
-        r.raise_for_status()
-    except requests.HTTPError:
-        body = r.text if r is not None else "<no response>"
-        print(f"[SUPABASE_FETCH_FAIL] status={getattr(r,'status_code',None)} body={body[:2000]}")
-        raise
+    r.raise_for_status()
     return r.json()
+
+
+def fetch_total_pending_count():
+    params = {
+        "select": "id",
+        "simple_extraction": "is.null",
+        "limit": "1"
+    }
+    r = requests.get(TENDERS_ENDPOINT, headers={**HEADERS, "Prefer": "count=exact"}, params=params, timeout=30)
+    r.raise_for_status()
+    return int(r.headers.get("Content-Range", "0/0").split("/")[-1])
 
 
 def fetch_tender_row(row_id: int):
@@ -370,26 +376,33 @@ def map_reverse_auction_to_json_bool(val: str):
 # ---------------- main ----------------
 def main():
     last_id = 0
-    total_processed = 0
+
+    total_pending = fetch_total_pending_count()
+    if total_pending == 0:
+        print("Nothing to process.")
+        return
+    processed = 0
 
 
     while True:
         rows = fetch_pending_rows(limit=PAGE_SIZE, last_id=last_id)
         if not rows:
             break
-        print(f"[BATCH] fetched {len(rows)} pending rows (starting after id={last_id})")
 
         max_id_in_batch = last_id
 
         for row in rows:
             row_id = row.get("id")
+
+            if row_id and row_id > max_id_in_batch:
+                max_id_in_batch = row_id
+
+            if row.get("simple_extraction") is not None:
+                continue
+
             pdf_url = row.get("pdf_public_url")
             if not row_id:
                 continue
-
-            # track highest id seen in batch
-            if row_id and row_id > max_id_in_batch:
-                max_id_in_batch = row_id
 
             # record the attempted time once per row and reuse it for all patches
             attempt_time = iso_now_utc()
@@ -397,7 +410,6 @@ def main():
             if not pdf_url:
                 # mark as failed with attempt_time and simple_extraction='error'
                 patch_tender_row(row_id, {"updated_at": attempt_time, SIMPLE_EXTRACTION_COL: "error"})
-                print(f"[SKIP] id={row_id} missing pdf_public_url -> marked error at {attempt_time}")
                 continue
 
             tmp = None
@@ -405,7 +417,6 @@ def main():
                 tmp = download_pdf_public_url(pdf_url)
             except Exception as e:
                 patch_tender_row(row_id, {"updated_at": attempt_time, SIMPLE_EXTRACTION_COL: "error"})
-                print(f"[DOWNLOAD_FAIL] id={row_id} url={pdf_url} err={e} marked at {attempt_time}")
                 continue
 
             try:
@@ -455,36 +466,21 @@ def main():
                     SIMPLE_EXTRACTION_COL: "success",
                 }
 
-                # fetch row to ensure we only send keys present in the DB (avoid PGRST204)
-                current_row = None
-                try:
-                    current_row = fetch_tender_row(row_id)
-                except Exception:
-                    current_row = None
-
-                if current_row:
-                    allowed_keys = set(current_row.keys())
-                    payload_to_send = {k: v for k, v in full_payload.items() if k in allowed_keys}
-                    dropped = [k for k in full_payload.keys() if k not in allowed_keys]
-                    if dropped:
-                        print(f"[INFO] id={row_id} dropping keys not present in table: {dropped}")
-                else:
-                    payload_to_send = full_payload
+                payload_to_send = full_payload
 
                 # Never overwrite real DB data with blanks
                 payload_to_send = {k:v for k,v in payload_to_send.items() if v not in (None,"",[],{})}
                 ok = patch_tender_row(row_id, payload_to_send)
                 if ok:
-                    total_processed += 1
-                    print(f"[OK] id={row_id} patched keys={list(payload_to_send.keys())} at {attempt_time}")
+                    processed += 1
+                    if processed % LOG_EVERY == 0 or processed == total_pending:
+                        log_progress(processed, total_pending)
                 else:
-                    # mark as permanently failed — requires manual review
                     patch_tender_row(row_id, {"updated_at": attempt_time, SIMPLE_EXTRACTION_COL: "error"})
-                    print(f"[FAIL] id={row_id} patch failed; marked error at {attempt_time}")
+
 
             except Exception as e:
                 patch_tender_row(row_id, {"updated_at": attempt_time, SIMPLE_EXTRACTION_COL: "error"})
-                print(f"[EXTRACT_FAIL] id={row_id} err={e} marked at {attempt_time}")
 
             finally:
                 if tmp:
@@ -493,15 +489,12 @@ def main():
                     except Exception:
                         pass
 
-        if max_id_in_batch <= last_id:
-            print(f"[CURSOR_STALL] last_id did not advance (last_id={last_id}, max_id_in_batch={max_id_in_batch}). Breaking.")
-            break
-
         last_id = max_id_in_batch
+        time.sleep(0.25)
 
 
-    print(f"Done. Total processed: {total_processed}")
-
+    if processed % LOG_EVERY != 0:
+        log_progress(processed, total_pending)
 
 if __name__ == "__main__":
     main()
