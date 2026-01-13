@@ -213,6 +213,8 @@ class TenderClientStore {
     // STANDARD QUERY (no archive filtering)
     // ------------------------------------------
     let query = supabase.from('tenders').select('*', { count: 'exact' });
+    // 🚨 CRITICAL FILTER — ONLY SHOW SUCCESSFULLY EXTRACTED TENDERS
+    query = query.eq('simple_extraction', 'success');    
 
     // -------------------------
     // SEARCH (single OR block)
