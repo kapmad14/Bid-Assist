@@ -310,6 +310,7 @@ def fetch_pending_rows(limit: int = PAGE_SIZE, last_id: int = 0):
         "order": "id.asc",
         "limit": str(limit),
         "id": f"gt.{last_id}",
+        "simple_extraction": "is.null",
     }
 
     r = requests.get(TENDERS_ENDPOINT, headers=HEADERS, params=params, timeout=60)
