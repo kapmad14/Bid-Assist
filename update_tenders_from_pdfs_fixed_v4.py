@@ -460,6 +460,8 @@ def main():
                         if isinstance(extracted.get("past_performance_percentage"), (int, float))
                         else None
                     ),
+                    "pincode": extracted.get("pin_code"),
+                    "organization_address": extracted.get("district"),
 
                     # always write the attempted time into updated_at
                     "updated_at": attempt_time,

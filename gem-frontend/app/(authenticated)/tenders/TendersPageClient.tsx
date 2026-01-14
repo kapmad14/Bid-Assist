@@ -1055,10 +1055,34 @@ function TendersContentInner() {
                         <Building2 className="w-3 h-3 text-blue-600" aria-hidden />
                       </div>
                       <div>
-                        <p className="text-sm font-bold text-gray-900 line-clamp-1">{tender.ministry || 'Unknown'}</p>
+                        <p className="text-sm font-bold text-gray-900 line-clamp-1">
+                        {(() => {
+                            const addr = tender.organizationAddress?.trim();
+                            const pin = tender.pincode?.trim();
+
+                            if (addr && pin) return `${addr} - ${pin}`;
+                            if (addr) return addr;
+                            if (pin) return pin;
+
+                            return tender.organizationName || 'Unknown Organisation';
+                        })()}
+                        </p>
                         <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5">
-                          {/* show department first, fallback to location */}
-                          {tender.department || 'Location not specified'}
+                        {tender.department ? (
+                            <span>{tender.department}</span>
+                        ) : tender.organizationAddress || tender.pincode ? (
+                            <>
+                            <MapPin className="w-3 h-3" aria-hidden />
+                            <span>
+                                {tender.organizationAddress ?? ''}
+                                {tender.pincode ? ` - ${tender.pincode}` : ''}
+                            </span>
+                            </>
+                        ) : tender.organizationName ? (
+                            <span>{tender.organizationName}</span>
+                        ) : (
+                            'Location not specified'
+                        )}
                         </div>
                       </div>
                     </div>

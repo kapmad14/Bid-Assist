@@ -29,6 +29,9 @@ export interface Tender {
   department: string | null;
   organizationName: string | null;
 
+  organizationAddress: string | null;
+  pincode: string | null;
+
   startDate: string | null;
   endDate: string | null;
   publishedDate?: string | null;

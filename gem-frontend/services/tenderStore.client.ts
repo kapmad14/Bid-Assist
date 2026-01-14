@@ -552,11 +552,13 @@ class TenderClientStore {
         ministry: row.ministry ?? row.buyer_ministry ?? null,
         department: row.department ?? row.buyer_department ?? null,
         organizationName: row.organization_name ?? null,
+        organizationAddress: row.organization_address ?? null,
+        pincode: row.pincode ?? null,
 
         status,
         deadline: deadlineDate,  // IMPORTANT: keep real Date for UI logic
 
-        // formatted for UI
+        // formatted for UIX
         startDate,
         endDate,
         publishedDate: startDate,
