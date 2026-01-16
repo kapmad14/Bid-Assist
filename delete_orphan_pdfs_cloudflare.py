@@ -5,6 +5,7 @@ from datetime import datetime, timezone, timedelta
 from supabase import create_client
 from dotenv import load_dotenv
 from typing import Optional
+from collections import defaultdict
 
 # ---------- load env ----------
 load_dotenv()
@@ -17,30 +18,15 @@ R2_SECRET_KEY = os.getenv("R2_SECRET_ACCESS_KEY")
 R2_ACCOUNT_ID = os.getenv("R2_ACCOUNT_ID")
 R2_BUCKET = os.getenv("R2_BUCKET")
 
-for k, v in {
-    "SUPABASE_URL": SUPABASE_URL,
-    "SUPABASE_SERVICE_ROLE_KEY": SUPABASE_KEY,
-    "R2_ACCESS_KEY": R2_ACCESS_KEY,
-    "R2_SECRET_KEY": R2_SECRET_KEY,
-    "R2_ACCOUNT_ID": R2_ACCOUNT_ID,
-    "R2_BUCKET": R2_BUCKET
-}.items():
-    if not v:
-        raise RuntimeError(f"Missing environment variable: {k}")
-
 # ---------- helpers ----------
 def normalize(path: str) -> Optional[str]:
     if not path:
         return None
-
     path = path.strip()
-
-    if "cloudflarestorage.com" in path:
-        path = path.split("cloudflarestorage.com/")[-1]
-
-    if path.startswith(R2_BUCKET + "/"):
-        path = path[len(R2_BUCKET) + 1 :]
-
+    if "cloudflarestorage.com/" in path:
+        path = path.split("cloudflarestorage.com/", 1)[1]
+    if path.startswith(f"{R2_BUCKET}/"):
+        path = path[len(R2_BUCKET) + 1:]
     return path.lstrip("/")
 
 # ---------- clients ----------
@@ -53,60 +39,92 @@ s3 = boto3.client(
     aws_secret_access_key=R2_SECRET_KEY,
 )
 
-# ---------- build authoritative set ----------
-print("Fetching valid paths from Supabase...")
-
-rows = supabase.table("tenders") \
-    .select("pdf_storage_path, pdf_public_url") \
-    .execute()
-
+# ---------- load valid DB keys ----------
+print("Fetching DB storage paths...")
 valid_keys = set()
+page = 0
+page_size = 1000
 
-for r in rows.data:
-    for field in ("pdf_storage_path", "pdf_public_url"):
-        k = normalize(r.get(field))
+while True:
+    res = supabase.table("tenders") \
+        .select("pdf_storage_path") \
+        .range(page * page_size, (page + 1) * page_size - 1) \
+        .execute()
+
+    if not res.data:
+        break
+
+    for r in res.data:
+        k = normalize(r.get("pdf_storage_path"))
         if k:
             valid_keys.add(k)
+    page += 1
 
-print("Valid keys in DB:", len(valid_keys))
+if len(valid_keys) < 500:
+    raise RuntimeError("Valid keyset unexpectedly small – aborting.")
+
+print("Valid DB keys:", len(valid_keys))
 
 # ---------- scan R2 ----------
-CUTOFF = datetime.now(timezone.utc) - timedelta(days=14)
-
+cutoff_date = (datetime.now(timezone.utc) - timedelta(days=3)).date()
 orphans = []
+orphans_by_date = defaultdict(int)
 
-print("Scanning R2 bucket...")
+print("\nScanning R2 bucket...")
 
 paginator = s3.get_paginator("list_objects_v2")
 
-for page in paginator.paginate(Bucket=R2_BUCKET):
+for page in paginator.paginate(Bucket=R2_BUCKET, Prefix="bids/"):
     for obj in page.get("Contents", []):
         key = obj["Key"]
-        last_modified = obj["LastModified"]
 
-        if key not in valid_keys and last_modified < CUTOFF:
+        if not key.lower().endswith(".pdf"):
+            continue
+
+        try:
+            folder_date = datetime.strptime(key.split("/")[1], "%Y-%m-%d").date()
+        except:
+            continue
+
+        if folder_date >= cutoff_date:
+            continue
+
+        if key not in valid_keys:
             orphans.append(key)
+            orphans_by_date[str(folder_date)] += 1
 
-# ---------- dry run ----------
-print("\nOrphan PDFs found:", len(orphans))
-for k in orphans[:20]:
-    print("ORPHAN:", k)
+# ---------- report ----------
+print("\nORPHAN PDF SUMMARY:")
+for d in sorted(orphans_by_date):
+    print(f"{d} -> {orphans_by_date[d]}")
+
+print(f"\nTOTAL ORPHAN PDFs TO DELETE: {len(orphans)}")
 
 if not orphans:
-    print("\nNo cleanup required.")
+    print("\nNothing to delete.")
     exit(0)
 
-confirm = input(f"\nType DELETE to permanently delete {len(orphans)} files: ")
+confirm = input("\nType YES to permanently delete these files: ")
 
-if confirm != "DELETE":
+if confirm != "YES":
     print("Aborted.")
     exit(0)
 
 # ---------- delete ----------
-print("\nDeleting orphans...")
+print("\nDeleting orphan PDFs...")
+
+deleted = 0
+total = len(orphans)
 
 for key in orphans:
-    s3.delete_object(Bucket=R2_BUCKET, Key=key)
-    print("Deleted:", key)
+    try:
+        s3.delete_object(Bucket=R2_BUCKET, Key=key)
+        deleted += 1
 
-print("\nCleanup complete.")
+        if deleted % 50 == 0 or deleted == total:
+            print(f"{deleted}/{total} PDFs deleted")
+
+    except Exception as e:
+        print("FAILED:", key, str(e))
+
+print("\nCleanup completed.")

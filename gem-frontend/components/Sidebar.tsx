@@ -12,6 +12,7 @@ import {
   Menu,
   X,
   LifeBuoy,
+  LayoutList,
 } from 'lucide-react';
 
 type SidebarMenuItem = {
@@ -38,6 +39,7 @@ const menuItems = [
   { label: 'Tenders', icon: FileText, path: '/tenders' },
   // changed to Box to visually differentiate Catalog
   { label: 'Catalogue', icon: Box, path: '/catalog' },
+  { label: 'Results', icon: LayoutList, path: '/results' },
   { label: 'Help & Support', icon: LifeBuoy, path: '/help' },
 ];
 

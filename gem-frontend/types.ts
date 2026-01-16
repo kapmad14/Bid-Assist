@@ -119,3 +119,38 @@ export interface TenderParserResponse {
     model: string;
   };
 }
+
+export type GemResult = {
+  id?: number;
+
+  bid_number: string;
+  bid_detail_url?: string | null;
+  bid_hover_url?: string | null;
+
+  has_reverse_auction?: boolean | null;
+  ra_number?: string | null;
+  ra_detail_url?: string | null;
+  ra_hover_url?: string | null;
+
+  quantity?: number | null;
+  ministry?: string | null;
+  department?: string | null;
+  organisation_address?: string | null;
+
+  start_datetime?: string | null;   // ISO strings from Supabase
+  end_datetime?: string | null;
+
+  tech_participated?: number | null;
+  tech_qualified?: number | null;
+
+  l1_seller?: string | null;
+  l1_price?: number | null;
+  l2_seller?: string | null;
+  l2_price?: number | null;
+  l3_seller?: string | null;
+  l3_price?: number | null;
+
+  extraction_status?: 'pending' | 'success' | 'failed';
+  scraped_on?: string;
+  created_at?: string;
+};
