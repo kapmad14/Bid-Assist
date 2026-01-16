@@ -143,11 +143,14 @@ export type GemResult = {
   tech_participated?: number | null;
   tech_qualified?: number | null;
 
-  l1_seller?: string | null;
-  l1_price?: number | null;
+  l1_seller: string | null;
+  l1_item: string | null;
+  l1_price: number | null;
   l2_seller?: string | null;
+  l2_item?: string | null;
   l2_price?: number | null;
   l3_seller?: string | null;
+  l3_item?: string | null;
   l3_price?: number | null;
 
   extraction_status?: 'pending' | 'success' | 'failed';
