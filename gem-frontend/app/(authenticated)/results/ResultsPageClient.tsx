@@ -803,11 +803,11 @@ export default function ResultsPageClient() {
             <div className="
                 w-[85px] h-[53px] 
                 rounded-2xl 
-                bg-blue-50 border border-blue-200 
+                bg-[#F3F4F6] border border-gray-200
                 flex flex-col items-center justify-center shrink-0
             ">
-              <p className="text-xs text-blue-700">Participated</p>
-              <p className="text-xl font-semibold text-blue-600">
+              <p className="text-xs text-gray-500">Participated</p>
+              <p className="text-lg font-semibold text-gray-600">
                 {r.tech_participated ?? "N/A"}
               </p>
             </div>
@@ -820,7 +820,7 @@ export default function ResultsPageClient() {
                 flex flex-col items-center justify-center shrink-0
             ">
               <p className="text-xs text-green-700">Qualified</p>
-              <p className="text-xl font-semibold text-green-600">
+              <p className="text-lg font-semibold text-green-600">
                 {r.tech_qualified ?? "N/A"}
               </p>
             </div>
