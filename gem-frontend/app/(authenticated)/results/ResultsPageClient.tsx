@@ -25,12 +25,16 @@ export default function ResultsPageClient() {
   const [ministryFilterInput, setMinistryFilterInput] = useState("");
   const [departmentFilterInput, setDepartmentFilterInput] = useState("");
   const [sellerFilterInput, setSellerFilterInput] = useState("");
+  const [bidRaFilterInput, setBidRaFilterInput] = useState("");
+
 
   // Actual filters that trigger fetch (slow)
   const [itemFilter, setItemFilter] = useState("");
   const [ministryFilter, setMinistryFilter] = useState("");
   const [departmentFilter, setDepartmentFilter] = useState("");
   const [sellerFilter, setSellerFilter] = useState("");
+  const [bidRaFilter, setBidRaFilter] = useState("");
+
 
   // ---------- AUTOSUGGEST STATE (CLEAN SINGLE SOURCE OF TRUTH) ----------
 
@@ -61,17 +65,21 @@ export default function ResultsPageClient() {
     const ministry = searchParams.get("ministry") || "";
     const department = searchParams.get("department") || "";
     const seller = searchParams.get("seller") || "";
+    const bidRa = searchParams.get("bidRa") || "";
 
     // Sync BOTH input + real filters
     setItemFilterInput(item);
     setMinistryFilterInput(ministry);
     setDepartmentFilterInput(department);
     setSellerFilterInput(seller);
+    setBidRaFilterInput(bidRa);
+
 
     setItemFilter(item);
     setMinistryFilter(ministry);
     setDepartmentFilter(department);
     setSellerFilter(seller);
+    setBidRaFilter(bidRa);
   }, []);
 
 
@@ -129,6 +137,7 @@ export default function ResultsPageClient() {
       setMinistryFilter(ministryFilterInput);
       setDepartmentFilter(departmentFilterInput);
       setSellerFilter(sellerFilterInput);
+      setBidRaFilter(bidRaFilterInput);
       setCurrentPage(1);
     }, 400);
 
@@ -138,6 +147,7 @@ export default function ResultsPageClient() {
     ministryFilterInput,
     departmentFilterInput,
     sellerFilterInput,
+    bidRaFilterInput,
   ]);
 
 
@@ -151,10 +161,11 @@ export default function ResultsPageClient() {
     if (ministryFilter) params.set("ministry", ministryFilter);
     if (departmentFilter) params.set("department", departmentFilter);
     if (sellerFilter) params.set("seller", sellerFilter);
+    if (bidRaFilter) params.set("bidRa", bidRaFilter);
 
     const newUrl = `/results?${params.toString()}`;
     window.history.replaceState(null, "", newUrl);
-  }, [itemFilter, ministryFilter, departmentFilter, sellerFilter]);
+  }, [itemFilter, ministryFilter, departmentFilter, sellerFilter, bidRaFilter]);
 
   const fetchResults = useCallback(async () => {
     setError(null);
@@ -163,6 +174,7 @@ export default function ResultsPageClient() {
       const { data, total } = await gemResultsClientStore.getResults({
         page: currentPage,
         limit: PAGE_SIZE,
+        bidRa: bidRaFilter || undefined,
         item: itemFilter || undefined,
         ministry: ministryFilter || undefined,
         department: departmentFilter || undefined,
@@ -185,6 +197,7 @@ export default function ResultsPageClient() {
     ministryFilter,
     departmentFilter,
     sellerFilter,
+    bidRaFilter,
   ]);
 
 
@@ -197,11 +210,13 @@ export default function ResultsPageClient() {
     setMinistryFilterInput("");
     setDepartmentFilterInput("");
     setSellerFilterInput("");
+    setBidRaFilterInput("");
 
     setItemFilter("");
     setMinistryFilter("");
     setDepartmentFilter("");
     setSellerFilter("");
+    setBidRaFilter("");
   };
 
 
@@ -285,6 +300,35 @@ export default function ResultsPageClient() {
 
       {/* TOP FILTER BAR */}
       <div className="bg-white border rounded-xl shadow-sm p-4 mb-6 grid grid-cols-1 md:grid-cols-4 gap-4">
+
+        {/* BID / RA NUMBER FILTER */}
+        <div className="relative">
+          <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">
+            Bid / RA Number
+          </label>
+
+          <div className="relative">
+            <input
+              value={bidRaFilterInput}
+              onChange={(e) => setBidRaFilterInput(e.target.value)}
+              placeholder="Search Bid or RA number..."
+              className="w-full border rounded-lg px-3 py-2 text-sm pr-8"
+            />
+
+            {bidRaFilterInput && (
+              <button
+                type="button"
+                onClick={() => {
+                  setBidRaFilterInput("");
+                  setBidRaFilter("");
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
 
         {/* L1 ITEM FILTER (simple text search) */}
         <div className="relative">

@@ -8,6 +8,7 @@ export async function GET(request: Request) {
   const limit = Number(searchParams.get("limit") ?? 10);
 
   // NEW: read filters from URL
+  const bidRa = searchParams.get("bidRa") || undefined;
   const item = searchParams.get("item") || undefined;
   const ministry = searchParams.get("ministry") || undefined;
   const department = searchParams.get("department") || undefined;
@@ -17,6 +18,7 @@ export async function GET(request: Request) {
     const result = await getGemResultsServer({
       page,
       limit,
+      bidRa,
       item,
       ministry,
       department,

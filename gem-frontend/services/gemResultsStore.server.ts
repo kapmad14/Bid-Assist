@@ -6,6 +6,7 @@ import { GemResult } from "@/types";
 type GetResultsArgs = {
   page: number;
   limit: number;
+  bidRa?: string;
   item?: string;
   ministry?: string;
   department?: string;
@@ -16,6 +17,7 @@ type GetResultsArgs = {
 export async function getGemResultsServer({
   page,
   limit,
+  bidRa,
   item,
   ministry,
   department,
@@ -31,6 +33,13 @@ export async function getGemResultsServer({
       q = q.ilike("l1_item", `%${item}%`);
     }
 
+    if (bidRa) {
+      q = q.or(
+        `bid_number.ilike.%${bidRa}%,ra_number.ilike.%${bidRa}%`
+      );
+    }
+
+
     if (ministry) {
       q = q.ilike("ministry", `%${ministry}%`);
     }
@@ -44,8 +53,6 @@ export async function getGemResultsServer({
         `l1_seller.ilike.%${seller}%,l2_seller.ilike.%${seller}%,l3_seller.ilike.%${seller}%`
       );
     }
-
-
 
     return q;
   };

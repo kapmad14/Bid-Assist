@@ -3,6 +3,7 @@ import { GemResult } from "@/types";
 type GetResultsArgs = {
   page: number;
   limit: number;
+  bidRa?: string;
   item?: string;
   ministry?: string;
   department?: string;
@@ -20,6 +21,7 @@ export const gemResultsClientStore = {
       limit: String(args.limit),
     });
 
+    if (args.bidRa) params.append("bidRa", args.bidRa);
     if (args.item) params.append("item", args.item);
     if (args.ministry) params.append("ministry", args.ministry);
     if (args.department) params.append("department", args.department);
