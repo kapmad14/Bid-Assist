@@ -41,9 +41,10 @@ export async function getGemResultsServer({
 
     if (seller) {
       q = q.or(
-        `(l1_seller.ilike.%${seller}%,l2_seller.ilike.%${seller}%,l3_seller.ilike.%${seller}%)`
+        `l1_seller.ilike.%${seller}%,l2_seller.ilike.%${seller}%,l3_seller.ilike.%${seller}%`
       );
     }
+
 
 
     return q;
@@ -67,17 +68,19 @@ export async function getGemResultsServer({
     throw new Error(`Count failed: ${countErr.message}`);
   }
 
-  // Fetch paginated data
-  let dataQuery = supabase
-    .from("gem_results")
-    .select("*")
-    .eq("extraction_status", "success")
-    .order("created_at", { ascending: false })
-    .range(from, to);
+// Fetch paginated data  ✅ (FIXED ORDER)
+let dataQuery = supabase
+  .from("gem_results")
+  .select("*")
+  .eq("extraction_status", "success");
 
-  dataQuery = applyFilters(dataQuery);
+// 👉 APPLY FILTERS FIRST
+dataQuery = applyFilters(dataQuery);
 
-  const { data, error } = await dataQuery;
+// 👉 THEN order + range
+const { data, error } = await dataQuery
+  .order("created_at", { ascending: false })
+  .range(from, to);
 
 
   if (error) {

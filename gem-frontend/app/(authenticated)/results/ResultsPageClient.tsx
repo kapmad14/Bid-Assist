@@ -32,7 +32,19 @@ export default function ResultsPageClient() {
   const [departmentFilter, setDepartmentFilter] = useState("");
   const [sellerFilter, setSellerFilter] = useState("");
 
-  // Control dropdown visibility
+  // ---------- AUTOSUGGEST STATE (CLEAN SINGLE SOURCE OF TRUTH) ----------
+
+  // refs for outside-click handling
+  const ministryRef = React.useRef<HTMLDivElement | null>(null);
+  const departmentRef = React.useRef<HTMLDivElement | null>(null);
+  const sellerRef = React.useRef<HTMLDivElement | null>(null);
+
+  // keyboard selection indices
+  const [ministryIndex, setMinistryIndex] = useState(-1);
+  const [departmentIndex, setDepartmentIndex] = useState(-1);
+  const [sellerIndex, setSellerIndex] = useState(-1);
+
+  // dropdown visibility flags
   const [showMinistryList, setShowMinistryList] = useState(false);
   const [showDepartmentList, setShowDepartmentList] = useState(false);
   const [showSellerList, setShowSellerList] = useState(false);
@@ -41,6 +53,7 @@ export default function ResultsPageClient() {
   const [ministryOptions, setMinistryOptions] = useState<string[]>([]);
   const [departmentOptions, setDepartmentOptions] = useState<string[]>([]);
   const [sellerOptions, setSellerOptions] = useState<string[]>([]);
+
 
   // Load filters from URL on first render
   useEffect(() => {
@@ -74,6 +87,31 @@ export default function ResultsPageClient() {
       .catch(err => {
         console.error("Failed to load autosuggest options:", err);
       });
+  }, []);
+
+  // ✅ STEP 2 — close dropdowns when clicking outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const t = e.target as Node;
+
+      if (ministryRef.current && !ministryRef.current.contains(t)) {
+        setShowMinistryList(false);
+        setMinistryIndex(-1);
+      }
+
+      if (departmentRef.current && !departmentRef.current.contains(t)) {
+        setShowDepartmentList(false);
+        setDepartmentIndex(-1);
+      }
+
+      if (sellerRef.current && !sellerRef.current.contains(t)) {
+        setShowSellerList(false);
+        setSellerIndex(-1);
+      }
+    };
+
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
   }, []);
 
 
@@ -251,48 +289,116 @@ export default function ResultsPageClient() {
         {/* L1 ITEM FILTER (simple text search) */}
         <div className="relative">
           <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">
-            L1 Item
+            Item Name
           </label>
-          <input
-            value={itemFilterInput}
-            onChange={(e) => setItemFilterInput(e.target.value)}
-            placeholder="Search item..."
-            className="w-full border rounded-lg px-3 py-2 text-sm"
-          />
+
+          <div className="relative">
+            <input
+              value={itemFilterInput}
+              onChange={(e) => setItemFilterInput(e.target.value)}
+              placeholder="Search item..."
+              className="w-full border rounded-lg px-3 py-2 text-sm pr-8"
+            />
+
+            {itemFilterInput && (
+              <button
+                type="button"
+                onClick={() => setItemFilterInput("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
+              >
+                ✕
+              </button>
+            )}
+          </div>
         </div>
+
+
 
         {/* MINISTRY AUTOSUGGEST */}
         <div className="relative">
           <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">
             Ministry
           </label>
-            <input
-              value={ministryFilterInput}
-              onFocus={() => setShowMinistryList(true)}
-              onChange={(e) => {
-                setMinistryFilterInput(e.target.value);
-                setShowMinistryList(true);
-              }}
-              placeholder="Type ministry..."
-              className="w-full border rounded-lg px-3 py-2 text-sm"
-            />
+            <div className="relative">
+              <input
+                value={ministryFilterInput}
+                onFocus={() => {
+                  setShowMinistryList(true);
+                  setMinistryIndex(-1);
+                }}
+                onChange={(e) => {
+                  setMinistryFilterInput(e.target.value);
+                  setShowMinistryList(true);
+                  setMinistryIndex(-1);
+                }}
+                onKeyDown={(e) => {
+                  const filtered = ministryOptions
+                    .filter(m =>
+                      m.toLowerCase().includes(ministryFilterInput.toLowerCase())
+                    )
+                    .slice(0, 8);
+
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setMinistryIndex(i => Math.min(i + 1, filtered.length - 1));
+                  }
+
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setMinistryIndex(i => Math.max(i - 1, 0));
+                  }
+
+                  if (e.key === "Enter" && ministryIndex >= 0) {
+                    e.preventDefault();
+                    const picked = filtered[ministryIndex];
+                    if (picked) {
+                      setMinistryFilterInput(picked);
+                      setShowMinistryList(false);
+                    }
+                  }
+                }}
+                placeholder="Type ministry..."
+                className="w-full border rounded-lg px-3 py-2 text-sm pr-8"
+              />
+
+              {ministryFilterInput && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMinistryFilterInput("");
+                    setMinistryFilter("");
+                    setShowMinistryList(false);
+                    setMinistryIndex(-1);
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
 
 
-          {showMinistryList && ministryFilterInput && (
-            <div className="absolute left-0 right-0 bg-white border mt-1 rounded shadow max-h-40 overflow-auto z-10">
+            {showMinistryList && ministryFilterInput && (
+              <div
+                ref={ministryRef}
+                className="absolute left-0 right-0 bg-white border mt-1 rounded shadow max-h-40 overflow-auto z-10"
+              >
               {ministryOptions
                 .filter(m =>
-                  m.toLowerCase().includes(ministryFilter.toLowerCase())
+                  m.toLowerCase().includes(ministryFilterInput.toLowerCase())
                 )
                 .slice(0, 8)
-                .map(m => (
+                .map((m, idx) => (
                   <div
                     key={m}
+                    onMouseEnter={() => setMinistryIndex(idx)}
                     onClick={() => {
                       setMinistryFilterInput(m);
-                      setShowMinistryList(false);   // <-- CLOSE dropdown
+                      setShowMinistryList(false);
                     }}
-                    className="px-3 py-2 text-sm hover:bg-gray-100 cursor-pointer"
+                    className={`px-3 py-2 text-sm cursor-pointer ${
+                      idx === ministryIndex ? "bg-blue-50" : "hover:bg-gray-100"
+                    }`}
                   >
                     {m}
                   </div>
@@ -306,32 +412,86 @@ export default function ResultsPageClient() {
           <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">
             Department
           </label>
-            <input
-              value={departmentFilterInput}
-              onFocus={() => setShowDepartmentList(true)}
-              onChange={(e) => {
-                setDepartmentFilterInput(e.target.value);
-                setShowDepartmentList(true);
-              }}
-              placeholder="Type department..."
-              className="w-full border rounded-lg px-3 py-2 text-sm"
-            />
+            <div className="relative">
+              <input
+                value={departmentFilterInput}
+                onFocus={() => {
+                  setShowDepartmentList(true);
+                  setDepartmentIndex(-1);
+                }}
+                onChange={(e) => {
+                  setDepartmentFilterInput(e.target.value);
+                  setShowDepartmentList(true);
+                  setDepartmentIndex(-1);
+                }}
+                onKeyDown={(e) => {
+                  const filtered = departmentOptions
+                    .filter(d =>
+                      d.toLowerCase().includes(departmentFilterInput.toLowerCase())
+                    )
+                    .slice(0, 8);
 
-          {showDepartmentList && departmentFilterInput && (
-            <div className="absolute left-0 right-0 bg-white border mt-1 rounded shadow max-h-40 overflow-auto z-10">
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setDepartmentIndex(i => Math.min(i + 1, filtered.length - 1));
+                  }
+
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setDepartmentIndex(i => Math.max(i - 1, 0));
+                  }
+
+                  if (e.key === "Enter" && departmentIndex >= 0) {
+                    e.preventDefault();
+                    const picked = filtered[departmentIndex];
+                    if (picked) {
+                      setDepartmentFilterInput(picked);
+                      setShowDepartmentList(false);
+                    }
+                  }
+                }}
+                placeholder="Type department..."
+                className="w-full border rounded-lg px-3 py-2 text-sm pr-8"
+              />
+
+              {departmentFilterInput && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDepartmentFilterInput("");
+                    setDepartmentFilter("");
+                    setShowDepartmentList(false);
+                    setDepartmentIndex(-1);
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+
+            {showDepartmentList && departmentFilterInput && (
+              <div
+                ref={departmentRef}
+                className="absolute left-0 right-0 bg-white border mt-1 rounded shadow max-h-40 overflow-auto z-10"
+              >
               {departmentOptions
                 .filter(d =>
-                  d.toLowerCase().includes(departmentFilter.toLowerCase())
+                  d.toLowerCase().includes(departmentFilterInput.toLowerCase())
                 )
                 .slice(0, 8)
-                .map(d => (
+                .map((d, idx) => (
                   <div
                     key={d}
+                    onMouseEnter={() => setDepartmentIndex(idx)}
                     onClick={() => {
                       setDepartmentFilterInput(d);
                       setShowDepartmentList(false);
                     }}
-                    className="px-3 py-2 text-sm hover:bg-gray-100 cursor-pointer"
+                    className={`px-3 py-2 text-sm cursor-pointer ${
+                      idx === departmentIndex ? "bg-blue-50" : "hover:bg-gray-100"
+                    }`}
                   >
                     {d}
                   </div>
@@ -343,33 +503,90 @@ export default function ResultsPageClient() {
         {/* SELLER AUTOSUGGEST (L1/L2/L3) */}
         <div className="relative">
           <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">
-            Seller (L1/L2/L3)
+            Seller Name
           </label>
-            <input
-              value={sellerFilterInput}
-              onFocus={() => setShowSellerList(true)}
-              onChange={(e) => {
-                setSellerFilterInput(e.target.value);
-                setShowSellerList(true);
-              }}
-              placeholder="Search seller..."
-              className="w-full border rounded-lg px-3 py-2 text-sm"
-            />
-          {showSellerList && sellerFilterInput && (
-            <div className="absolute left-0 right-0 bg-white border mt-1 rounded shadow max-h-40 overflow-auto z-10">
+            <div className="relative">
+              <input
+                value={sellerFilterInput}
+                onFocus={() => {
+                  setShowSellerList(true);
+                  setSellerIndex(-1);
+                }}
+                onChange={(e) => {
+                  setSellerFilterInput(e.target.value);
+                  setShowSellerList(true);
+                  setSellerIndex(-1);
+                }}
+                onKeyDown={(e) => {
+                  const filtered = sellerOptions
+                    .filter(s =>
+                      s.toLowerCase().includes(sellerFilterInput.toLowerCase())
+                    )
+                    .slice(0, 8);
+
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setSellerIndex(i => Math.min(i + 1, filtered.length - 1));
+                  }
+
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setSellerIndex(i => Math.max(i - 1, 0));
+                  }
+
+                  if (e.key === "Enter" && sellerIndex >= 0) {
+                    e.preventDefault();
+                    const picked = filtered[sellerIndex];
+                    if (picked) {
+                      setSellerFilterInput(picked);
+                      setShowSellerList(false);
+                    }
+                  }
+                }}
+                placeholder="Search seller..."
+                className="w-full border rounded-lg px-3 py-2 text-sm pr-8"
+              />
+
+              {sellerFilterInput && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSellerFilterInput("");
+                    setSellerFilter("");
+                    setShowSellerList(false);
+                    setSellerIndex(-1);
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+
+            {showSellerList && sellerFilterInput && (
+              <div
+                ref={sellerRef}
+                className="absolute left-0 right-0 bg-white border mt-1 rounded shadow max-h-40 overflow-auto z-10"
+              >
               {sellerOptions
                 .filter(s =>
-                  s.toLowerCase().includes(sellerFilter.toLowerCase())
+                  s.toLowerCase().includes(sellerFilterInput.toLowerCase())
                 )
                 .slice(0, 8)
-                .map(s => (
+                .map((s, idx) => (
                   <div
                     key={s}
+                    onMouseEnter={() => setSellerIndex(idx)}
                     onClick={() => {
                       setSellerFilterInput(s);
+                      setSellerFilter("");
                       setShowSellerList(false);
+                      setSellerIndex(-1);
                     }}
-                    className="px-3 py-2 text-sm hover:bg-gray-100 cursor-pointer"
+                    className={`px-3 py-2 text-sm cursor-pointer ${
+                      idx === sellerIndex ? "bg-blue-50" : "hover:bg-gray-100"
+                    }`}
                   >
                     {s}
                   </div>
