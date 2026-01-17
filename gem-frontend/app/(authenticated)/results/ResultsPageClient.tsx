@@ -266,40 +266,12 @@ export default function ResultsPageClient() {
     return d.toLocaleDateString("en-IN", { dateStyle: "medium" });
   };
 
-    const getPrimaryTitle = (r: GemResult) => {
-    // If RA exists, RA number becomes the MAIN title
-    if (r.has_reverse_auction && r.ra_number) {
-        return r.ra_number;
-    }
-    // Otherwise Bid number is the main title
-    return r.bid_number;
-    };
-
-    const getSecondaryTitle = (r: GemResult) => {
-    if (r.has_reverse_auction && r.ra_number && r.bid_number) {
-        return `(Bid Number: ${r.bid_number})`;
-    }
-    return null;
-    };
-
   
   if (isLoading) {
     return (
       <div className="py-20 text-center">
         <Loader2 className="w-10 h-10 text-gray-300 animate-spin mx-auto" />
         <p className="text-gray-400 mt-3 font-medium">Loading results...</p>
-      </div>
-    );
-  }
-
-  if (results.length === 0) {
-    return (
-      <div className="p-12 text-center bg-white border border-dashed rounded-xl m-6">
-        <Database className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-        <h3 className="text-lg font-bold">No results found</h3>
-        {error && (
-          <div className="mt-4 text-xs text-red-700 font-mono">{error}</div>
-        )}
       </div>
     );
   }
@@ -712,9 +684,44 @@ export default function ResultsPageClient() {
       </div>
 
       {/* Cards — TWO PER ROW */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {results.map((r) => (
-          <div
+      {results.length === 0 ? (
+        <div className="p-12 text-center bg-white border border-dashed rounded-xl">
+          {/* Small illustration / visual cue */}
+          <Database className="w-14 h-14 text-gray-300 mx-auto mb-4" />
+
+          <h3 className="text-lg font-bold">No results found</h3>
+
+          <p className="mt-2 text-sm text-gray-600">
+            Try adjusting your filters or search terms.
+          </p>
+
+          {/* Reset button INSIDE the empty card */}
+          <div className="mt-5">
+            <button
+              onClick={clearFilters}
+              className="
+                text-sm
+                text-blue-700
+                bg-blue-50
+                border border-blue-200
+                hover:bg-blue-100
+                px-4 py-2
+                rounded-lg
+                transition
+              "
+            >
+              Reset filters
+            </button>
+          </div>
+
+          {error && (
+            <div className="mt-4 text-xs text-red-700 font-mono">{error}</div>
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {results.map((r) => (
+            <div
             key={r.id ?? r.bid_number}
             className="bg-white border rounded-xl shadow-sm p-4 hover:shadow-md transition"
           >
@@ -932,6 +939,8 @@ export default function ResultsPageClient() {
           </div>
         ))}
       </div>
+      )}
+
 
       {/* Pagination */}
         {totalRecords > 0 && (
