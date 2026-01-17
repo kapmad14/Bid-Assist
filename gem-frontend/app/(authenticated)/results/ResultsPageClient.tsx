@@ -253,6 +253,12 @@ export default function ResultsPageClient() {
     }).format(amount);
   };
 
+  const formatPriceGap = (base?: number | null, price?: number | null) => {
+    if (!base || !price) return "–";
+    const gap = ((price / base) - 1) * 100;
+    return `${gap.toFixed(1)}%`;
+  };
+
   const safeDate = (val?: string | null) => {
     if (!val) return "N/A";
     const d = new Date(val);
@@ -770,10 +776,14 @@ export default function ResultsPageClient() {
           {/* -------- BELOW: secondary title + item (separate layer) -------- */}
 
           {r.l1_item && (
-            <p className="text-sm text-gray-600 mt-4 line-clamp-1 uppercase">
+            <p
+              className="text-sm text-gray-600 mt-4 line-clamp-1 uppercase truncate"
+              title={r.l1_item}
+            >
               {r.l1_item}
             </p>
           )}
+
           {/* META + TECH STATS — 3 COLUMN LAYOUT (60 / 20 / 20) */}
           <div className="grid grid-cols-[minmax(0,3fr)_auto_auto] gap-4 text-sm mb-4 mt-3 items-start">
 
@@ -829,61 +839,93 @@ export default function ResultsPageClient() {
 
 
 
-          {/* L1 / L2 / L3 PANEL — REVISED */}
+          {/* L1 / L2 / L3 PANEL — REVISED WITH PRICE GAP % */}
           <div className="rounded-lg overflow-hidden text-xs bg-white">
             <table className="w-full border-collapse">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="px-2 py-1.5 text-left font-medium text-gray-700">Rank</th>
-                  <th className="px-2 py-1.5 text-left font-medium text-gray-700">Seller</th>
-                  <th className="px-2 py-1.5 text-right font-medium text-gray-700">Price</th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-700">
+                    Rank
+                  </th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-700">
+                    Seller
+                  </th>
+                  <th className="px-2 py-1.5 text-right font-medium text-gray-700">
+                    Price
+                  </th>
+                  <th className="px-2 py-1.5 text-right font-medium text-gray-700">
+                    Price Gap %
+                  </th>
                 </tr>
               </thead>
 
-              <tbody>
-                {/* L1 — always show (with subtle winner icon) */}
-                <tr className="border-b border-gray-200 last:border-b-0">
-                  <td className="px-2 py-1.5 font-semibold flex items-center gap-2">
-                    <span>L1</span>
-                    <Trophy className="w-5 h-5 text-[#FACC15]" /> 
-                  </td>
-
-                  <td className="px-2 py-1.5 uppercase">
-                    {r.l1_seller ? r.l1_seller.toUpperCase() : "N/A"}
-                  </td>
-
-                  <td className="px-2 py-1.5 text-right">
-                    {formatCurrency(r.l1_price)}
-                  </td>
-                </tr>
-
-
-                {/* L2 — show only if exists */}
-                {r.l2_seller && (
+                <tbody>
+                  {/* L1 — always show (with subtle winner icon) */}
                   <tr className="border-b border-gray-200 last:border-b-0">
-                    <td className="px-2 py-1.5 font-semibold">L2</td>
-                    <td className="px-2 py-1.5 uppercase">
-                      {r.l2_seller.toUpperCase()}
+                    <td className="px-2 py-1.5 font-semibold flex items-center gap-2">
+                      <span>L1</span>
+                      <Trophy className="w-5 h-5 text-[#FACC15]" />
                     </td>
-                    <td className="px-2 py-1.5 text-right">
-                      {formatCurrency(r.l2_price)}
-                    </td>
-                  </tr>
-                )}
 
-                {/* L3 — show only if exists */}
-                {r.l3_seller && (
-                  <tr className="border-b border-gray-200 last:border-b-0">
-                    <td className="px-2 py-1.5 font-semibold">L3</td>
-                    <td className="px-2 py-1.5 uppercase">
-                      {r.l3_seller.toUpperCase()}
+                    <td
+                      className="px-2 py-1.5 uppercase truncate max-w-[220px]"
+                      title={r.l1_seller ?? "N/A"}
+                    >
+                      {r.l1_seller ? r.l1_seller.toUpperCase() : "N/A"}
                     </td>
+
                     <td className="px-2 py-1.5 text-right">
-                      {formatCurrency(r.l3_price)}
+                      {formatCurrency(r.l1_price)}
                     </td>
+
+                    <td className="px-2 py-1.5 text-right text-gray-500">–</td>
                   </tr>
-                )}
-              </tbody>
+
+                  {/* L2 — show only if exists */}
+                  {r.l2_seller && (
+                    <tr className="border-b border-gray-200 last:border-b-0">
+                      <td className="px-2 py-1.5 font-semibold">L2</td>
+
+                      <td
+                        className="px-2 py-1.5 uppercase truncate max-w-[220px]"
+                        title={r.l2_seller}
+                      >
+                        {r.l2_seller.toUpperCase()}
+                      </td>
+
+                      <td className="px-2 py-1.5 text-right">
+                        {formatCurrency(r.l2_price)}
+                      </td>
+
+                      <td className="px-2 py-1.5 text-right font-medium text-gray-700">
+                        {formatPriceGap(r.l1_price, r.l2_price)}
+                      </td>
+                    </tr>
+                  )}
+
+                  {/* L3 — show only if exists */}
+                  {r.l3_seller && (
+                    <tr className="border-b border-gray-200 last:border-b-0">
+                      <td className="px-2 py-1.5 font-semibold">L3</td>
+
+                      <td
+                        className="px-2 py-1.5 uppercase truncate max-w-[220px]"
+                        title={r.l3_seller}
+                      >
+                        {r.l3_seller.toUpperCase()}
+                      </td>
+
+                      <td className="px-2 py-1.5 text-right">
+                        {formatCurrency(r.l3_price)}
+                      </td>
+
+                      <td className="px-2 py-1.5 text-right font-medium text-gray-700">
+                        {formatPriceGap(r.l1_price, r.l3_price)}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+
             </table>
           </div>
 
