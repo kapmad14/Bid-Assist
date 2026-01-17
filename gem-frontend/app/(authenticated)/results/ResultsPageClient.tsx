@@ -20,20 +20,115 @@ export default function ResultsPageClient() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // UI typing state (fast)
+  const [itemFilterInput, setItemFilterInput] = useState("");
+  const [ministryFilterInput, setMinistryFilterInput] = useState("");
+  const [departmentFilterInput, setDepartmentFilterInput] = useState("");
+  const [sellerFilterInput, setSellerFilterInput] = useState("");
+
+  // Actual filters that trigger fetch (slow)
+  const [itemFilter, setItemFilter] = useState("");
+  const [ministryFilter, setMinistryFilter] = useState("");
+  const [departmentFilter, setDepartmentFilter] = useState("");
+  const [sellerFilter, setSellerFilter] = useState("");
+
+  // Control dropdown visibility
+  const [showMinistryList, setShowMinistryList] = useState(false);
+  const [showDepartmentList, setShowDepartmentList] = useState(false);
+  const [showSellerList, setShowSellerList] = useState(false);
+
+  // Global autosuggest options loaded once from server
+  const [ministryOptions, setMinistryOptions] = useState<string[]>([]);
+  const [departmentOptions, setDepartmentOptions] = useState<string[]>([]);
+  const [sellerOptions, setSellerOptions] = useState<string[]>([]);
+
+  // Load filters from URL on first render
+  useEffect(() => {
+    const item = searchParams.get("item") || "";
+    const ministry = searchParams.get("ministry") || "";
+    const department = searchParams.get("department") || "";
+    const seller = searchParams.get("seller") || "";
+
+    // Sync BOTH input + real filters
+    setItemFilterInput(item);
+    setMinistryFilterInput(ministry);
+    setDepartmentFilterInput(department);
+    setSellerFilterInput(seller);
+
+    setItemFilter(item);
+    setMinistryFilter(ministry);
+    setDepartmentFilter(department);
+    setSellerFilter(seller);
+  }, []);
+
+
+
+  // ✅ STEP 5C — load global autosuggest ONCE
+  useEffect(() => {
+    gemResultsClientStore.getAutosuggest()
+      .then(({ ministries, departments, sellers }) => {
+        setMinistryOptions(ministries);
+        setDepartmentOptions(departments);
+        setSellerOptions(sellers);
+      })
+      .catch(err => {
+        console.error("Failed to load autosuggest options:", err);
+      });
+  }, []);
+
+
   // Keep state in sync with URL
   useEffect(() => {
     const p = Number(searchParams.get("page") ?? 1);
     if (p !== currentPage) setCurrentPage(p);
-  }, [searchParams]);
+  }, [searchParams, currentPage]);
+
+
+  // Debounce INPUT → REAL filters (exactly like tender page)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setItemFilter(itemFilterInput);
+      setMinistryFilter(ministryFilterInput);
+      setDepartmentFilter(departmentFilterInput);
+      setSellerFilter(sellerFilterInput);
+      setCurrentPage(1);
+    }, 400);
+
+    return () => clearTimeout(t);
+  }, [
+    itemFilterInput,
+    ministryFilterInput,
+    departmentFilterInput,
+    sellerFilterInput,
+  ]);
+
+
+  // ✅ UPDATE URL WITHOUT NAVIGATION (NO REFRESH)
+  useEffect(() => {
+    const params = new URLSearchParams();
+
+    params.set("page", "1");
+
+    if (itemFilter) params.set("item", itemFilter);
+    if (ministryFilter) params.set("ministry", ministryFilter);
+    if (departmentFilter) params.set("department", departmentFilter);
+    if (sellerFilter) params.set("seller", sellerFilter);
+
+    const newUrl = `/results?${params.toString()}`;
+    window.history.replaceState(null, "", newUrl);
+  }, [itemFilter, ministryFilter, departmentFilter, sellerFilter]);
 
   const fetchResults = useCallback(async () => {
-    setIsLoading(true);
     setError(null);
 
     try {
       const { data, total } = await gemResultsClientStore.getResults({
         page: currentPage,
         limit: PAGE_SIZE,
+        item: itemFilter || undefined,
+        ministry: ministryFilter || undefined,
+        department: departmentFilter || undefined,
+        seller: sellerFilter || undefined,
       });
 
       setResults(data);
@@ -46,11 +141,31 @@ export default function ResultsPageClient() {
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage]);
+  }, [
+    currentPage,
+    itemFilter,
+    ministryFilter,
+    departmentFilter,
+    sellerFilter,
+  ]);
+
 
   useEffect(() => {
     fetchResults();
   }, [fetchResults]);
+
+  const clearFilters = () => {
+    setItemFilterInput("");
+    setMinistryFilterInput("");
+    setDepartmentFilterInput("");
+    setSellerFilterInput("");
+
+    setItemFilter("");
+    setMinistryFilter("");
+    setDepartmentFilter("");
+    setSellerFilter("");
+  };
+
 
   const lastPage = Math.max(1, Math.ceil(totalRecords / PAGE_SIZE));
 
@@ -127,6 +242,149 @@ export default function ResultsPageClient() {
           Showing <strong>{showingStart}</strong>–
           <strong>{showingEnd}</strong> of{" "}
           <strong>{totalRecords}</strong>
+        </div>
+      </div>
+
+      {/* TOP FILTER BAR */}
+      <div className="bg-white border rounded-xl shadow-sm p-4 mb-6 grid grid-cols-1 md:grid-cols-4 gap-4">
+
+        {/* L1 ITEM FILTER (simple text search) */}
+        <div className="relative">
+          <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">
+            L1 Item
+          </label>
+          <input
+            value={itemFilterInput}
+            onChange={(e) => setItemFilterInput(e.target.value)}
+            placeholder="Search item..."
+            className="w-full border rounded-lg px-3 py-2 text-sm"
+          />
+        </div>
+
+        {/* MINISTRY AUTOSUGGEST */}
+        <div className="relative">
+          <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">
+            Ministry
+          </label>
+            <input
+              value={ministryFilterInput}
+              onFocus={() => setShowMinistryList(true)}
+              onChange={(e) => {
+                setMinistryFilterInput(e.target.value);
+                setShowMinistryList(true);
+              }}
+              placeholder="Type ministry..."
+              className="w-full border rounded-lg px-3 py-2 text-sm"
+            />
+
+
+          {showMinistryList && ministryFilterInput && (
+            <div className="absolute left-0 right-0 bg-white border mt-1 rounded shadow max-h-40 overflow-auto z-10">
+              {ministryOptions
+                .filter(m =>
+                  m.toLowerCase().includes(ministryFilter.toLowerCase())
+                )
+                .slice(0, 8)
+                .map(m => (
+                  <div
+                    key={m}
+                    onClick={() => {
+                      setMinistryFilterInput(m);
+                      setShowMinistryList(false);   // <-- CLOSE dropdown
+                    }}
+                    className="px-3 py-2 text-sm hover:bg-gray-100 cursor-pointer"
+                  >
+                    {m}
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+
+        {/* DEPARTMENT AUTOSUGGEST */}
+        <div className="relative">
+          <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">
+            Department
+          </label>
+            <input
+              value={departmentFilterInput}
+              onFocus={() => setShowDepartmentList(true)}
+              onChange={(e) => {
+                setDepartmentFilterInput(e.target.value);
+                setShowDepartmentList(true);
+              }}
+              placeholder="Type department..."
+              className="w-full border rounded-lg px-3 py-2 text-sm"
+            />
+
+          {showDepartmentList && departmentFilterInput && (
+            <div className="absolute left-0 right-0 bg-white border mt-1 rounded shadow max-h-40 overflow-auto z-10">
+              {departmentOptions
+                .filter(d =>
+                  d.toLowerCase().includes(departmentFilter.toLowerCase())
+                )
+                .slice(0, 8)
+                .map(d => (
+                  <div
+                    key={d}
+                    onClick={() => {
+                      setDepartmentFilterInput(d);
+                      setShowDepartmentList(false);
+                    }}
+                    className="px-3 py-2 text-sm hover:bg-gray-100 cursor-pointer"
+                  >
+                    {d}
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+
+        {/* SELLER AUTOSUGGEST (L1/L2/L3) */}
+        <div className="relative">
+          <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">
+            Seller (L1/L2/L3)
+          </label>
+            <input
+              value={sellerFilterInput}
+              onFocus={() => setShowSellerList(true)}
+              onChange={(e) => {
+                setSellerFilterInput(e.target.value);
+                setShowSellerList(true);
+              }}
+              placeholder="Search seller..."
+              className="w-full border rounded-lg px-3 py-2 text-sm"
+            />
+          {showSellerList && sellerFilterInput && (
+            <div className="absolute left-0 right-0 bg-white border mt-1 rounded shadow max-h-40 overflow-auto z-10">
+              {sellerOptions
+                .filter(s =>
+                  s.toLowerCase().includes(sellerFilter.toLowerCase())
+                )
+                .slice(0, 8)
+                .map(s => (
+                  <div
+                    key={s}
+                    onClick={() => {
+                      setSellerFilterInput(s);
+                      setShowSellerList(false);
+                    }}
+                    className="px-3 py-2 text-sm hover:bg-gray-100 cursor-pointer"
+                  >
+                    {s}
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+
+        <div className="col-span-full flex justify-end">
+          <button
+            onClick={clearFilters}
+            className="text-sm text-blue-600 hover:underline"
+          >
+            Clear all filters
+          </button>
         </div>
       </div>
 
