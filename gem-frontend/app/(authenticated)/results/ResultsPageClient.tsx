@@ -7,7 +7,7 @@ import { Loader2, Clock, Building2, Calendar, Database, Info, Trophy } from "luc
 import { gemResultsClientStore } from "@/services/gemResultsStore.client";
 import { GemResult } from "@/types";
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 20;
 
 export default function ResultsPageClient() {
   const router = useRouter();
