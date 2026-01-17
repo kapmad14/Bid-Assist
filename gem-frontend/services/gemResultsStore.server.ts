@@ -11,6 +11,7 @@ type GetResultsArgs = {
   ministry?: string;
   department?: string;
   seller?: string;
+  global?: string;
 };
 
 
@@ -22,6 +23,7 @@ export async function getGemResultsServer({
   ministry,
   department,
   seller,
+  global,
 }: GetResultsArgs): Promise<{
   data: GemResult[];
   total: number;
@@ -32,6 +34,24 @@ export async function getGemResultsServer({
     if (item) {
       q = q.ilike("l1_item", `%${item}%`);
     }
+
+    if (global) {
+      const g = `%${global}%`;
+
+      q = q.or(
+        [
+          `bid_number.ilike.${g}`,
+          `ra_number.ilike.${g}`,
+          `l1_item.ilike.${g}`,
+          `ministry.ilike.${g}`,
+          `department.ilike.${g}`,
+          `l1_seller.ilike.${g}`,
+          `l2_seller.ilike.${g}`,
+          `l3_seller.ilike.${g}`,
+        ].join(",")
+      );
+    }
+
 
     if (bidRa) {
       q = q.or(

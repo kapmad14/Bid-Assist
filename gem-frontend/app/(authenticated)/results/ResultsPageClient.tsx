@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Loader2, Clock, Building2, Calendar, Database } from "lucide-react";
+import { Loader2, Clock, Building2, Calendar, Database, Info, Trophy } from "lucide-react";
 
 import { gemResultsClientStore } from "@/services/gemResultsStore.client";
 import { GemResult } from "@/types";
@@ -26,6 +26,7 @@ export default function ResultsPageClient() {
   const [departmentFilterInput, setDepartmentFilterInput] = useState("");
   const [sellerFilterInput, setSellerFilterInput] = useState("");
   const [bidRaFilterInput, setBidRaFilterInput] = useState("");
+  const [globalSearchInput, setGlobalSearchInput] = useState("");
 
 
   // Actual filters that trigger fetch (slow)
@@ -34,6 +35,8 @@ export default function ResultsPageClient() {
   const [departmentFilter, setDepartmentFilter] = useState("");
   const [sellerFilter, setSellerFilter] = useState("");
   const [bidRaFilter, setBidRaFilter] = useState("");
+  const [globalSearch, setGlobalSearch] = useState("");
+  
 
 
   // ---------- AUTOSUGGEST STATE (CLEAN SINGLE SOURCE OF TRUTH) ----------
@@ -66,6 +69,7 @@ export default function ResultsPageClient() {
     const department = searchParams.get("department") || "";
     const seller = searchParams.get("seller") || "";
     const bidRa = searchParams.get("bidRa") || "";
+    const global = searchParams.get("global") || "";
 
     // Sync BOTH input + real filters
     setItemFilterInput(item);
@@ -73,13 +77,14 @@ export default function ResultsPageClient() {
     setDepartmentFilterInput(department);
     setSellerFilterInput(seller);
     setBidRaFilterInput(bidRa);
-
+    setGlobalSearchInput(global);
 
     setItemFilter(item);
     setMinistryFilter(ministry);
     setDepartmentFilter(department);
     setSellerFilter(seller);
     setBidRaFilter(bidRa);
+    setGlobalSearch(global);
   }, []);
 
 
@@ -138,6 +143,7 @@ export default function ResultsPageClient() {
       setDepartmentFilter(departmentFilterInput);
       setSellerFilter(sellerFilterInput);
       setBidRaFilter(bidRaFilterInput);
+      setGlobalSearch(globalSearchInput);
       setCurrentPage(1);
     }, 400);
 
@@ -148,6 +154,7 @@ export default function ResultsPageClient() {
     departmentFilterInput,
     sellerFilterInput,
     bidRaFilterInput,
+    globalSearchInput,
   ]);
 
 
@@ -162,10 +169,11 @@ export default function ResultsPageClient() {
     if (departmentFilter) params.set("department", departmentFilter);
     if (sellerFilter) params.set("seller", sellerFilter);
     if (bidRaFilter) params.set("bidRa", bidRaFilter);
+    if (globalSearch) params.set("global", globalSearch);
 
     const newUrl = `/results?${params.toString()}`;
     window.history.replaceState(null, "", newUrl);
-  }, [itemFilter, ministryFilter, departmentFilter, sellerFilter, bidRaFilter]);
+  }, [itemFilter, ministryFilter, departmentFilter, sellerFilter, bidRaFilter, globalSearch]);
 
   const fetchResults = useCallback(async () => {
     setError(null);
@@ -174,6 +182,7 @@ export default function ResultsPageClient() {
       const { data, total } = await gemResultsClientStore.getResults({
         page: currentPage,
         limit: PAGE_SIZE,
+        global: globalSearch || undefined,
         bidRa: bidRaFilter || undefined,
         item: itemFilter || undefined,
         ministry: ministryFilter || undefined,
@@ -198,6 +207,7 @@ export default function ResultsPageClient() {
     departmentFilter,
     sellerFilter,
     bidRaFilter,
+    globalSearch,
   ]);
 
 
@@ -211,12 +221,14 @@ export default function ResultsPageClient() {
     setDepartmentFilterInput("");
     setSellerFilterInput("");
     setBidRaFilterInput("");
+    setGlobalSearchInput("");
 
     setItemFilter("");
     setMinistryFilter("");
     setDepartmentFilter("");
     setSellerFilter("");
     setBidRaFilter("");
+    setGlobalSearch("");
   };
 
 
@@ -288,18 +300,19 @@ export default function ResultsPageClient() {
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-6 space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold">Results</h1>
-        <div className="text-sm text-gray-600">
-          Showing <strong>{showingStart}</strong>–
-          <strong>{showingEnd}</strong> of{" "}
-          <strong>{totalRecords}</strong>
-        </div>
-      </div>
+      {/* TOP FILTER BAR — TWO ROW LAYOUT */}
+      <div className="bg-white border rounded-xl shadow-sm px-4 py-3 mb-6 grid grid-cols-1 md:grid-cols-4 gap-x-6 gap-y-3">
 
-      {/* TOP FILTER BAR */}
-      <div className="bg-white border rounded-xl shadow-sm p-4 mb-6 grid grid-cols-1 md:grid-cols-4 gap-4">
+        {/* ---------- ROW 1 ---------- */}
+
+        {/* 1) USER GUIDE TEXT — constrained width so wrap happens after "for" */}
+        <div className="flex items-center text-sm text-gray-700 max-w-[200px] leading-snug">
+          <Info className="w-4 h-4 mr-2 text-blue-600 flex-shrink-0" />
+          <span className="font-medium">
+            Customize filters for targeted results
+          </span>
+        </div>
+
 
         {/* BID / RA NUMBER FILTER */}
         <div className="relative">
@@ -311,7 +324,7 @@ export default function ResultsPageClient() {
             <input
               value={bidRaFilterInput}
               onChange={(e) => setBidRaFilterInput(e.target.value)}
-              placeholder="Search Bid or RA number..."
+              placeholder="Search Bid or RA Number..."
               className="w-full border rounded-lg px-3 py-2 text-sm pr-8"
             />
 
@@ -340,7 +353,7 @@ export default function ResultsPageClient() {
             <input
               value={itemFilterInput}
               onChange={(e) => setItemFilterInput(e.target.value)}
-              placeholder="Search item..."
+              placeholder="Search Item..."
               className="w-full border rounded-lg px-3 py-2 text-sm pr-8"
             />
 
@@ -401,7 +414,7 @@ export default function ResultsPageClient() {
                     }
                   }
                 }}
-                placeholder="Type ministry..."
+                placeholder="Type Ministry Name..."
                 className="w-full border rounded-lg px-3 py-2 text-sm pr-8"
               />
 
@@ -494,7 +507,7 @@ export default function ResultsPageClient() {
                     }
                   }
                 }}
-                placeholder="Type department..."
+                placeholder="Type Department Name..."
                 className="w-full border rounded-lg px-3 py-2 text-sm pr-8"
               />
 
@@ -587,7 +600,7 @@ export default function ResultsPageClient() {
                     }
                   }
                 }}
-                placeholder="Search seller..."
+                placeholder="Search Seller Name..."
                 className="w-full border rounded-lg px-3 py-2 text-sm pr-8"
               />
 
@@ -639,164 +652,241 @@ export default function ResultsPageClient() {
           )}
         </div>
 
-        <div className="col-span-full flex justify-end">
+        {/* GLOBAL SEARCH */}
+        <div className="relative">
+          <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">
+            General Search
+          </label>
+
+          <div className="relative">
+            <input
+              value={globalSearchInput}
+              onChange={(e) => setGlobalSearchInput(e.target.value)}
+              placeholder="Search Everything..."
+              className="w-full border rounded-lg px-3 py-2 text-sm pr-8"
+            />
+
+            {globalSearchInput && (
+              <button
+                type="button"
+                onClick={() => {
+                  setGlobalSearchInput("");
+                  setGlobalSearch("");
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* ROW 2 — COLUMN 4: CLEAR ALL PILL (CENTERED) */}
+        <div className="flex items-center justify-center pt-4">
           <button
             onClick={clearFilters}
-            className="text-sm text-blue-600 hover:underline"
+            className="
+              text-xs
+              text-blue-700
+              bg-blue-50
+              border border-blue-200
+              hover:bg-blue-100
+              px-3 py-1
+              rounded-full
+              transition
+              whitespace-nowrap
+            "
           >
             Clear all filters
           </button>
         </div>
+
+
+
       </div>
 
-      {/* Cards */}
-      <div className="space-y-4">
+      {/* Cards — TWO PER ROW */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {results.map((r) => (
           <div
             key={r.id ?? r.bid_number}
-            className="bg-white border rounded-xl shadow-sm p-5 hover:shadow-md transition"
+            className="bg-white border rounded-xl shadow-sm p-4 hover:shadow-md transition"
           >
-        {/* TITLE + SECONDARY TITLE + ITEM */}
-        <div className="mb-3">
-        {r.has_reverse_auction && r.ra_number ? (
-        <a
-            href={r.ra_detail_url ?? "#"}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-lg font-semibold text-blue-700 hover:underline block"
-        >
-            {r.ra_number}
-        </a>
-        ) : (
-        <a
-            href={r.bid_detail_url ?? "#"}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-lg font-semibold text-blue-700 hover:underline block"
-        >
-            {r.bid_number}
-        </a>
-        )}
+          {/* -------- TOP ROW: PRIMARY TITLE + DATE -------- */}
+          <div className="mb-2 flex items-start justify-between">
+
+            {/* LEFT: ALWAYS TWO-LINE TITLE AREA (ensures alignment) */}
+            <div className="max-w-[85%] flex flex-col">
+
+              {/* LINE 1 — PRIMARY TITLE (your logic) */}
+              {r.has_reverse_auction && r.ra_number ? (
+                <a
+                  href={r.ra_detail_url ?? "#"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-lg font-semibold text-blue-700 hover:underline block leading-tight"
+                >
+                  {r.ra_number}
+                </a>
+              ) : (
+                <a
+                  href={r.bid_detail_url ?? "#"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-lg font-semibold text-blue-700 hover:underline block leading-tight"
+                >
+                  {r.bid_number}
+                </a>
+              )}
+
+              {/* LINE 2 — REAL SECONDARY OR PURE PLACEHOLDER */}
+              {r.has_reverse_auction && r.ra_number && r.bid_number ? (
+                <a
+                  href={r.bid_detail_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-gray-700 font-medium hover:underline block mt-1"
+                >
+                  (Bid No. {r.bid_number})
+                </a>
+              ) : (
+                // <-- CRITICAL PART FOR ALIGNMENT
+                <div className="h-[20px]" />
+              )}
+
+            </div>
+
+            {/* RIGHT: DATE — unchanged */}
+            <div className="flex items-center gap-2 text-xs text-gray-500 whitespace-nowrap mt-0">
+              <Calendar className="w-3.5 h-3.5" />
+              <span>
+                {safeDate(r.start_datetime)} → {safeDate(r.end_datetime)}
+              </span>
+            </div>
+
+          </div>
 
 
-        {/* Secondary title in brackets (only when RA exists) */}
-        {getSecondaryTitle(r) && r.bid_detail_url && (
-        <a
-            href={r.bid_detail_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-gray-700 font-medium mt-0.5 hover:underline"
-        >
-            {getSecondaryTitle(r)}
-        </a>
-        )}
+          {/* -------- BELOW: secondary title + item (separate layer) -------- */}
 
-
-        {/* ITEM ALWAYS IN CAPS */}
-        {r.l1_item && (
-            <p className="text-sm text-gray-600 mt-1 line-clamp-1 uppercase">
-            {r.l1_item}
+          {r.l1_item && (
+            <p className="text-sm text-gray-600 mt-4 line-clamp-1 uppercase">
+              {r.l1_item}
             </p>
-        )}
-        </div>
+          )}
+          {/* META + TECH STATS — 3 COLUMN LAYOUT (60 / 20 / 20) */}
+          <div className="grid grid-cols-[minmax(0,3fr)_auto_auto] gap-4 text-sm mb-4 mt-3 items-start">
 
+            {/* COLUMN 1 — MINISTRY + DEPARTMENT (main content ~60%) */}
+            <div className="flex items-start gap-2 min-w-0">
+              <Building2 className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+              <div className="min-w-0">
+                <p className="font-semibold truncate">
+                  {r.ministry || "Ministry not specified"}
+                </p>
 
+                {r.department && (
+                  <p className="text-sm text-gray-600 mt-0.5 truncate">
+                    {r.department}
+                  </p>
+                )}
 
-            {/* Meta row */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mb-4">
-                <div className="flex items-start gap-2">
-                <Building2 className="w-4 h-4 text-blue-600 mt-0.5" />
-                <div>
-                    {/* PRIMARY LINE: Ministry */}
-                    <p className="font-semibold">
-                    {r.ministry || "Ministry not specified"}
-                    </p>
-
-                    {/* SECOND LINE: Department (only if available) */}
-                    {r.department && (
-                    <p className="text-sm text-gray-600 mt-0.5">
-                        {r.department}
-                    </p>
-                    )}
-
-                    {/* TERTIARY LINE: Organisation address (smaller, lighter) */}
-                    {r.organisation_address && (
-                    <p className="text-xs text-gray-500 mt-0.5">
-                        {r.organisation_address}
-                    </p>
-                    )}
-                </div>
-                </div>
-
-
-              <div className="flex items-center gap-3 text-gray-600">
-                <Calendar className="w-4 h-4" />
-                <span>
-                  Start: {safeDate(r.start_datetime)} | End:{" "}
-                  {safeDate(r.end_datetime)}
-                </span>
+                {r.organisation_address && (
+                  <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">
+                    {r.organisation_address}
+                  </p>
+                )}
               </div>
             </div>
 
-            {/* Tech stats */}
-            {(r.tech_participated != null || r.tech_qualified != null) && (
-              <div className="text-xs text-gray-700 mb-4 bg-gray-50 p-2 rounded border">
-                Participated:{" "}
-                <strong>{r.tech_participated ?? "N/A"}</strong> • Qualified:{" "}
-                <strong>{r.tech_qualified ?? "N/A"}</strong>
-              </div>
-            )}
+            {/* COLUMN 2 — PARTICIPATED (small fixed card like Total/Active) */}
+            <div className="
+                w-[85px] h-[53px] 
+                rounded-2xl 
+                bg-blue-50 border border-blue-200 
+                flex flex-col items-center justify-center shrink-0
+            ">
+              <p className="text-xs text-blue-700">Participated</p>
+              <p className="text-xl font-semibold text-blue-600">
+                {r.tech_participated ?? "N/A"}
+              </p>
+            </div>
 
-            {/* L1 / L2 / L3 PANEL (NO ITEMS — as you requested) */}
-            <div className="border rounded-lg overflow-hidden text-sm">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b">
-                  <tr>
-                    <th className="px-3 py-2 text-left">Rank</th>
-                    <th className="px-3 py-2 text-left">Seller</th>
-                    <th className="px-3 py-2 text-right">Price</th>
-                  </tr>
-                </thead>
-                <tbody>
-                {/* L1 — always show */}
-                <tr className="border-b">
-                    <td className="px-3 py-2 font-semibold">L1</td>
-                    <td className="px-3 py-2">
-                    {r.l1_seller ?? "N/A"}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                    {formatCurrency(r.l1_price)}
-                    </td>
+            {/* COLUMN 3 — QUALIFIED (small fixed card like Total/Active) */}
+            <div className="
+                w-[85px] h-[53px] 
+                rounded-2xl 
+                bg-green-50 border border-green-200 
+                flex flex-col items-center justify-center shrink-0
+            ">
+              <p className="text-xs text-green-700">Qualified</p>
+              <p className="text-xl font-semibold text-green-600">
+                {r.tech_qualified ?? "N/A"}
+              </p>
+            </div>
+
+          </div>
+
+
+
+          {/* L1 / L2 / L3 PANEL — REVISED */}
+          <div className="rounded-lg overflow-hidden text-xs bg-white">
+            <table className="w-full border-collapse">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-700">Rank</th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-700">Seller</th>
+                  <th className="px-2 py-1.5 text-right font-medium text-gray-700">Price</th>
                 </tr>
+              </thead>
+
+              <tbody>
+                {/* L1 — always show (with subtle winner icon) */}
+                <tr className="border-b border-gray-200 last:border-b-0">
+                  <td className="px-2 py-1.5 font-semibold flex items-center gap-2">
+                    <span>L1</span>
+                    <Trophy className="w-5 h-5 text-[#FACC15]" /> 
+                  </td>
+
+                  <td className="px-2 py-1.5 uppercase">
+                    {r.l1_seller ? r.l1_seller.toUpperCase() : "N/A"}
+                  </td>
+
+                  <td className="px-2 py-1.5 text-right">
+                    {formatCurrency(r.l1_price)}
+                  </td>
+                </tr>
+
 
                 {/* L2 — show only if exists */}
                 {r.l2_seller && (
-                    <tr className="border-b">
-                    <td className="px-3 py-2 font-semibold">L2</td>
-                    <td className="px-3 py-2">
-                        {r.l2_seller}
+                  <tr className="border-b border-gray-200 last:border-b-0">
+                    <td className="px-2 py-1.5 font-semibold">L2</td>
+                    <td className="px-2 py-1.5 uppercase">
+                      {r.l2_seller.toUpperCase()}
                     </td>
-                    <td className="px-3 py-2 text-right">
-                        {formatCurrency(r.l2_price)}
+                    <td className="px-2 py-1.5 text-right">
+                      {formatCurrency(r.l2_price)}
                     </td>
-                    </tr>
+                  </tr>
                 )}
 
                 {/* L3 — show only if exists */}
                 {r.l3_seller && (
-                    <tr>
-                    <td className="px-3 py-2 font-semibold">L3</td>
-                    <td className="px-3 py-2">
-                        {r.l3_seller}
+                  <tr className="border-b border-gray-200 last:border-b-0">
+                    <td className="px-2 py-1.5 font-semibold">L3</td>
+                    <td className="px-2 py-1.5 uppercase">
+                      {r.l3_seller.toUpperCase()}
                     </td>
-                    <td className="px-3 py-2 text-right">
-                        {formatCurrency(r.l3_price)}
+                    <td className="px-2 py-1.5 text-right">
+                      {formatCurrency(r.l3_price)}
                     </td>
-                    </tr>
+                  </tr>
                 )}
-                </tbody>
-              </table>
-            </div>
+              </tbody>
+            </table>
+          </div>
+
           </div>
         ))}
       </div>

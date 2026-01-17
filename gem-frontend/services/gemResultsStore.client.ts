@@ -3,6 +3,7 @@ import { GemResult } from "@/types";
 type GetResultsArgs = {
   page: number;
   limit: number;
+  global?: string;
   bidRa?: string;
   item?: string;
   ministry?: string;
@@ -26,6 +27,8 @@ export const gemResultsClientStore = {
     if (args.ministry) params.append("ministry", args.ministry);
     if (args.department) params.append("department", args.department);
     if (args.seller) params.append("seller", args.seller);
+    if (args.global) params.append("global", args.global);
+
 
     const res = await fetch(`/api/gem-results?${params.toString()}`, {
       cache: "no-store",

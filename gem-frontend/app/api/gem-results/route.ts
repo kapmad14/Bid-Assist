@@ -13,10 +13,13 @@ export async function GET(request: Request) {
   const ministry = searchParams.get("ministry") || undefined;
   const department = searchParams.get("department") || undefined;
   const seller = searchParams.get("seller") || undefined;
+  const global = searchParams.get("global") || undefined;
+
 
   try {
     const result = await getGemResultsServer({
       page,
+      global,
       limit,
       bidRa,
       item,
