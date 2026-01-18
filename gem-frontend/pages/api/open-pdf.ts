@@ -1,7 +1,6 @@
 // pages/api/open-pdf.ts
 
 import type { NextApiRequest, NextApiResponse } from "next";
-import https from "https";
 
 export default async function handler(
   req: NextApiRequest,
@@ -9,17 +8,13 @@ export default async function handler(
 ) {
   try {
     const gemUrl = req.query.url as string;
+
     if (!gemUrl) {
       return res.status(400).json({ error: "Missing url param" });
     }
 
-    const agent = new https.Agent({
-      rejectUnauthorized: false, // sometimes needed for GeM
-      keepAlive: true,
-    });
-
+    // --- Fetch GeM like a real browser (no "agent") ---
     const response = await fetch(gemUrl, {
-      agent,
       redirect: "follow",
       headers: {
         "User-Agent":
