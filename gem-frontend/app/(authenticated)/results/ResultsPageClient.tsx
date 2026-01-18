@@ -719,228 +719,230 @@ export default function ResultsPageClient() {
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {results.map((r) => (
-            <div
-            key={r.id ?? r.bid_number}
-            className="bg-white border rounded-xl shadow-sm p-4 hover:shadow-md transition"
-          >
-          {/* -------- TOP ROW: PRIMARY TITLE + DATE -------- */}
-          <div className="mb-2 flex items-start justify-between">
+          <div className="grid grid-cols-1 gap-4">
+            {results.map((r) => (
+              <div
+                key={r.id ?? r.bid_number}
+                className="bg-white border rounded-xl shadow-sm p-3 hover:shadow-md transition"
+              >
 
-            {/* LEFT: ALWAYS TWO-LINE TITLE AREA (ensures alignment) */}
-            <div className="max-w-[85%] flex flex-col">
+                <div className="grid grid-cols-2 gap-6 items-start">
 
-              {/* LINE 1 — PRIMARY TITLE (your logic) */}
-              {r.has_reverse_auction && r.ra_number ? (
-                <a
-                  href={r.ra_detail_url ?? "#"}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-lg font-semibold text-blue-700 hover:underline block leading-tight"
-                >
-                  {r.ra_number}
-                </a>
-              ) : (
-                <a
-                  href={r.bid_detail_url ?? "#"}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-lg font-semibold text-blue-700 hover:underline block leading-tight"
-                >
-                  {r.bid_number}
-                </a>
-              )}
+                  {/* ========== LEFT COLUMN (50%) ========== */}
+                  <div className="space-y-4 min-w-0">
 
-              {/* LINE 2 — REAL SECONDARY OR PURE PLACEHOLDER */}
-              {r.has_reverse_auction && r.ra_number && r.bid_number ? (
-                <a
-                  href={r.bid_detail_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm text-gray-700 font-medium hover:underline block mt-1"
-                >
-                  (Bid No. {r.bid_number})
-                </a>
-              ) : (
-                // <-- CRITICAL PART FOR ALIGNMENT
-                <div className="h-[20px]" />
-              )}
+                    {/* -------- TOP ROW: PRIMARY TITLE + DATE -------- */}
+                    <div className="mb-2 flex items-start justify-between">
 
-            </div>
+                      {/* LEFT: ALWAYS TWO-LINE TITLE AREA (ensures alignment) */}
+                      <div className="max-w-[85%] flex flex-col">
 
-            {/* RIGHT: DATE — unchanged */}
-            <div className="flex items-center gap-2 text-xs text-gray-500 whitespace-nowrap mt-0">
-              <Calendar className="w-3.5 h-3.5" />
-              <span>
-                {safeDate(r.start_datetime)} → {safeDate(r.end_datetime)}
-              </span>
-            </div>
+                        {/* LINE 1 — PRIMARY TITLE (your logic) */}
+                        {r.has_reverse_auction && r.ra_number ? (
+                          <a
+                            href={r.ra_detail_url ?? "#"}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-lg font-semibold text-blue-700 hover:underline block leading-tight"
+                          >
+                            {r.ra_number}
+                          </a>
+                        ) : (
+                          <a
+                            href={r.bid_detail_url ?? "#"}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-lg font-semibold text-blue-700 hover:underline block leading-tight"
+                          >
+                            {r.bid_number}
+                          </a>
+                        )}
 
-          </div>
+                        {/* LINE 2 — REAL SECONDARY OR PURE PLACEHOLDER */}
+                        {r.has_reverse_auction && r.ra_number && r.bid_number ? (
+                          <a
+                            href={r.bid_detail_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-gray-700 font-medium hover:underline block mt-1"
+                          >
+                            (Bid No. {r.bid_number})
+                          </a>
+                        ) : (
+                          <div className="h-[20px]" />
+                        )}
 
+                      </div>
 
-          {/* -------- BELOW: secondary title + item (separate layer) -------- */}
+                      {/* RIGHT: DATE — unchanged */}
+                      <div className="flex items-center gap-2 text-xs text-gray-500 whitespace-nowrap mt-0">
+                        <Calendar className="w-3.5 h-3.5" />
+                        <span>
+                          {safeDate(r.start_datetime)} → {safeDate(r.end_datetime)}
+                        </span>
+                      </div>
 
-          {r.l1_item && (
-            <p
-              className="text-sm text-gray-600 mt-4 line-clamp-1 uppercase truncate"
-              title={r.l1_item}
-            >
-              {r.l1_item}
-            </p>
-          )}
+                    </div>
 
-          {/* META + TECH STATS — 3 COLUMN LAYOUT (60 / 20 / 20) */}
-          <div className="grid grid-cols-[minmax(0,3fr)_auto_auto] gap-4 text-sm mb-4 mt-3 items-start">
+                    {/* -------- BELOW: secondary title + item (separate layer) -------- */}
+                    {r.l1_item && (
+                      <p
+                        className="text-sm text-gray-600 mt-4 line-clamp-1 uppercase truncate"
+                        title={r.l1_item}
+                      >
+                        {r.l1_item}
+                      </p>
+                    )}
 
-            {/* COLUMN 1 — MINISTRY + DEPARTMENT (main content ~60%) */}
-            <div className="flex items-start gap-2 min-w-0">
-              <Building2 className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
-              <div className="min-w-0">
-                <p className="font-semibold truncate">
-                  {r.ministry || "Ministry not specified"}
-                </p>
+                    {/* META + TECH STATS — 3 COLUMN LAYOUT (60 / 20 / 20) */}
+                    <div className="grid grid-cols-[minmax(0,3fr)_auto_auto] gap-4 text-sm mb-4 mt-3 items-start">
 
-                {r.department && (
-                  <p className="text-sm text-gray-600 mt-0.5 truncate">
-                    {r.department}
-                  </p>
-                )}
+                      {/* COLUMN 1 — MINISTRY + DEPARTMENT */}
+                      <div className="flex items-start gap-2 min-w-0">
+                        <Building2 className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                        <div className="min-w-0">
+                          <p className="font-semibold truncate">
+                            {r.ministry || "Ministry not specified"}
+                          </p>
 
-                {r.organisation_address && (
-                  <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">
-                    {r.organisation_address}
-                  </p>
-                )}
+                          {r.department && (
+                            <p className="text-sm text-gray-600 mt-0.5 truncate">
+                              {r.department}
+                            </p>
+                          )}
+
+                          {r.organisation_address && (
+                            <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">
+                              {r.organisation_address}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* COLUMN 2 — PARTICIPATED */}
+                      <div className="
+                        w-[85px] h-[53px]
+                        rounded-2xl
+                        bg-[#F3F4F6] border border-gray-200
+                        flex flex-col items-center justify-center shrink-0
+                      ">
+                        <p className="text-xs text-gray-500">Participated</p>
+                        <p className="text-lg font-semibold text-gray-600">
+                          {r.tech_participated ?? "N/A"}
+                        </p>
+                      </div>
+
+                      {/* COLUMN 3 — QUALIFIED */}
+                      <div className="
+                        w-[85px] h-[53px]
+                        rounded-2xl
+                        bg-green-50 border border-green-200
+                        flex flex-col items-center justify-center shrink-0
+                      ">
+                        <p className="text-xs text-green-700">Qualified</p>
+                        <p className="text-lg font-semibold text-green-600">
+                          {r.tech_qualified ?? "N/A"}
+                        </p>
+                      </div>
+
+                    </div>
+                  </div>
+                  {/* ========== END LEFT COLUMN ========== */}
+
+                  {/* ========== RIGHT COLUMN (50%) ========== */}
+                  <div className="overflow-x-auto">
+
+                    <div className="rounded-lg overflow-hidden text-xs bg-white">
+                      <table className="w-full border-collapse">
+                        <thead className="bg-gray-50 border-b border-gray-200">
+                          <tr>
+                            <th className="px-2 py-1.5 text-left font-medium text-gray-700">
+                              Rank
+                            </th>
+                            <th className="px-2 py-1.5 text-left font-medium text-gray-700">
+                              Seller
+                            </th>
+                            <th className="px-2 py-1.5 text-right font-medium text-gray-700">
+                              Price
+                            </th>
+                            <th className="px-2 py-1.5 text-right font-medium text-gray-700">
+                              Price Gap %
+                            </th>
+                          </tr>
+                        </thead>
+
+                        <tbody className="divide-y divide-gray-200">
+                          {/* L1 */}
+                          <tr className="border-b border-gray-200 last:border-b-0">
+                            <td className="px-2 py-2.5 font-semibold flex items-center gap-2">
+                              <span>L1</span>
+                              <Trophy className="w-5 h-5 text-[#FACC15]" />
+                            </td>
+
+                            <td
+                              className="px-2 py-2.5 uppercase truncate max-w-[220px]"
+                              title={r.l1_seller ?? "N/A"}
+                            >
+                              {r.l1_seller ? r.l1_seller.toUpperCase() : "N/A"}
+                            </td>
+
+                            <td className="px-2 py-2.5 text-right">
+                              {formatCurrency(r.l1_price)}
+                            </td>
+
+                            <td className="px-2 py-2.5 text-right text-gray-500">–</td>
+                          </tr>
+
+                          {/* L2 */}
+                          {r.l2_seller && (
+                            <tr className="border-b border-gray-200 last:border-b-0">
+                              <td className="px-2 py-2.5 font-semibold">L2</td>
+                              <td
+                                className="px-2 py-2.5 uppercase truncate max-w-[220px]"
+                                title={r.l2_seller}
+                              >
+                                {r.l2_seller.toUpperCase()}
+                              </td>
+                              <td className="px-2 py-2.5 text-right">
+                                {formatCurrency(r.l2_price)}
+                              </td>
+                              <td className="px-2 py-2.5 text-right font-medium text-gray-700">
+                                {formatPriceGap(r.l1_price, r.l2_price)}
+                              </td>
+                            </tr>
+                          )}
+
+                          {/* L3 */}
+                          {r.l3_seller && (
+                            <tr className="border-b border-gray-200 last:border-b-0">
+                              <td className="px-2 py-2.5 font-semibold">L3</td>
+                              <td
+                                className="px-2 py-2.5 uppercase truncate max-w-[220px]"
+                                title={r.l3_seller}
+                              >
+                                {r.l3_seller.toUpperCase()}
+                              </td>
+                              <td className="px-2 py-2.5 text-right">
+                                {formatCurrency(r.l3_price)}
+                              </td>
+                              <td className="px-2 py-2.5 text-right font-medium text-gray-700">
+                                {formatPriceGap(r.l1_price, r.l3_price)}
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                  </div>
+                  {/* ========== END RIGHT COLUMN ========== */}
+
+                </div>
+
               </div>
-            </div>
-
-            {/* COLUMN 2 — PARTICIPATED (small fixed card like Total/Active) */}
-            <div className="
-                w-[85px] h-[53px] 
-                rounded-2xl 
-                bg-[#F3F4F6] border border-gray-200
-                flex flex-col items-center justify-center shrink-0
-            ">
-              <p className="text-xs text-gray-500">Participated</p>
-              <p className="text-lg font-semibold text-gray-600">
-                {r.tech_participated ?? "N/A"}
-              </p>
-            </div>
-
-            {/* COLUMN 3 — QUALIFIED (small fixed card like Total/Active) */}
-            <div className="
-                w-[85px] h-[53px] 
-                rounded-2xl 
-                bg-green-50 border border-green-200 
-                flex flex-col items-center justify-center shrink-0
-            ">
-              <p className="text-xs text-green-700">Qualified</p>
-              <p className="text-lg font-semibold text-green-600">
-                {r.tech_qualified ?? "N/A"}
-              </p>
-            </div>
-
+            ))}
           </div>
-
-
-
-          {/* L1 / L2 / L3 PANEL — REVISED WITH PRICE GAP % */}
-          <div className="rounded-lg overflow-hidden text-xs bg-white">
-            <table className="w-full border-collapse">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="px-2 py-1.5 text-left font-medium text-gray-700">
-                    Rank
-                  </th>
-                  <th className="px-2 py-1.5 text-left font-medium text-gray-700">
-                    Seller
-                  </th>
-                  <th className="px-2 py-1.5 text-right font-medium text-gray-700">
-                    Price
-                  </th>
-                  <th className="px-2 py-1.5 text-right font-medium text-gray-700">
-                    Price Gap %
-                  </th>
-                </tr>
-              </thead>
-
-                <tbody>
-                  {/* L1 — always show (with subtle winner icon) */}
-                  <tr className="border-b border-gray-200 last:border-b-0">
-                    <td className="px-2 py-1.5 font-semibold flex items-center gap-2">
-                      <span>L1</span>
-                      <Trophy className="w-5 h-5 text-[#FACC15]" />
-                    </td>
-
-                    <td
-                      className="px-2 py-1.5 uppercase truncate max-w-[220px]"
-                      title={r.l1_seller ?? "N/A"}
-                    >
-                      {r.l1_seller ? r.l1_seller.toUpperCase() : "N/A"}
-                    </td>
-
-                    <td className="px-2 py-1.5 text-right">
-                      {formatCurrency(r.l1_price)}
-                    </td>
-
-                    <td className="px-2 py-1.5 text-right text-gray-500">–</td>
-                  </tr>
-
-                  {/* L2 — show only if exists */}
-                  {r.l2_seller && (
-                    <tr className="border-b border-gray-200 last:border-b-0">
-                      <td className="px-2 py-1.5 font-semibold">L2</td>
-
-                      <td
-                        className="px-2 py-1.5 uppercase truncate max-w-[220px]"
-                        title={r.l2_seller}
-                      >
-                        {r.l2_seller.toUpperCase()}
-                      </td>
-
-                      <td className="px-2 py-1.5 text-right">
-                        {formatCurrency(r.l2_price)}
-                      </td>
-
-                      <td className="px-2 py-1.5 text-right font-medium text-gray-700">
-                        {formatPriceGap(r.l1_price, r.l2_price)}
-                      </td>
-                    </tr>
-                  )}
-
-                  {/* L3 — show only if exists */}
-                  {r.l3_seller && (
-                    <tr className="border-b border-gray-200 last:border-b-0">
-                      <td className="px-2 py-1.5 font-semibold">L3</td>
-
-                      <td
-                        className="px-2 py-1.5 uppercase truncate max-w-[220px]"
-                        title={r.l3_seller}
-                      >
-                        {r.l3_seller.toUpperCase()}
-                      </td>
-
-                      <td className="px-2 py-1.5 text-right">
-                        {formatCurrency(r.l3_price)}
-                      </td>
-
-                      <td className="px-2 py-1.5 text-right font-medium text-gray-700">
-                        {formatPriceGap(r.l1_price, r.l3_price)}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-
-            </table>
-          </div>
-
-          </div>
-        ))}
-      </div>
-      )}
-
+        )} 
 
       {/* Pagination */}
         {totalRecords > 0 && (
