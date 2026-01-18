@@ -1,6 +1,6 @@
 {
   "functions": {
-    "app/api/open-pdf/route.ts": {
+    "gem-frontend/app/api/open-pdf/route.ts": {
       "maxDuration": 60,
       "memory": 1024
     }
