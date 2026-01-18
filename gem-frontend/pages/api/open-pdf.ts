@@ -13,21 +13,20 @@ export default async function handler(
       return res.status(400).json({ error: "Missing url param" });
     }
 
-    // 🚨 KEY CHANGE: use relay instead of direct fetch from Vercel
-    const relayUrl =
-      "https://api.allorigins.win/raw?url=" +
-      encodeURIComponent(gemUrl);
-
-    const response = await fetch(relayUrl, {
+    // FETCH DIRECTLY FROM GeM (this works on Vercel for many govt sites)
+    const response = await fetch(gemUrl, {
+      redirect: "follow",
       headers: {
-        "User-Agent": "Mozilla/5.0",
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Accept": "application/pdf, */*",
       },
     });
 
     if (!response.ok) {
-      console.error("Relay fetch failed:", response.status);
+      console.error("GeM fetch failed:", response.status);
       return res.status(502).json({
-        error: "Failed via relay",
+        error: "GeM fetch failed",
         status: response.status,
       });
     }
@@ -39,7 +38,7 @@ export default async function handler(
     res.setHeader("Cache-Control", "no-store");
 
     return res.send(Buffer.from(pdfBuffer));
-  } catch (err) {
+  } catch (err: any) {
     console.error("Proxy error:", err);
     return res.status(500).json({ error: "fetch failed" });
   }
