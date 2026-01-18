@@ -13,23 +13,21 @@ export default async function handler(
       return res.status(400).json({ error: "Missing url param" });
     }
 
-    // --- Fetch GeM like a real browser (no "agent") ---
-    const response = await fetch(gemUrl, {
-      redirect: "follow",
+    // 🚨 KEY CHANGE: use relay instead of direct fetch from Vercel
+    const relayUrl =
+      "https://api.allorigins.win/raw?url=" +
+      encodeURIComponent(gemUrl);
+
+    const response = await fetch(relayUrl, {
       headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-        "Accept":
-          "application/pdf,application/octet-stream,*/*",
-        "Referer": "https://bidplus.gem.gov.in/",
-        "Connection": "keep-alive",
+        "User-Agent": "Mozilla/5.0",
       },
     });
 
     if (!response.ok) {
-      console.error("GeM fetch failed:", response.status);
+      console.error("Relay fetch failed:", response.status);
       return res.status(502).json({
-        error: "Failed to fetch from GeM",
+        error: "Failed via relay",
         status: response.status,
       });
     }
@@ -41,7 +39,7 @@ export default async function handler(
     res.setHeader("Cache-Control", "no-store");
 
     return res.send(Buffer.from(pdfBuffer));
-  } catch (err: any) {
+  } catch (err) {
     console.error("Proxy error:", err);
     return res.status(500).json({ error: "fetch failed" });
   }
