@@ -12,7 +12,7 @@ const PAGE_SIZE = 20;
 export default function ResultsPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialPage = Number(searchParams.get("page") ?? 1);
+  const initialPage = Number(searchParams?.get("page") ?? 1);
 
   const [currentPage, setCurrentPage] = useState(initialPage);
   const [results, setResults] = useState<GemResult[]>([]);
