@@ -1,7 +1,6 @@
 // pages/api/open-pdf.ts
 
 import type { NextApiRequest, NextApiResponse } from "next";
-import fetch from "node-fetch";
 
 export default async function handler(
   req: NextApiRequest,
@@ -14,7 +13,7 @@ export default async function handler(
       return res.status(400).json({ error: "Missing url param" });
     }
 
-    // Fetch from GeM with browser-like headers
+    // Fetch from GeM using built-in fetch (works on Vercel)
     const response = await fetch(gemUrl, {
       headers: {
         "User-Agent":
@@ -22,7 +21,6 @@ export default async function handler(
         "Accept": "application/pdf,application/octet-stream,*/*",
         "Referer": "https://bidplus.gem.gov.in/",
       },
-      timeout: 60000,
     });
 
     if (!response.ok) {
