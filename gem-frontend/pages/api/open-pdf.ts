@@ -1,42 +1,46 @@
+// pages/api/open-pdf.ts
+
 import type { NextApiRequest, NextApiResponse } from "next";
+import fetch from "node-fetch";
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-  const { url } = req.query;
-
-  if (!url || typeof url !== "string") {
-    return res.status(400).send("Missing url");
-  }
-
   try {
-    const upstream = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-        "Accept": "application/pdf",
-        "Referer": "https://bidplus.gem.gov.in/",
-      },
-    });
+    const gemUrl = req.query.url as string;
 
-    if (!upstream.ok) {
-      return res
-        .status(500)
-        .send(`Upstream error: ${upstream.status}`);
+    if (!gemUrl) {
+      return res.status(400).json({ error: "Missing url param" });
     }
 
-    const buffer = Buffer.from(await upstream.arrayBuffer());
+    // Fetch from GeM with browser-like headers
+    const response = await fetch(gemUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/pdf,application/octet-stream,*/*",
+        "Referer": "https://bidplus.gem.gov.in/",
+      },
+      timeout: 60000,
+    });
+
+    if (!response.ok) {
+      console.error("GeM fetch failed:", response.status);
+      return res
+        .status(502)
+        .json({ error: "Failed to fetch from GeM", status: response.status });
+    }
+
+    const pdfBuffer = await response.arrayBuffer();
 
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      "inline; filename=gem_document.pdf"
-    );
+    res.setHeader("Content-Disposition", "inline; filename=gem.pdf");
     res.setHeader("Cache-Control", "no-store");
 
-    return res.send(buffer);
-  } catch (err) {
-    console.error("PDF proxy failed:", err);
-    return res.status(500).send("Failed to fetch PDF");
+    return res.send(Buffer.from(pdfBuffer));
+  } catch (err: any) {
+    console.error("Proxy error:", err);
+    return res.status(500).json({ error: err?.message || "Server error" });
   }
 }
