@@ -70,7 +70,7 @@ export default function TenderDetailPage() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const pageFromList = searchParams.get('page') ?? '1';
+  const pageFromList = searchParams?.get('page') ?? '1';
   const tenderIdParam = params?.id;
   const tenderIdNum = tenderIdParam ? Number(tenderIdParam) : NaN;
 

@@ -67,9 +67,9 @@ const FilterSection: React.FC<{
 
 function TendersContentInner() {
   const searchParams = useSearchParams();
-  const qpTab = searchParams.get('tab');
-  const qpRecommended = searchParams.get('recommended') === 'true';
-  const initialPage = Number(searchParams.get("page") ?? 1);
+  const qpTab = searchParams?.get('tab');
+  const qpRecommended = searchParams?.get('recommended') === 'true';
+  const initialPage = Number(searchParams?.get("page") ?? 1);
   const fromDashboard = searchParams?.get('from') === 'dashboard'; // detect CTA entry
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const router = useRouter();
@@ -107,7 +107,7 @@ function TendersContentInner() {
   const [currentPage, setCurrentPage] = useState(initialPage);
   // Sync URL ?page=X → currentPage state
   useEffect(() => {
-    const p = Number(searchParams.get("page") ?? 1);
+    const p = Number(searchParams?.get("page") ?? 1);
 
     // IMPORTANT: Only update state if the value is different.
     if (p !== currentPage) {

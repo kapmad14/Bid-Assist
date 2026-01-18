@@ -66,12 +66,13 @@ export default function ResultsPageClient() {
 
   // Load filters from URL on first render
   useEffect(() => {
-    const item = searchParams.get("item") || "";
-    const ministry = searchParams.get("ministry") || "";
-    const department = searchParams.get("department") || "";
-    const seller = searchParams.get("seller") || "";
-    const bidRa = searchParams.get("bidRa") || "";
-    const global = searchParams.get("global") || "";
+    const item = searchParams?.get("item") || "";
+    const ministry = searchParams?.get("ministry") || "";
+    const department = searchParams?.get("department") || "";
+    const seller = searchParams?.get("seller") || "";
+    const bidRa = searchParams?.get("bidRa") || "";
+    const global = searchParams?.get("global") || "";
+
 
     // Sync BOTH input + real filters
     setItemFilterInput(item);
@@ -132,9 +133,10 @@ export default function ResultsPageClient() {
 
   // Keep state in sync with URL
   useEffect(() => {
-    const p = Number(searchParams.get("page") ?? 1);
+    const p = Number(searchParams?.get("page") ?? 1);
     if (p !== currentPage) setCurrentPage(p);
   }, [searchParams, currentPage]);
+
 
   // Clear any open PDF preview when page changes
   useEffect(() => {
