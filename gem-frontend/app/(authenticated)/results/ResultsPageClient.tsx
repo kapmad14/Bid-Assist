@@ -61,6 +61,8 @@ export default function ResultsPageClient() {
   const [departmentOptions, setDepartmentOptions] = useState<string[]>([]);
   const [sellerOptions, setSellerOptions] = useState<string[]>([]);
 
+  const [previewForId, setPreviewForId] = useState<number | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   // Load filters from URL on first render
   useEffect(() => {
@@ -134,6 +136,12 @@ export default function ResultsPageClient() {
     if (p !== currentPage) setCurrentPage(p);
   }, [searchParams, currentPage]);
 
+  // Clear any open PDF preview when page changes
+  useEffect(() => {
+    setPreviewForId(null);
+    setPreviewUrl(null);
+  }, [currentPage]);
+
 
   // Debounce INPUT → REAL filters (exactly like tender page)
   useEffect(() => {
@@ -174,6 +182,26 @@ export default function ResultsPageClient() {
     const newUrl = `/results?${params.toString()}`;
     window.history.replaceState(null, "", newUrl);
   }, [itemFilter, ministryFilter, departmentFilter, sellerFilter, bidRaFilter, globalSearch]);
+
+  const openPreview = (id: number, gemUrl?: string | null) => {
+    if (!gemUrl) return;
+
+    // If clicking same card again → close preview
+    if (previewForId === id) {
+      closePreview();
+      return;
+    }
+
+    setPreviewForId(id);
+    setPreviewUrl(`/api/open-pdf?url=${encodeURIComponent(gemUrl)}`);
+  };
+
+
+  const closePreview = () => {
+    setPreviewForId(null);
+    setPreviewUrl(null);
+  };
+
 
   const fetchResults = useCallback(async () => {
     setError(null);
@@ -721,8 +749,8 @@ export default function ResultsPageClient() {
       ) : (
           <div className="grid grid-cols-1 gap-4">
             {results.map((r) => (
+              <React.Fragment key={r.id ?? r.bid_number}>
               <div
-                key={r.id ?? r.bid_number}
                 className="bg-white border rounded-xl shadow-sm p-3 hover:shadow-md transition"
               >
 
@@ -739,35 +767,29 @@ export default function ResultsPageClient() {
 
                         {/* LINE 1 — PRIMARY TITLE (your logic) */}
                         {r.has_reverse_auction && r.ra_number ? (
-                          <a
-                            href={r.ra_detail_url ?? "#"}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-lg font-semibold text-blue-700 hover:underline block leading-tight"
+                          <button
+                            onClick={() => openPreview(r.id!, r.ra_detail_url)}
+                            className="text-lg font-semibold text-blue-700 hover:underline block leading-tight text-left"
                           >
                             {r.ra_number}
-                          </a>
+                          </button>
                         ) : (
-                          <a
-                            href={r.bid_detail_url ?? "#"}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-lg font-semibold text-blue-700 hover:underline block leading-tight"
+                          <button
+                            onClick={() => openPreview(r.id!, r.bid_detail_url)}
+                            className="text-lg font-semibold text-blue-700 hover:underline block leading-tight text-left"
                           >
                             {r.bid_number}
-                          </a>
+                          </button>
                         )}
 
                         {/* LINE 2 — REAL SECONDARY OR PURE PLACEHOLDER */}
                         {r.has_reverse_auction && r.ra_number && r.bid_number ? (
-                          <a
-                            href={r.bid_detail_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sm text-gray-700 font-medium hover:underline block mt-1"
+                          <button
+                            onClick={() => openPreview(r.id!, r.bid_detail_url)}
+                            className="text-sm text-gray-700 font-medium hover:underline block mt-1 text-left"
                           >
                             (Bid No. {r.bid_number})
-                          </a>
+                          </button>
                         ) : (
                           <div className="h-[20px]" />
                         )}
@@ -940,6 +962,34 @@ export default function ResultsPageClient() {
                 </div>
 
               </div>
+              {/* ====== INLINE PDF PREVIEW BETWEEN CARDS ====== */}
+              {previewForId === r.id && previewUrl && (
+                <div className="bg-white border rounded-xl shadow-sm p-3 mt-2">
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 className="text-sm font-semibold">
+                      Document Preview for {r.bid_number}
+                    </h3>
+                    <button
+                      onClick={() => {
+                        setPreviewForId(null);
+                        setPreviewUrl(null);
+                      }}
+                      className="text-xs text-red-600"
+                    >
+                      Close ✕
+                    </button>
+                  </div>
+
+                  <iframe
+                    src={previewUrl}
+                    className="w-full h-[650px] border rounded"
+                    title="PDF Preview"
+                  />
+                </div>
+              )}
+              {/* ====== END PREVIEW ====== */}
+
+            </React.Fragment>
             ))}
           </div>
         )} 
