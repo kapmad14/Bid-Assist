@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 
-export const runtime = "node";
+export const runtime = "nodejs";   // ✅ correct value for your Next.js
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
@@ -32,7 +32,6 @@ export async function GET(req: NextRequest) {
         "Cache-Control": "no-store",
       },
     });
-
   } catch (err) {
     console.error("PDF proxy failed:", err);
     return new Response("Failed to fetch PDF", { status: 500 });
