@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 
-export const runtime = "nodejs";   // ✅ correct value for your Next.js
+export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
@@ -11,27 +11,29 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const res = await fetch(url, {
+    const upstream = await fetch(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7",
         "Accept": "application/pdf",
         "Referer": "https://bidplus.gem.gov.in/",
       },
     });
 
-    if (!res.ok) {
-      return new Response(`Upstream error: ${res.status}`, { status: 500 });
+    if (!upstream.ok) {
+      return new Response(`Upstream error: ${upstream.status}`, { status: 500 });
     }
 
-    const arrayBuffer = await res.arrayBuffer();
+    // ✅ STREAM the PDF instead of loading whole thing into memory
+    const stream = upstream.body;
 
-    return new Response(arrayBuffer, {
+    return new Response(stream, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": "inline; filename=gem_document.pdf",
         "Cache-Control": "no-store",
       },
     });
+
   } catch (err) {
     console.error("PDF proxy failed:", err);
     return new Response("Failed to fetch PDF", { status: 500 });
