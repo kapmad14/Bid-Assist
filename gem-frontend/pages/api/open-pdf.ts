@@ -1,42 +1,49 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 
+const CHROME_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+  "AppleWebKit/537.36 (KHTML, like Gecko) " +
+  "Chrome/114.0 Safari/537.36";
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-  const target = req.query.url as string | undefined;
+  const { url } = req.query;
 
-  if (!target) {
-    return res.status(400).json({ error: "Missing ?url=" });
+  if (!url || typeof url !== "string") {
+    return res.status(400).json({ error: "Missing url parameter" });
   }
 
   try {
-    const r = await fetch(target, {
-      redirect: "follow",
+    const upstream = await fetch(url, {
       headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120",
-        "Accept": "application/pdf,*/*",
+        "User-Agent": CHROME_UA,
+        "Accept": "application/pdf, */*",
+        "Accept-Language": "en-IN,en;q=0.9",
+        "Connection": "keep-alive",
       },
+      redirect: "follow",
     });
 
-    if (!r.ok) {
+    if (!upstream.ok) {
       return res
-        .status(500)
-        .json({ error: "Upstream failed", status: r.status });
+        .status(502)
+        .json({ error: "Upstream fetch failed", status: upstream.status });
     }
 
-    const buffer = Buffer.from(await r.arrayBuffer());
+    const buffer = await upstream.arrayBuffer();
 
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", "inline; filename=gem.pdf");
+    res.setHeader("Content-Disposition", 'inline; filename="gem.pdf"');
     res.setHeader("Cache-Control", "no-store");
 
-    return res.send(buffer);
+    res.send(Buffer.from(buffer));
   } catch (err: any) {
-    return res.status(500).json({
+    console.error("open-pdf error:", err);
+    res.status(500).json({
       error: "fetch failed",
-      detail: String(err),
+      detail: err?.message ?? String(err),
     });
   }
 }
