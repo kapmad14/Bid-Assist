@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { chromium } from "playwright";
 
 export async function GET(req: NextRequest) {
   const url = req.nextUrl.searchParams.get("url");
@@ -11,40 +10,21 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  let browser;
-
   try {
-    browser = await chromium.launch({
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-blink-features=AutomationControlled",
-        "--disable-dev-shm-usage",
-      ],
+    // Mimic your scraper’s browser headers
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/114.0 Safari/537.36",
+        "Accept": "application/pdf, application/octet-stream",
+      },
     });
 
-    const context = await browser.newContext({
-      userAgent:
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/114.0 Safari/537.36",
-    });
-
-    const page = await context.newPage();
-
-    // Important: directly go to the GeM PDF URL
-    const response = await page.goto(url, {
-      waitUntil: "networkidle",
-      timeout: 30000,
-    });
-
-    if (!response) {
-      throw new Error("No response from GeM");
+    if (!res.ok) {
+      throw new Error(`GeM returned ${res.status}`);
     }
 
-    const buffer = await response.body(); // Node Buffer
-
-    await browser.close();
-
-    // 🔥 FIX: convert Buffer → Uint8Array (Next.js friendly)
+    const buffer = await res.arrayBuffer();
     const pdfBytes = new Uint8Array(buffer);
 
     return new NextResponse(pdfBytes, {
@@ -55,8 +35,6 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (err: any) {
-    if (browser) await browser.close();
-
     console.error("open-pdf error:", err);
 
     return NextResponse.json(
