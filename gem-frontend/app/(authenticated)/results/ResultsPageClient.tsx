@@ -791,7 +791,7 @@ export default function ResultsPageClient() {
                         {/* LINE 2 — REAL SECONDARY OR PURE PLACEHOLDER */}
                         {r.has_reverse_auction && r.ra_number && r.bid_number ? (
                           <a
-                            href={r.bid_detail_url}
+                            href={r.bid_detail_url ?? undefined}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-sm text-gray-700 font-medium hover:underline block mt-1"
