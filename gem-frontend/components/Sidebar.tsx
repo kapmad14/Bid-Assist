@@ -40,6 +40,7 @@ const menuItems = [
   // changed to Box to visually differentiate Catalog
   { label: 'Catalogue', icon: Box, path: '/catalog' },
   { label: 'Results', icon: LayoutList, path: '/results' },
+  { label: 'PDF Test', icon: FileText, path: '/gem-pdf-test' },
   { label: 'Help & Support', icon: LifeBuoy, path: '/help' },
 ];
 
