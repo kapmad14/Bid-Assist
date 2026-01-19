@@ -769,29 +769,35 @@ export default function ResultsPageClient() {
 
                         {/* LINE 1 — PRIMARY TITLE (your logic) */}
                         {r.has_reverse_auction && r.ra_number ? (
-                          <button
-                            onClick={() => openPreview(r.id!, r.ra_detail_url)}
-                            className="text-lg font-semibold text-blue-700 hover:underline block leading-tight text-left"
+                          <a
+                            href={r.ra_detail_url ?? "#"}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-lg font-semibold text-blue-700 hover:underline block leading-tight"
                           >
                             {r.ra_number}
-                          </button>
+                          </a>
                         ) : (
-                          <button
-                            onClick={() => openPreview(r.id!, r.bid_detail_url)}
-                            className="text-lg font-semibold text-blue-700 hover:underline block leading-tight text-left"
+                          <a
+                            href={r.bid_detail_url ?? "#"}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-lg font-semibold text-blue-700 hover:underline block leading-tight"
                           >
                             {r.bid_number}
-                          </button>
+                          </a>
                         )}
 
                         {/* LINE 2 — REAL SECONDARY OR PURE PLACEHOLDER */}
                         {r.has_reverse_auction && r.ra_number && r.bid_number ? (
-                          <button
-                            onClick={() => openPreview(r.id!, r.bid_detail_url)}
-                            className="text-sm text-gray-700 font-medium hover:underline block mt-1 text-left"
+                          <a
+                            href={r.bid_detail_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-gray-700 font-medium hover:underline block mt-1"
                           >
                             (Bid No. {r.bid_number})
-                          </button>
+                          </a>
                         ) : (
                           <div className="h-[20px]" />
                         )}
