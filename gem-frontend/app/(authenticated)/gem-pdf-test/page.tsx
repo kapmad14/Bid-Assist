@@ -19,14 +19,28 @@ export default function GemPdfTestPage() {
   const asGoogleViewer = (url: string) =>
     `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`;
 
-  useEffect(() => {
-    fetch("/gem_results_pilot_first25.json")
-      .then(res => res.json())
-      .then(json => {
-        setData(json.slice(0, 25));
-        setLoading(false);
-      });
-  }, []);
+useEffect(() => {
+  const url = `${window.location.origin}/gem_results_pilot_first25.json`;
+
+  fetch(url)
+    .then(async (res) => {
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      return res.json();
+    })
+    .then((json) => {
+      console.log("Loaded JSON:", json);   // <-- IMPORTANT
+      setData(Array.isArray(json) ? json.slice(0, 25) : []);
+      setLoading(false);
+    })
+    .catch((err) => {
+      console.error("JSON load failed:", err);
+      setError(err.message);
+      setLoading(false);
+    });
+}, []);
+
 
   if (loading) {
     return <div style={{ padding: "24px" }}>Loading test data...</div>;
