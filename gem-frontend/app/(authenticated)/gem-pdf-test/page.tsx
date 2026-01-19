@@ -1,7 +1,6 @@
 "use client";
 
-import data from "../../data/gem_results_pilot_first25.json";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type GemRecord = {
   bid_number: string;
@@ -13,22 +12,34 @@ type GemRecord = {
 };
 
 export default function GemPdfTestPage() {
+  const [data, setData] = useState<GemRecord[]>([]);
   const [selectedBid, setSelectedBid] = useState<GemRecord | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const asGoogleViewer = (url: string) =>
     `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`;
 
+  useEffect(() => {
+    fetch("/gem_results_pilot_first25.json")
+      .then(res => res.json())
+      .then(json => {
+        setData(json.slice(0, 25));
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) {
+    return <div style={{ padding: "24px" }}>Loading test data...</div>;
+  }
+
   return (
     <div style={{ padding: "24px", maxWidth: "1400px", margin: "0 auto" }}>
       <h1>GeM Inline PDF Test Page</h1>
-      <p style={{ color: "#666" }}>
-        Click any bid to test <b>bid_detail_url</b> and <b>ra_hover_url</b>.
-      </p>
 
       <div style={{ display: "grid", gridTemplateColumns: "350px 1fr", gap: "24px" }}>
-        {/* LEFT: list of bids */}
+        {/* LEFT LIST */}
         <div style={{ borderRight: "1px solid #ddd", paddingRight: "16px", maxHeight: "90vh", overflowY: "auto" }}>
-          {data.slice(0, 25).map((row: GemRecord) => (
+          {data.map((row) => (
             <div
               key={row.bid_number}
               onClick={() => setSelectedBid(row)}
@@ -43,16 +54,11 @@ export default function GemPdfTestPage() {
               <div style={{ fontSize: "12px", color: "#555", marginTop: "4px" }}>
                 {row.item}
               </div>
-              {row.has_reverse_auction && (
-                <div style={{ fontSize: "11px", color: "#0066cc", marginTop: "4px" }}>
-                  RA: {row.ra_number}
-                </div>
-              )}
             </div>
           ))}
         </div>
 
-        {/* RIGHT: viewers */}
+        {/* RIGHT PREVIEW */}
         <div>
           {!selectedBid && <h3>Select a bid to preview</h3>}
 
@@ -61,22 +67,22 @@ export default function GemPdfTestPage() {
               <h3>{selectedBid.bid_number}</h3>
 
               <div style={{ marginBottom: "16px" }}>
-                <strong>Bid Detail PDF (bid_detail_url)</strong>
+                <strong>Bid Detail PDF</strong>
                 <iframe
                   src={asGoogleViewer(selectedBid.bid_detail_url!)}
                   width="100%"
-                  height="500"
+                  height="600"
                   style={{ border: "1px solid #ddd", borderRadius: "8px" }}
                 />
               </div>
 
               {selectedBid.has_reverse_auction && selectedBid.ra_hover_url && (
                 <div>
-                  <strong>RA Hover / Result Page (ra_hover_url)</strong>
+                  <strong>RA Hover Page</strong>
                   <iframe
                     src={selectedBid.ra_hover_url}
                     width="100%"
-                    height="500"
+                    height="600"
                     style={{ border: "1px solid #ddd", borderRadius: "8px" }}
                   />
                 </div>
