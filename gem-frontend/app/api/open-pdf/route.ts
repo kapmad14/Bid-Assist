@@ -5,37 +5,42 @@ export async function GET(req: NextRequest) {
 
   if (!url) {
     return NextResponse.json(
-      { error: "Missing url param" },
+      { error: "Missing url parameter" },
       { status: 400 }
     );
   }
 
   try {
-    // Mimic your scraper’s browser headers
+    console.log("Fetching PDF from:", url);
+
     const res = await fetch(url, {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/114.0 Safari/537.36",
-        "Accept": "application/pdf, application/octet-stream",
       },
+      timeout: 30000,
     });
 
     if (!res.ok) {
-      throw new Error(`GeM returned ${res.status}`);
+      const text = await res.text();
+      console.error("Upstream error:", res.status, text);
+
+      return NextResponse.json(
+        { error: "Upstream fetch failed", status: res.status, body: text },
+        { status: 500 }
+      );
     }
 
-    const buffer = await res.arrayBuffer();
-    const pdfBytes = new Uint8Array(buffer);
+    const arrayBuffer = await res.arrayBuffer();
 
-    return new NextResponse(pdfBytes, {
+    return new NextResponse(arrayBuffer, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": "inline; filename=gem.pdf",
-        "Cache-Control": "no-store",
       },
     });
   } catch (err: any) {
-    console.error("open-pdf error:", err);
+    console.error("Server error:", err);
 
     return NextResponse.json(
       {
