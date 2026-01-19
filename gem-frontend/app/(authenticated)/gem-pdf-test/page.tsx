@@ -15,7 +15,10 @@ export default function GemPdfTestPage() {
   const [data, setData] = useState<GemRecord[]>([]);
   const [selectedBid, setSelectedBid] = useState<GemRecord | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
+
+  
   const asGoogleViewer = (url: string) =>
     `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`;
 
@@ -42,9 +45,28 @@ useEffect(() => {
 }, []);
 
 
-  if (loading) {
-    return <div style={{ padding: "24px" }}>Loading test data...</div>;
-  }
+    if (loading) {
+    return <div style={{ padding: 24 }}>Loading test data...</div>;
+    }
+
+    if (error) {
+    return (
+        <div style={{ padding: 24, color: "red" }}>
+        <h3>Failed to load JSON</h3>
+        <p>{error}</p>
+        <p>Make sure: public/gem_results_pilot_first25.json exists</p>
+        </div>
+    );
+    }
+
+    if (data.length === 0) {
+    return (
+        <div style={{ padding: 24 }}>
+        <h3>No data found in JSON</h3>
+        </div>
+    );
+    }
+
 
   return (
     <div style={{ padding: "24px", maxWidth: "1400px", margin: "0 auto" }}>
