@@ -13,119 +13,127 @@ type GemRecord = {
 
 export default function GemPdfTestPage() {
   const [data, setData] = useState<GemRecord[]>([]);
-  const [selectedBid, setSelectedBid] = useState<GemRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // --- PREVIEW STATE (same pattern as Results page) ---
+  const [previewForId, setPreviewForId] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
-  
-  const asGoogleViewer = (url: string) =>
-    `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`;
+  const openPreview = (bidNumber: string, gemUrl?: string | null) => {
+    if (!gemUrl) return;
 
-useEffect(() => {
-  const url = `${window.location.origin}/gem_results_pilot_first25.json`;
-
-  fetch(url)
-    .then(async (res) => {
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
-      return res.json();
-    })
-    .then((json) => {
-      console.log("Loaded JSON:", json);   // <-- IMPORTANT
-      setData(Array.isArray(json) ? json.slice(0, 25) : []);
-      setLoading(false);
-    })
-    .catch((err) => {
-      console.error("JSON load failed:", err);
-      setError(err.message);
-      setLoading(false);
-    });
-}, []);
-
-
-    if (loading) {
-    return <div style={{ padding: 24 }}>Loading test data...</div>;
+    if (previewForId === bidNumber) {
+      setPreviewForId(null);
+      setPreviewUrl(null);
+      return;
     }
 
-    if (error) {
+    setPreviewForId(bidNumber);
+    setPreviewUrl(`/api/open-pdf?url=${encodeURIComponent(gemUrl)}`);
+  };
+
+  const closePreview = () => {
+    setPreviewForId(null);
+    setPreviewUrl(null);
+  };
+
+  // --- LOAD CONSTANT JSON FROM public/ ---
+  useEffect(() => {
+    const url = `${window.location.origin}/gem_results_pilot_first25.json`;
+
+    fetch(url)
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        return res.json();
+      })
+      .then((json) => {
+        console.log("Loaded JSON:", json);
+        setData(Array.isArray(json) ? json.slice(0, 25) : []);
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.error("JSON load failed:", err);
+        setError(err.message);
+        setLoading(false);
+      });
+  }, []);
+
+  // --- STATES ---
+  if (loading) {
+    return <div style={{ padding: 24 }}>Loading test data...</div>;
+  }
+
+  if (error) {
     return (
-        <div style={{ padding: 24, color: "red" }}>
+      <div style={{ padding: 24, color: "red" }}>
         <h3>Failed to load JSON</h3>
         <p>{error}</p>
         <p>Make sure: public/gem_results_pilot_first25.json exists</p>
-        </div>
+      </div>
     );
-    }
+  }
 
-    if (data.length === 0) {
+  if (data.length === 0) {
     return (
-        <div style={{ padding: 24 }}>
+      <div style={{ padding: 24 }}>
         <h3>No data found in JSON</h3>
-        </div>
+      </div>
     );
-    }
+  }
 
-
+  // --- UI ---
   return (
-    <div style={{ padding: "24px", maxWidth: "1400px", margin: "0 auto" }}>
-      <h1>GeM Inline PDF Test Page</h1>
+    <div style={{ padding: "24px", maxWidth: "1200px", margin: "0 auto" }}>
+      <h1 className="text-xl font-bold mb-4">GeM PDF Preview Test</h1>
 
-      <div style={{ display: "grid", gridTemplateColumns: "350px 1fr", gap: "24px" }}>
-        {/* LEFT LIST */}
-        <div style={{ borderRight: "1px solid #ddd", paddingRight: "16px", maxHeight: "90vh", overflowY: "auto" }}>
-          {data.map((row) => (
+      <div className="space-y-4">
+        {data.map((row) => (
+          <div key={row.bid_number}>
+            {/* CARD */}
             <div
-              key={row.bid_number}
-              onClick={() => setSelectedBid(row)}
-              style={{
-                padding: "10px",
-                borderBottom: "1px solid #eee",
-                cursor: "pointer",
-                background: selectedBid?.bid_number === row.bid_number ? "#f0f4ff" : "white",
-              }}
+              className="bg-white border rounded-xl p-3 shadow-sm hover:shadow-md transition cursor-pointer"
+              onClick={() => openPreview(row.bid_number, row.bid_detail_url)}
             >
-              <div><strong>{row.bid_number}</strong></div>
-              <div style={{ fontSize: "12px", color: "#555", marginTop: "4px" }}>
+              <div className="font-semibold text-blue-700">
+                {row.bid_number}
+              </div>
+              <div className="text-sm text-gray-600 mt-1 line-clamp-1">
                 {row.item}
               </div>
-            </div>
-          ))}
-        </div>
-
-        {/* RIGHT PREVIEW */}
-        <div>
-          {!selectedBid && <h3>Select a bid to preview</h3>}
-
-          {selectedBid && (
-            <div>
-              <h3>{selectedBid.bid_number}</h3>
-
-              <div style={{ marginBottom: "16px" }}>
-                <strong>Bid Detail PDF</strong>
-                <iframe
-                  src={asGoogleViewer(selectedBid.bid_detail_url!)}
-                  width="100%"
-                  height="600"
-                  style={{ border: "1px solid #ddd", borderRadius: "8px" }}
-                />
-              </div>
-
-              {selectedBid.has_reverse_auction && selectedBid.ra_hover_url && (
-                <div>
-                  <strong>RA Hover Page</strong>
-                  <iframe
-                    src={selectedBid.ra_hover_url}
-                    width="100%"
-                    height="600"
-                    style={{ border: "1px solid #ddd", borderRadius: "8px" }}
-                  />
+              {row.has_reverse_auction && row.ra_number && (
+                <div className="text-xs text-gray-500 mt-1">
+                  RA: {row.ra_number}
                 </div>
               )}
             </div>
-          )}
-        </div>
+
+            {/* INLINE PREVIEW (same idea as Results page) */}
+            {previewForId === row.bid_number && previewUrl && (
+              <div className="bg-white border rounded-xl shadow-sm p-3 mt-2">
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="text-sm font-semibold">
+                    Document Preview for {row.bid_number}
+                  </h3>
+                  <button
+                    onClick={closePreview}
+                    className="text-xs text-red-600"
+                  >
+                    Close ✕
+                  </button>
+                </div>
+
+                <iframe
+                  src={previewUrl}
+                  className="w-full h-[650px] border rounded"
+                  title="PDF Preview"
+                />
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );
