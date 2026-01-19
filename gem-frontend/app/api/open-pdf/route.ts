@@ -13,13 +13,20 @@ export async function GET(req: NextRequest) {
   try {
     console.log("Fetching PDF from:", url);
 
+    // ---- Manual timeout (works on Vercel) ----
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
     const res = await fetch(url, {
+      signal: controller.signal,
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/114.0 Safari/537.36",
+        "Accept": "application/pdf",
       },
-      timeout: 30000,
     });
+
+    clearTimeout(timeoutId);
 
     if (!res.ok) {
       const text = await res.text();
@@ -37,6 +44,7 @@ export async function GET(req: NextRequest) {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": "inline; filename=gem.pdf",
+        "Cache-Control": "no-store",
       },
     });
   } catch (err: any) {
