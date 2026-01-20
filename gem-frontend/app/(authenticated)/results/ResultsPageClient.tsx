@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Loader2, Clock, Building2, Calendar, Database, Info, Trophy } from "lucide-react";
+import { Loader2, Clock, Building2, Calendar, Database, Info, Trophy, Download } from "lucide-react";
 
 import { gemResultsClientStore } from "@/services/gemResultsStore.client";
 import { GemResult } from "@/types";
@@ -1068,14 +1068,23 @@ export default function ResultsPageClient() {
                       />
                     ) : (
                       <div className="py-6 text-center text-sm text-gray-600">
-                        Preview unavailable for this tender
+                        <div>Preview unavailable for this tender</div>
+
                         <button
                           onClick={() => window.open(previewUrl, "_blank", "noopener,noreferrer")}
-                          className="ml-2 text-blue-600 underline"
+                          className="
+                            inline-flex items-center gap-1.5 mt-2
+                            text-blue-600 hover:text-blue-800
+                            underline hover:no-underline
+                            transition-colors duration-150
+                            text-sm font-medium
+                          "
                         >
-                          Download instead
+                          <Download className="w-4 h-4" />
+                          Download document
                         </button>
                       </div>
+
                     )
                   )}
 
