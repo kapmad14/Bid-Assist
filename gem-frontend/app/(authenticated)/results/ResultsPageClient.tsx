@@ -64,9 +64,6 @@ export default function ResultsPageClient() {
   const [previewForId, setPreviewForId] = useState<number | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewGracePeriod, setPreviewGracePeriod] = useState(false);
-  const [previewTriedArchive, setPreviewTriedArchive] = useState(false);
-
 
 
   // Load filters from URL on first render
@@ -196,32 +193,16 @@ export default function ResultsPageClient() {
     bidNumber: string,
     gemUrl?: string | null
   ) => {
+    // Toggle close if same card clicked again
     if (previewForId === id) {
       closePreview();
       return;
     }
 
-    setPreviewForId(id);
-    setPreviewLoading(true);
-    setPreviewGracePeriod(true);
-    setPreviewUrl(null);
-    setPreviewTriedArchive(false);
+  setPreviewForId(id);
+  setPreviewUrl(null);
+  setPreviewLoading(true);
 
-    // End grace period after ~1.2 seconds
-    setTimeout(() => {
-      setPreviewGracePeriod(false);
-    }, 1200);
-
-    // Safety fallback after 4 seconds if archive was tried but nothing loaded
-    setTimeout(() => {
-      if (previewTriedArchive && gemUrl) {
-        console.warn("Timed fallback to GeM after failed archive load");
-        setPreviewUrl(encodeURI(gemUrl));
-        setPreviewTriedArchive(false);
-        setPreviewGracePeriod(false);
-        setPreviewLoading(false);
-      }
-    }, 4000);
 
     try {
       const res = await fetch(
@@ -230,45 +211,56 @@ export default function ResultsPageClient() {
 
       const json = await res.json();
 
-      if (json?.pdf_public_url) {
-        setPreviewTriedArchive(true);
-
-        try {
-          const head = await fetch(json.pdf_public_url, { method: "HEAD" });
-          const contentType = head.headers.get("content-type");
-
-          const isPdf =
-            head.ok &&
-            contentType &&
-            contentType.toLowerCase().includes("application/pdf");
-
-          if (isPdf) {
-            console.log("Archive PDF validated — rendering in embed");
-            setPreviewUrl(encodeURI(json.pdf_public_url));
-            setPreviewLoading(false);
-            return; // <-- important: stop here if archive works
-          }
-
-          console.warn(
-            "Archive exists but is not a valid PDF → falling back to GeM"
-          );
-        } catch (err) {
-          console.warn(
-            "Archive HEAD check failed → falling back to GeM",
-            err
-          );
-        }
+      // ---------- CASE 1: NO ARCHIVE ----------
+      if (!json?.hasArchive || !json?.pdf_public_url) {
+        console.warn("No archived URL — using GeM");
+        if (gemUrl) setPreviewUrl(encodeURI(gemUrl));
+        setPreviewLoading(false);
+        return;
       }
-    } catch (err) {
-      console.warn("Archive lookup failed:", err);
-    }
 
-    // FINAL FALLBACK: use GeM if archive didn’t work
-    if (gemUrl) {
-      setPreviewUrl(encodeURI(gemUrl));
+      const archiveUrl = encodeURI(String(json.pdf_public_url));
+
+      // ---------- CASE 2: VALIDATE PDF ONLY ----------
+      try {
+        const head = await fetch(archiveUrl, { method: "HEAD" });
+        const contentType = head.headers.get("content-type");
+
+        const isPdf =
+          head.ok &&
+          typeof contentType === "string" &&
+          contentType.toLowerCase().includes("application/pdf");
+
+        if (isPdf) {
+          console.log("Archive URL behaves like a PDF — embedding");
+          setPreviewUrl(archiveUrl);
+          setPreviewLoading(false);
+          return;
+        }
+
+        console.warn("Archive URL is NOT a PDF — using GeM");
+      } catch (err) {
+        console.warn("HEAD check failed — using GeM", err);
+      }
+
+      // ---------- FALLBACK TO GeM ----------
+      if (gemUrl) {
+        setPreviewUrl(encodeURI(String(gemUrl)));
+      }
+
+
+    } catch (err) {
+      console.error("Archive lookup failed:", err);
+
+      // If API itself fails → fall back to GeM
+      if (gemUrl) {
+        setPreviewUrl(encodeURI(gemUrl));
+      }
+    } finally {
       setPreviewLoading(false);
     }
   };
+
 
   const closePreview = () => {
     setPreviewForId(null);
@@ -844,9 +836,16 @@ export default function ResultsPageClient() {
                           href="#"
                           onClick={(e) => {
                             e.preventDefault();
-                            openPreview(r.id!, r.bid_number, r.bid_detail_url);
+                            if (r.id) {
+                              openPreview(r.id, r.bid_number, r.bid_detail_url);
+                            }
                           }}
-                          className="text-lg font-semibold text-blue-700 hover:underline block leading-tight"
+                          className="
+                            text-lg font-semibold text-blue-700 
+                            hover:text-blue-900 hover:underline 
+                            transition-colors duration-150
+                            block leading-tight cursor-pointer
+                          "
                         >
                           {r.bid_number}
                         </a>
@@ -1047,12 +1046,13 @@ export default function ResultsPageClient() {
                       Close ✕
                     </button>
                   </div>
-                  {(previewLoading || previewGracePeriod) && (
+                  {previewLoading && (
                     <div className="py-6 flex justify-center items-center gap-3 text-sm text-gray-500">
                       <Loader2 className="w-5 h-5 animate-spin" />
                       Loading document...
                     </div>
                   )}
+
 
                   {previewUrl && (
                     previewUrl.toLowerCase().endsWith(".pdf") ? (
@@ -1069,23 +1069,24 @@ export default function ResultsPageClient() {
                       />
                     ) : (
                       <div className="py-6 text-center text-sm text-gray-600">
-                        Preview unavailable for this document type.
+                        Preview unavailable for this tender
                         <button
                           onClick={() => window.open(previewUrl, "_blank", "noopener,noreferrer")}
                           className="ml-2 text-blue-600 underline"
                         >
-                          Open in new tab
+                          Download instead
                         </button>
                       </div>
                     )
                   )}
 
 
-                  {!previewLoading && !previewGracePeriod && !previewUrl && (
+                  {!previewLoading && !previewUrl && (
                     <div className="py-6 text-center text-sm text-gray-500">
-                      No PDF available for this bid.
+                      No document could be loaded.
                     </div>
                   )}
+
 
                 </div>
               )}

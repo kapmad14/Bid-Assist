@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-// --- Lazy initializer (VERY IMPORTANT for Vercel builds) ---
+// Lazy init (safe for Vercel builds)
 function getSupabase() {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -21,7 +21,7 @@ export async function GET(req: Request) {
 
   if (!bid) {
     return NextResponse.json(
-      { error: "Missing bid number" },
+      { hasArchive: false, pdf_public_url: null, error: "missing_bid" },
       { status: 400 }
     );
   }
@@ -32,7 +32,7 @@ export async function GET(req: Request) {
   } catch (err: any) {
     console.error("Supabase env error:", err.message);
     return NextResponse.json(
-      { pdf_public_url: null, found: false, error: "env_error" },
+      { hasArchive: false, pdf_public_url: null, error: "env_error" },
       { status: 500 }
     );
   }
@@ -44,23 +44,24 @@ export async function GET(req: Request) {
       .eq("bid_number", bid)
       .single();
 
-    // If no row or no URL → clean 404
+    // No row OR no stored URL
     if (res.error || !res.data?.pdf_public_url) {
-      return NextResponse.json(
-        { pdf_public_url: null, found: false },
-        { status: 404 }
-      );
+      return NextResponse.json({
+        hasArchive: false,
+        pdf_public_url: null,
+      });
     }
 
+    // Row exists with a stored URL
     return NextResponse.json({
+      hasArchive: true,
       pdf_public_url: res.data.pdf_public_url,
-      found: true,
     });
 
   } catch (err) {
     console.error("Supabase archive lookup failed:", err);
     return NextResponse.json(
-      { pdf_public_url: null, found: false, error: "supabase_error" },
+      { hasArchive: false, pdf_public_url: null, error: "supabase_error" },
       { status: 500 }
     );
   }
