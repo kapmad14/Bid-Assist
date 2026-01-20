@@ -203,16 +203,16 @@ export default function ResultsPageClient() {
 
     setPreviewForId(id);
     setPreviewLoading(true);
-    setPreviewGracePeriod(true);   // <-- start grace timer
+    setPreviewGracePeriod(true);
     setPreviewUrl(null);
     setPreviewTriedArchive(false);
 
-    // End grace period after 2 seconds
+    // End grace period after ~1.2 seconds
     setTimeout(() => {
       setPreviewGracePeriod(false);
     }, 1200);
 
-    // Safety fallback: if archive was tried but nothing loaded after 4s → force GeM
+    // Safety fallback after 4 seconds if archive was tried but nothing loaded
     setTimeout(() => {
       if (previewTriedArchive && gemUrl) {
         console.warn("Timed fallback to GeM after failed archive load");
@@ -222,7 +222,6 @@ export default function ResultsPageClient() {
         setPreviewLoading(false);
       }
     }, 4000);
-
 
     try {
       const res = await fetch(
@@ -235,7 +234,6 @@ export default function ResultsPageClient() {
         setPreviewTriedArchive(true);
 
         try {
-          // 🔥 PRE-CHECK BEFORE IFRAAMING
           const head = await fetch(json.pdf_public_url, { method: "HEAD" });
           const contentType = head.headers.get("content-type");
 
@@ -244,36 +242,33 @@ export default function ResultsPageClient() {
             contentType &&
             contentType.toLowerCase().includes("application/pdf");
 
-            if (isPdf) {
-              console.log("Archive PDF validated — rendering in embed");
-              setPreviewUrl(encodeURI(json.pdf_public_url));
-              setPreviewLoading(false);
-              return;
-            }
-
-          } else {
-            console.warn(
-              "Archive exists but is not a valid PDF → falling back to GeM"
-            );
+          if (isPdf) {
+            console.log("Archive PDF validated — rendering in embed");
+            setPreviewUrl(encodeURI(json.pdf_public_url));
+            setPreviewLoading(false);
+            return; // <-- important: stop here if archive works
           }
+
+          console.warn(
+            "Archive exists but is not a valid PDF → falling back to GeM"
+          );
         } catch (err) {
-          console.warn("Archive HEAD check failed → falling back to GeM", err);
+          console.warn(
+            "Archive HEAD check failed → falling back to GeM",
+            err
+          );
         }
       }
-
     } catch (err) {
       console.warn("Archive lookup failed:", err);
-    } finally {
-      // DO NOT turn off loading here — let iframe handlers or timers handle it
     }
 
-    // Fallback to GeM if nothing from archive
+    // FINAL FALLBACK: use GeM if archive didn’t work
     if (gemUrl) {
       setPreviewUrl(encodeURI(gemUrl));
+      setPreviewLoading(false);
     }
-
-
-
+  };
 
   const closePreview = () => {
     setPreviewForId(null);
