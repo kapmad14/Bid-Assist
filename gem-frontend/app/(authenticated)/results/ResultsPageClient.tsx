@@ -846,7 +846,7 @@ export default function ResultsPageClient() {
                           href="#"
                           onClick={(e) => {
                             e.preventDefault();
-                            openPreview(r.id, r.bid_number, r.bid_detail_url);
+                            openPreview(r.id!, r.bid_number, r.bid_detail_url);
                           }}
                           className="text-lg font-semibold text-blue-700 hover:underline block leading-tight"
                         >
