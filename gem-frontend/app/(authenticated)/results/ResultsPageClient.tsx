@@ -1064,7 +1064,6 @@ export default function ResultsPageClient() {
                         title="PDF Preview"
                         onError={() => {
                           setPreviewLoading(false);
-                          setPreviewGracePeriod(false);
                         }}
                       />
                     ) : (
