@@ -210,18 +210,19 @@ export default function ResultsPageClient() {
     // End grace period after 2 seconds
     setTimeout(() => {
       setPreviewGracePeriod(false);
-    }, 2000);
+    }, 1200);
 
     // Safety fallback: if archive was tried but nothing loaded after 4s → force GeM
     setTimeout(() => {
       if (previewTriedArchive && gemUrl) {
         console.warn("Timed fallback to GeM after failed archive load");
-        setPreviewUrl(`/api/open-pdf?url=${encodeURIComponent(gemUrl)}`);
+        setPreviewUrl(encodeURI(gemUrl));
         setPreviewTriedArchive(false);
         setPreviewGracePeriod(false);
         setPreviewLoading(false);
       }
     }, 4000);
+
 
     try {
       const res = await fetch(
@@ -243,11 +244,13 @@ export default function ResultsPageClient() {
             contentType &&
             contentType.toLowerCase().includes("application/pdf");
 
-          if (isPdf) {
-            console.log("Archive PDF validated — rendering in iframe");
-            setPreviewUrl(json.pdf_public_url);
-            setPreviewLoading(false);
-            return; // SUCCESS PATH
+            if (isPdf) {
+              console.log("Archive PDF validated — rendering in embed");
+              setPreviewUrl(encodeURI(json.pdf_public_url));
+              setPreviewLoading(false);
+              return;
+            }
+
           } else {
             console.warn(
               "Archive exists but is not a valid PDF → falling back to GeM"
@@ -266,9 +269,9 @@ export default function ResultsPageClient() {
 
     // Fallback to GeM if nothing from archive
     if (gemUrl) {
-      setPreviewUrl(`/api/open-pdf?url=${encodeURIComponent(gemUrl)}`);
+      setPreviewUrl(encodeURI(gemUrl));
     }
-  };
+
 
 
 
@@ -1057,32 +1060,29 @@ export default function ResultsPageClient() {
                   )}
 
                   {previewUrl && (
-                    <iframe
-                      src={previewUrl}
-                      className="w-full h-[650px] border rounded"
-                      title="PDF Preview"
-
-                      onLoad={() => {
-                        // If it loads successfully, stop spinner
-                        setPreviewLoading(false);
-                        setPreviewGracePeriod(false);
-                        setPreviewTriedArchive(false);
-                      }}
-
-                      onError={() => {
-                        if (previewTriedArchive && r.bid_detail_url) {
-                          console.warn("Archive PDF failed, falling back to GeM");
-
-                          setPreviewUrl(
-                            `/api/open-pdf?url=${encodeURIComponent(r.bid_detail_url)}`
-                          );
-
-                          setPreviewTriedArchive(false);
-                          setPreviewGracePeriod(false);
+                    previewUrl.toLowerCase().endsWith(".pdf") ? (
+                      <embed
+                        src={`${previewUrl}#view=FitH&navpanes=0`}
+                        type="application/pdf"
+                        className="w-full border-0"
+                        style={{ height: "750px" }}
+                        title="PDF Preview"
+                        onError={() => {
                           setPreviewLoading(false);
-                        }
-                      }}
-                    />
+                          setPreviewGracePeriod(false);
+                        }}
+                      />
+                    ) : (
+                      <div className="py-6 text-center text-sm text-gray-600">
+                        Preview unavailable for this document type.
+                        <button
+                          onClick={() => window.open(previewUrl, "_blank", "noopener,noreferrer")}
+                          className="ml-2 text-blue-600 underline"
+                        >
+                          Open in new tab
+                        </button>
+                      </div>
+                    )
                   )}
 
 
