@@ -11,7 +11,9 @@
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "express": "^5.1.0"
+    "dayjs": "^1.11.19",
+    "express": "^5.1.0",
+    "recharts": "^3.6.0"
   },
   "scripts": {
     "dev": "ts-node --project tsconfig.json src/index.ts",

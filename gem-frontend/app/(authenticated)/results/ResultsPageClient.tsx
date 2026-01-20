@@ -63,6 +63,11 @@ export default function ResultsPageClient() {
 
   const [previewForId, setPreviewForId] = useState<number | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewGracePeriod, setPreviewGracePeriod] = useState(false);
+  const [previewTriedArchive, setPreviewTriedArchive] = useState(false);
+
+
 
   // Load filters from URL on first render
   useEffect(() => {
@@ -142,6 +147,7 @@ export default function ResultsPageClient() {
   useEffect(() => {
     setPreviewForId(null);
     setPreviewUrl(null);
+    setPreviewLoading(false);
   }, [currentPage]);
 
 
@@ -185,23 +191,91 @@ export default function ResultsPageClient() {
     window.history.replaceState(null, "", newUrl);
   }, [itemFilter, ministryFilter, departmentFilter, sellerFilter, bidRaFilter, globalSearch]);
 
-  const openPreview = (id: number, gemUrl?: string | null) => {
-    if (!gemUrl) return;
-
-    // If clicking same card again → close preview
+  const openPreview = async (
+    id: number,
+    bidNumber: string,
+    gemUrl?: string | null
+  ) => {
     if (previewForId === id) {
       closePreview();
       return;
     }
 
     setPreviewForId(id);
-    setPreviewUrl(`/api/open-pdf?url=${encodeURIComponent(gemUrl)}`);
+    setPreviewLoading(true);
+    setPreviewGracePeriod(true);   // <-- start grace timer
+    setPreviewUrl(null);
+    setPreviewTriedArchive(false);
+
+    // End grace period after 2 seconds
+    setTimeout(() => {
+      setPreviewGracePeriod(false);
+    }, 2000);
+
+    // Safety fallback: if archive was tried but nothing loaded after 4s → force GeM
+    setTimeout(() => {
+      if (previewTriedArchive && gemUrl) {
+        console.warn("Timed fallback to GeM after failed archive load");
+        setPreviewUrl(`/api/open-pdf?url=${encodeURIComponent(gemUrl)}`);
+        setPreviewTriedArchive(false);
+        setPreviewGracePeriod(false);
+        setPreviewLoading(false);
+      }
+    }, 4000);
+
+    try {
+      const res = await fetch(
+        `/api/tenders-archive?bid=${encodeURIComponent(bidNumber)}`
+      );
+
+      const json = await res.json();
+
+      if (json?.pdf_public_url) {
+        setPreviewTriedArchive(true);
+
+        try {
+          // 🔥 PRE-CHECK BEFORE IFRAAMING
+          const head = await fetch(json.pdf_public_url, { method: "HEAD" });
+          const contentType = head.headers.get("content-type");
+
+          const isPdf =
+            head.ok &&
+            contentType &&
+            contentType.toLowerCase().includes("application/pdf");
+
+          if (isPdf) {
+            console.log("Archive PDF validated — rendering in iframe");
+            setPreviewUrl(json.pdf_public_url);
+            setPreviewLoading(false);
+            return; // SUCCESS PATH
+          } else {
+            console.warn(
+              "Archive exists but is not a valid PDF → falling back to GeM"
+            );
+          }
+        } catch (err) {
+          console.warn("Archive HEAD check failed → falling back to GeM", err);
+        }
+      }
+
+    } catch (err) {
+      console.warn("Archive lookup failed:", err);
+    } finally {
+      // DO NOT turn off loading here — let iframe handlers or timers handle it
+    }
+
+    // Fallback to GeM if nothing from archive
+    if (gemUrl) {
+      setPreviewUrl(`/api/open-pdf?url=${encodeURIComponent(gemUrl)}`);
+    }
   };
+
 
 
   const closePreview = () => {
     setPreviewForId(null);
     setPreviewUrl(null);
+    setPreviewLoading(false);
   };
 
 
@@ -768,35 +842,26 @@ export default function ResultsPageClient() {
                       <div className="max-w-[85%] flex flex-col">
 
                         {/* LINE 1 — PRIMARY TITLE (your logic) */}
+                        <a
+                          href="#"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            openPreview(r.id, r.bid_number, r.bid_detail_url);
+                          }}
+                          className="text-lg font-semibold text-blue-700 hover:underline block leading-tight"
+                        >
+                          {r.bid_number}
+                        </a>
+
+                        {/* LINE 2 — REAL SECONDARY OR PURE PLACEHOLDER */}
                         {r.has_reverse_auction && r.ra_number ? (
                           <a
                             href={r.ra_detail_url ?? "#"}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-lg font-semibold text-blue-700 hover:underline block leading-tight"
-                          >
-                            {r.ra_number}
-                          </a>
-                        ) : (
-                          <a
-                            href={r.bid_detail_url ?? "#"}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-lg font-semibold text-blue-700 hover:underline block leading-tight"
-                          >
-                            {r.bid_number}
-                          </a>
-                        )}
-
-                        {/* LINE 2 — REAL SECONDARY OR PURE PLACEHOLDER */}
-                        {r.has_reverse_auction && r.ra_number && r.bid_number ? (
-                          <a
-                            href={r.bid_detail_url ?? undefined}
-                            target="_blank"
-                            rel="noopener noreferrer"
                             className="text-sm text-gray-700 font-medium hover:underline block mt-1"
                           >
-                            (Bid No. {r.bid_number})
+                            RA: {r.ra_number}
                           </a>
                         ) : (
                           <div className="h-[20px]" />
@@ -971,28 +1036,62 @@ export default function ResultsPageClient() {
 
               </div>
               {/* ====== INLINE PDF PREVIEW BETWEEN CARDS ====== */}
-              {previewForId === r.id && previewUrl && (
+              {previewForId === r.id && (
                 <div className="bg-white border rounded-xl shadow-sm p-3 mt-2">
                   <div className="flex justify-between items-center mb-2">
                     <h3 className="text-sm font-semibold">
                       Document Preview for {r.bid_number}
                     </h3>
                     <button
-                      onClick={() => {
-                        setPreviewForId(null);
-                        setPreviewUrl(null);
-                      }}
+                      onClick={closePreview}
                       className="text-xs text-red-600"
                     >
                       Close ✕
                     </button>
                   </div>
+                  {(previewLoading || previewGracePeriod) && (
+                    <div className="py-6 flex justify-center items-center gap-3 text-sm text-gray-500">
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Loading document...
+                    </div>
+                  )}
 
-                  <iframe
-                    src={previewUrl}
-                    className="w-full h-[650px] border rounded"
-                    title="PDF Preview"
-                  />
+                  {previewUrl && (
+                    <iframe
+                      src={previewUrl}
+                      className="w-full h-[650px] border rounded"
+                      title="PDF Preview"
+
+                      onLoad={() => {
+                        // If it loads successfully, stop spinner
+                        setPreviewLoading(false);
+                        setPreviewGracePeriod(false);
+                        setPreviewTriedArchive(false);
+                      }}
+
+                      onError={() => {
+                        if (previewTriedArchive && r.bid_detail_url) {
+                          console.warn("Archive PDF failed, falling back to GeM");
+
+                          setPreviewUrl(
+                            `/api/open-pdf?url=${encodeURIComponent(r.bid_detail_url)}`
+                          );
+
+                          setPreviewTriedArchive(false);
+                          setPreviewGracePeriod(false);
+                          setPreviewLoading(false);
+                        }
+                      }}
+                    />
+                  )}
+
+
+                  {!previewLoading && !previewGracePeriod && !previewUrl && (
+                    <div className="py-6 text-center text-sm text-gray-500">
+                      No PDF available for this bid.
+                    </div>
+                  )}
+
                 </div>
               )}
               {/* ====== END PREVIEW ====== */}
