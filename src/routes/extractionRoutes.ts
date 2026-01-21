@@ -20,7 +20,14 @@ const router = Router();
 router.post("/", async (req, res) => {
   try {
     const { s3Key, tenderId } = req.body || {};
-    const userId = (req as AuthRequest).user.userId;
+
+    const authReq = req as AuthRequest;
+
+    if (!authReq.user || !authReq.user.sub) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const userId = authReq.user.sub;
 
     if (!s3Key || !tenderId) {
       return res.status(400).json({
@@ -28,8 +35,11 @@ router.post("/", async (req, res) => {
       });
     }
 
-
-    const job = await extractorService.createJob({ s3Key, tenderId, userId });
+    const job = await extractorService.createJob({
+      s3Key,
+      tenderId,
+      userId,
+    });
 
     return res.status(201).json(job);
   } catch (err: any) {
@@ -39,6 +49,7 @@ router.post("/", async (req, res) => {
     });
   }
 });
+
 
 /**
  * GET /api/extractions/:jobId
