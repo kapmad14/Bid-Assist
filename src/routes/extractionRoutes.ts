@@ -1,6 +1,7 @@
 // src/routes/extractionRoutes.ts
 import { Router } from "express";
 import { extractorService } from "../services/extractorService";
+import { AuthRequest } from "../middleware/auth";
 
 const router = Router();
 
@@ -9,21 +10,24 @@ const router = Router();
  * Create a new extraction job.
  *
  * Expected JSON body:
- * {
+* {
  *   "s3Key": "bids/GEM_doc_123.pdf",
- *   "tenderId": "some-tender-id",
- *   "userId": "some-user-id"
+ *   "tenderId": "some-tender-id"
  * }
- */
+ *
+ * userId is derived from JWT
+*/
 router.post("/", async (req, res) => {
   try {
-    const { s3Key, tenderId, userId } = req.body || {};
+    const { s3Key, tenderId } = req.body || {};
+    const userId = (req as AuthRequest).user.userId;
 
-    if (!s3Key || !tenderId || !userId) {
+    if (!s3Key || !tenderId) {
       return res.status(400).json({
-        error: "Missing required fields: s3Key, tenderId, userId",
+        error: "Missing required fields: s3Key, tenderId",
       });
     }
+
 
     const job = await extractorService.createJob({ s3Key, tenderId, userId });
 
