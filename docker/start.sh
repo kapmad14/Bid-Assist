@@ -23,15 +23,6 @@ log() {
 log "=== STARTUP: $(date -u) ==="
 cd "${APP_DIR}" || log "WARNING: could not cd to ${APP_DIR}"
 
-# ---------- 1) Node backend ----------
-if [ -f "${APP_DIR}/dist/index.js" ]; then
-  log "=== starting node backend ==="
-  node dist/index.js >> "${LOG_DIR}/node.log" 2>&1 &
-else
-  log "WARNING: node dist/index.js not found; skipping node start" >> "${LOG_DIR}/node.log"
-fi
-sleep 0.2
-
 # ---------- 2) update_tenders_from_pdfs_fixed_v4.py ----------
 if [ -f "${APP_DIR}/update_tenders_from_pdfs_fixed_v4.py" ]; then
   log "=== starting update_tenders_from_pdfs_fixed_v4.py ==="
@@ -104,4 +95,11 @@ log "=== background processes started ==="
 ps -eo pid,etime,cmd --sort=pid | sed -n '1,200p'
 
 log "=== tailing logs (${LOG_DIR}/*.log) ==="
-tail -F "${LOG_DIR}"/*.log
+
+# ---------- 1) Node backend ----------
+if [ -f "${APP_DIR}/dist/index.js" ]; then
+  log "=== starting node backend ==="
+  exec node dist/index.js
+else
+  log "WARNING: node dist/index.js not found; skipping node start" >> "${LOG_DIR}/node.log"
+fi
