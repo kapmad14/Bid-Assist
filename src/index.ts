@@ -11,9 +11,13 @@ const app = express();
 // For now, allow all origins to unblock; we can tighten later.
 app.use(
   cors({
-    origin: "*",
+    origin: [
+      "https://tenderbot.app",
+      "https://www.tenderbot.app",
+    ],
   })
 );
+
 
 app.use(express.json());
 
