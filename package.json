@@ -11,6 +11,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.91.0",
     "cors": "^2.8.5",
     "dayjs": "^1.11.19",
     "express": "^5.1.0",
@@ -21,5 +22,15 @@
     "dev": "ts-node --project tsconfig.json src/index.ts",
     "start": "node dist/index.js",
     "build": "tsc -p tsconfig.json"
-  }
+  },
+  "name": "bid-assist",
+  "version": "1.0.0",
+  "description": "Simple prototype for GeM tender triage: - Streamlit app: streamlit_prototype.py - Dummy SKU CSV: dummy_skus.csv",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
 }
