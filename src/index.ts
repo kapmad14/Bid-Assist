@@ -30,19 +30,22 @@ app.get("/health", (_req, res) => {
 });
 
 /* TEMP login – testing only */
-app.post("/auth/login", (_req, res) => {
-  const user = {
-    userId: "test-user-1",
-    email: "test@tenderbot.app",
-    role: "user",
-  };
+if (process.env.NODE_ENV !== "production") {
+  app.post("/auth/login", (_req, res) => {
+    const user = {
+      userId: "test-user-1",
+      email: "test@tenderbot.app",
+      role: "user",
+    };
 
-  const token = jwt.sign(user, process.env.JWT_SECRET as string, {
-    expiresIn: "1h",
+    const token = jwt.sign(user, process.env.JWT_SECRET as string, {
+      expiresIn: "1h",
+    });
+
+    res.json({ token });
   });
+}
 
-  res.json({ token });
-});
 
 /* ---------- Protected routes ---------- */
 app.use("/api/extractions", requireAuth, extractionRoutes);
