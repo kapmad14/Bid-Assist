@@ -1,18 +1,10 @@
 import { Request, Response, NextFunction } from "express";
-import jwt, { JwtPayload } from "jsonwebtoken";
+import jwt from "jsonwebtoken";
 
-if (!process.env.SUPABASE_JWT_SECRET) {
-  throw new Error("SUPABASE_JWT_SECRET is not set");
-}
-
-const JWT_SECRET = process.env.SUPABASE_JWT_SECRET;
+const JWT_SECRET = process.env.SUPABASE_JWT_SECRET || "";
 
 export interface AuthRequest extends Request {
-  user?: JwtPayload & {
-    sub: string;
-    email?: string;
-    role?: string;
-  };
+  user?: any;
 }
 
 export const requireAuth = (
@@ -23,18 +15,16 @@ export const requireAuth = (
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({
-      error: "Missing or invalid Authorization header",
-    });
+    return res.status(401).json({ error: "Missing or invalid Authorization header" });
   }
 
   const token = authHeader.split(" ")[1];
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
+    const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded;
     next();
-  } catch {
+  } catch (err) {
     return res.status(401).json({ error: "Invalid or expired token" });
   }
-};
+}
