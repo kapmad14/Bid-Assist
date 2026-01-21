@@ -7,11 +7,20 @@ export interface AuthRequest extends Request {
   user?: any;
 }
 
-export function requireAuth(
+export const requireAuth = (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) {
+) => {
+  console.log(
+    "AUTH HEADER PREFIX:",
+    req.headers.authorization?.slice(0, 20)
+  );
+  console.log(
+    "SUPABASE_JWT_SECRET length:",
+    process.env.SUPABASE_JWT_SECRET?.length
+  );
+
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
