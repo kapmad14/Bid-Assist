@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { createClient } from '@/lib/supabase-client';
 import { Button } from '@/components/ui/button';
 import { LogOut } from 'lucide-react';
@@ -16,15 +17,20 @@ export function Header() {
   };
 
   return (
-    <header className="bg-white border-b px-4 py-3">
+    <header className="bg-black border-b border-neutral-800 px-4 py-3">
       <div className="container mx-auto flex justify-between items-center">
-        <h1 className="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
-          Gem Assist
-        </h1>
+        <Image
+          src="/logo/tenderbot-header.png"
+          alt="tenderbot app"
+          height={36}
+          width={180}
+          priority
+        />
+
         <Button
           variant="ghost"
           onClick={handleLogout}
-          className="text-sm px-2 py-1"
+          className="text-sm px-2 py-1 text-white hover:bg-white/10"
         >
           <LogOut className="h-4 w-4 mr-2" />
           Logout

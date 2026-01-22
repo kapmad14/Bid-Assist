@@ -1,5 +1,3 @@
-'use client';
-
 import Sidebar from '@/components/Sidebar';
 
 export default function AuthenticatedLayout({
@@ -10,9 +8,11 @@ export default function AuthenticatedLayout({
   return (
     <div className="flex min-h-screen bg-[#F5F5F7]">
       <Sidebar />
-      <main className="flex-1 p-8">
-        {children}
-      </main>
+      <div className="flex flex-col flex-1">
+        <main className="flex-1 p-8">
+          {children}
+        </main>
+      </div>
     </div>
   );
 }
