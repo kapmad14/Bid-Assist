@@ -5,6 +5,7 @@ export const fetchCache = 'force-no-store';
 import { useState, useMemo, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-client';
+import type { Session } from '@supabase/supabase-js';
 import { Loader2, Eye, EyeOff } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -28,12 +29,15 @@ export default function LoginPage() {
   useEffect(() => {
     if (!supabase) return;
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) {
-        router.replace('/dashboard');
+    supabase.auth.getSession().then(
+      (res: { data: { session: Session | null } }) => {
+        if (res.data.session) {
+          router.replace('/dashboard');
+        }
       }
-    });
+    );
   }, [supabase, router]);
+
 
 
   const handleEmailLogin = async () => {
