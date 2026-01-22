@@ -57,6 +57,12 @@ router.post("/", async (req, res) => {
  */
 router.get("/:jobId", async (req, res) => {
   try {
+    const authReq = req as AuthRequest;
+
+    if (!authReq.user || !authReq.user.sub) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
     const { jobId } = req.params;
 
     const job = await extractorService.getJob(jobId);
@@ -65,7 +71,18 @@ router.get("/:jobId", async (req, res) => {
       return res.status(404).json({ error: "Job not found" });
     }
 
-    return res.json(job);
+    // 🔐 Ownership check (CRITICAL)
+    if (job.userId !== authReq.user.sub) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    return res.json({
+      jobId: job.jobId,
+      status: job.status,
+      result: job.result ?? null,
+      error: job.error ?? null,
+      updatedAt: job.updatedAt,
+    });
   } catch (err: any) {
     console.error("Error fetching extraction job:", err);
     return res.status(500).json({
