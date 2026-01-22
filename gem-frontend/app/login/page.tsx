@@ -2,23 +2,18 @@
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
 
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-client';
-import type { Session } from '@supabase/supabase-js';
 import { Loader2, Eye, EyeOff } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/app/providers/AuthProvider';
 
 export default function LoginPage() {
-  const router = useRouter();
 
-  // ✅ Supabase client must only be created in the browser
-  const supabase = useMemo(() => {
-    if (typeof window !== 'undefined') {
-      return createClient();
-    }
-    return null; // during prerender this prevents the crash
-  }, []);
+  const { user, loading: authLoading } = useAuth();
+
+  const router = useRouter();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -27,24 +22,18 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!supabase) return;
-
-    supabase.auth.getSession().then(
-      (res: { data: { session: Session | null } }) => {
-        if (res.data.session) {
-          router.replace('/dashboard');
-        }
-      }
-    );
-  }, [supabase, router]);
-
-
+    if (!authLoading && user) {
+      router.replace('/dashboard');
+    }
+  }, [authLoading, user, router]);
 
   const handleEmailLogin = async () => {
-    if (!supabase || loading) return;
+    if (loading) return;
 
     setLoading(true);
     setError(null);
+
+    const supabase = createClient();
 
     const { error } = await supabase.auth.signInWithPassword({
       email,
@@ -57,22 +46,24 @@ export default function LoginPage() {
       return;
     }
 
-    // ✅ Step 1 fix: force navigation
     router.replace('/dashboard');
-    router.refresh();
   };
 
 
+
   const handleGoogleLogin = async () => {
-    if (!supabase) return; // SSR safety
+    const supabase = createClient();
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
       },
     });
+
     if (error) setError(error.message);
   };
+
 
   return (
     <div className="fixed inset-0 bg-[#0E121A] flex items-center justify-center p-4 z-50">
@@ -153,7 +144,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={handleEmailLogin}
-                disabled={loading}
+                disabled={loading || authLoading}
                 className="w-full py-4 px-6 bg-[#F7C846] text-[#0E121A] font-bold rounded-2xl
                           hover:bg-[#F7C846]/90 transform hover:scale-[1.02] transition-all
                           shadow-[0_4px_12px_rgba(247,200,70,0.4)]
@@ -183,7 +174,7 @@ export default function LoginPage() {
 
             <button
               onClick={handleGoogleLogin}
-              disabled={loading}
+              disabled={loading || authLoading}
               className="w-full flex items-center justify-center gap-3 px-6 py-3.5 bg-[#F0F0F0] rounded-2xl
                         hover:bg-gray-200 transition-all shadow-[0_2px_8px_rgba(0,0,0,0.08)]"
             >
