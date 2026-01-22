@@ -1,4 +1,4 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr';
+import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 export async function middleware(request: NextRequest) {
@@ -30,7 +30,12 @@ export async function middleware(request: NextRequest) {
   );
 
   // NOTE: correct destructuring for getUser()
-  const { data: { user }, error } = await supabase.auth.getUser();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  const user = session?.user ?? null;
+
 
   // Debugging (remove in production)
   // console.log('middleware user:', user, 'error:', error);
@@ -38,11 +43,15 @@ export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
 
   // Protect routes — redirect to login if not authenticated
-  if (!user && (
-    path.startsWith('/tenders') ||
-    path.startsWith('/dashboard') ||
-    path.startsWith('/catalogue')
-  )) {
+const isProtectedRoute =
+  path.startsWith('/dashboard') ||
+  path.startsWith('/tenders') ||
+  path.startsWith('/catalog') ||
+  path.startsWith('/results') ||
+  path.startsWith('/analytics') ||
+  path.startsWith('/help');    
+
+  if (!user && isProtectedRoute) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
@@ -58,9 +67,11 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     '/dashboard/:path*',
-    '/(authenticated)/:path*',
     '/tenders/:path*',
-    '/catalogue/:path*',
+    '/catalog/:path*',
+    '/results/:path*',
+    '/analytics/:path*',
+    '/help/:path*',
     '/login',
     '/signup'
   ],
