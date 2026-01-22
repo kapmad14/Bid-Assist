@@ -6,9 +6,10 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-client';
 import { Loader2, Eye, EyeOff } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 export default function LoginPage() {
-
+  const router = useRouter();
 
   // ✅ Supabase client must only be created in the browser
   const supabase = useMemo(() => {
@@ -38,7 +39,12 @@ export default function LoginPage() {
     if (error) {
       setError(error.message);
       setLoading(false);
+      return;
     }
+
+    // ✅ Step 1 fix: force navigation
+    router.replace('/dashboard');
+    router.refresh();
   };
 
 
