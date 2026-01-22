@@ -1,7 +1,6 @@
-// src/services/extractorService.ts
 import { jobQueue } from "./jobQueue";
 import type { ExtractionJob, ExtractionJobPayload } from "../types/extractionJob";
-// plus your Supabase client import
+import { supabase } from "../lib/supabase";
 
 export interface ExtractorService {
   createJob(input: {
@@ -14,26 +13,40 @@ export interface ExtractorService {
 }
 
 class DefaultExtractorService implements ExtractorService {
-  async createJob({ s3Key, tenderId, userId }: {
+  async createJob({
+    s3Key,
+    tenderId,
+    userId,
+  }: {
     s3Key: string;
     tenderId: string;
     userId: string;
   }): Promise<ExtractionJob> {
     const jobId = crypto.randomUUID();
 
-    // 1. Insert into Supabase (extraction_jobs table)
-    // TODO: replace with your real Supabase client call
-    // await supabase.from("extraction_jobs").insert({
-    //   id: jobId,
-    //   s3_key: s3Key,
-    //   tender_id: tenderId,
-    //   user_id: userId,
-    //   status: "pending",
-    // });
+    // 1️⃣ Persist immediately (source of truth)
+    const { error } = await supabase
+      .from("extraction_jobs")
+      .insert({
+        job_id: jobId,
+        s3_key: s3Key,
+        tender_id: tenderId,
+        user_id: userId,
+        status: "pending",
+      });
 
-    const payload: ExtractionJobPayload = { jobId, s3Key, tenderId, userId };
+    if (error) {
+      throw error;
+    }
 
-    // 2. Enqueue job (no-op or log for now, SQS later)
+    const payload: ExtractionJobPayload = {
+      jobId,
+      s3Key,
+      tenderId,
+      userId,
+    };
+
+    // 2️⃣ Enqueue for background processing (best-effort)
     await jobQueue.enqueueExtractionJob(payload);
 
     return {
@@ -43,8 +56,26 @@ class DefaultExtractorService implements ExtractorService {
   }
 
   async getJob(jobId: string): Promise<ExtractionJob | null> {
-    // TODO: fetch from Supabase: select * from extraction_jobs where id = jobId
-    return null;
+    const { data, error } = await supabase
+      .from("extraction_jobs")
+      .select("*")
+      .eq("job_id", jobId)
+      .single();
+
+    if (error || !data) {
+      return null;
+    }
+
+    return {
+      jobId: data.job_id,
+      s3Key: data.s3_key,
+      tenderId: data.tender_id,
+      userId: data.user_id,
+      status: data.status,
+      result: data.result ?? null,
+      error: data.error ?? null,
+      updatedAt: data.updated_at,
+    };
   }
 }
 
