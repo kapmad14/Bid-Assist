@@ -25,6 +25,17 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!supabase) return;
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) {
+        router.replace('/dashboard');
+      }
+    });
+  }, [supabase, router]);
+
+
   const handleEmailLogin = async () => {
     if (!supabase || loading) return;
 
