@@ -1,0 +1,42 @@
+'use client';
+
+import { createClient } from '@/lib/supabase-client';
+import { useEffect, useState, useRef } from 'react';
+import { Loader2 } from 'lucide-react';
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
+
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // ✅ Now guaranteed client-side
+    supabaseRef.current = createClient();
+    const supabase = supabaseRef.current;
+
+    supabase.auth.getSession().then(({ data }) => {
+      setUser(data.session?.user ?? null);
+      setLoading(false);
+    });
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      setLoading(false);
+    });
+
+    return () => {
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-[#0E121A]">
+        <Loader2 className="h-8 w-8 animate-spin text-white" />
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+}
