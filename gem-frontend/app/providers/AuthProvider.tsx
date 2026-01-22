@@ -1,9 +1,16 @@
 'use client';
 
 import { createClient } from '@/lib/supabase-client';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, createContext, useContext } from 'react';
 import { Loader2 } from 'lucide-react';
 import type { Session, User } from '@supabase/supabase-js';
+
+type AuthContextType = {
+  user: User | null;
+  loading: boolean;
+};
+
+const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
@@ -42,5 +49,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
   }
 
-  return <>{children}</>;
+  return (
+    <AuthContext.Provider value={{ user, loading }}>
+        {children}
+    </AuthContext.Provider>
+    );
+
+}
+
+export function useAuth() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) {
+    throw new Error('useAuth must be used within AuthProvider');
+  }
+  return ctx;
 }
