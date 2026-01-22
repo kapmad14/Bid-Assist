@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase-client';
 import { Loader2, Eye, EyeOff } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/app/providers/AuthProvider';
+import Image from 'next/image';
 
 export default function LoginPage() {
 
@@ -71,19 +72,20 @@ export default function LoginPage() {
         <div className="bg-white rounded-[32px] p-8 shadow-2xl">
 
           {/* Header */}
-          <div className="mb-8 flex items-center gap-4">
-            <div className="flex items-center justify-center w-16 h-16 bg-[#F7C846] rounded-2xl shrink-0">
-              <span className="text-2xl font-bold text-[#0E121A]">TM</span>
+          <div className="mb-8 flex flex-col items-center text-center gap-4">
+            <div className="rounded-2xl overflow-hidden">
+              <Image
+                src="/logo/tenderbot-header.png"
+                alt="tenderbot"
+                height={48}
+                width={220}
+                priority
+              />
             </div>
 
-            <div className="flex flex-col">
-              <h1 className="text-2xl font-bold text-[#0E121A] leading-tight">
-                TenderMatch
-              </h1>
-              <p className="text-gray-600 text-sm">
-                Welcome back! Sign in to continue
-              </p>
-            </div>
+            <p className="text-gray-600 text-sm">
+              Welcome back! Sign in to continue
+            </p>
           </div>
 
 

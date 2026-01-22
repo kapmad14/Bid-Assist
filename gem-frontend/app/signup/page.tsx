@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-client';
 import { Loader2, CheckCircle2, Eye, EyeOff } from 'lucide-react';
+import Image from 'next/image';
 
 export default function SignupPage() {
   const router = useRouter();
@@ -85,19 +86,20 @@ export default function SignupPage() {
         <div className="bg-white rounded-[32px] p-8 shadow-2xl">
 
           {/* Header */}
-          <div className="mb-8 flex items-center gap-4">
-            <div className="flex items-center justify-center w-16 h-16 bg-[#F7C846] rounded-2xl shrink-0">
-              <span className="text-2xl font-bold text-[#0E121A]">TM</span>
+          <div className="mb-8 flex flex-col items-center text-center gap-4">
+            <div className="rounded-2xl overflow-hidden">
+              <Image
+                src="/logo/tenderbot-header.png"
+                alt="tenderbot"
+                height={48}
+                width={220}
+                priority
+              />
             </div>
 
-            <div className="flex flex-col">
-              <h1 className="text-2xl font-bold text-[#0E121A] leading-tight">
-                Create Account
-              </h1>
-              <p className="text-gray-600 text-sm">
-                Join TenderMatch to get started
-              </p>
-            </div>
+            <p className="text-gray-600 text-sm">
+              Create your account to get started
+            </p>
           </div>
 
 

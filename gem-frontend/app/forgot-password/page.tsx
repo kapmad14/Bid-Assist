@@ -6,6 +6,8 @@ import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-client';
 import { Loader2, ArrowLeft, Mail } from 'lucide-react';
+import Image from 'next/image';
+
 
 export default function ForgotPasswordPage() {
   // Prevent SSR crash: only create Supabase client in browser
@@ -53,7 +55,9 @@ export default function ForgotPasswordPage() {
             <div className="inline-flex items-center justify-center w-20 h-20 bg-[#F7C846]/20 rounded-full mb-6">
               <Mail className="w-10 h-10 text-[#F7C846]" />
             </div>
-            <h2 className="text-2xl font-bold text-[#0E121A] mb-3">Check your email!</h2>
+            <h2 className="text-2xl font-bold text-[#0E121A] mb-3">
+              Check your email
+            </h2>
             <p className="text-gray-600 mb-2">We've sent a password reset link to</p>
             <p className="font-semibold text-[#0E121A] mb-6">{email}</p>
             <p className="text-sm text-gray-500 mb-8">
@@ -76,13 +80,27 @@ export default function ForgotPasswordPage() {
         <div className="bg-white rounded-[32px] p-8 shadow-2xl">
           
           {/* Header */}
-          <div className="mb-8 text-center">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-[#F7C846] rounded-2xl mb-4">
-              <span className="text-2xl font-bold text-[#0E121A]">TM</span>
+          <div className="mb-8 flex flex-col items-center text-center gap-4">
+            <div className="rounded-2xl overflow-hidden">
+              <Image
+                src="/logo/tenderbot-header.png"
+                alt="tenderbot"
+                height={48}
+                width={220}
+                priority
+              />
             </div>
-            <h1 className="text-3xl font-bold text-[#0E121A] mb-2">Reset Password</h1>
-            <p className="text-gray-600 text-sm">Enter your email to receive a reset link</p>
+
+            <div>
+              <h1 className="text-2xl font-bold text-[#0E121A] mb-1">
+                Reset your password
+              </h1>
+              <p className="text-gray-600 text-sm">
+                Enter your email to receive a reset link
+              </p>
+            </div>
           </div>
+
 
           {/* Error Message */}
           {error && (

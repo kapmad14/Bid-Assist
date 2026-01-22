@@ -183,8 +183,6 @@ export default function Sidebar() {
             </Link>
           )}
 
-
-
           <button
             onClick={() => setIsCollapsed((s) => !s)}
             className="p-2 hover:bg-gray-700 rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[#F7C846]"
