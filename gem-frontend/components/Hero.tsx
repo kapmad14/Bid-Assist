@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { Check } from "lucide-react";
+import HeroVisual from "@/components/HeroVisual";
 
 export default function Hero() {
   return (
@@ -96,22 +97,11 @@ export default function Hero() {
           </div>
         </div>
 
-        {/* Right column — dashboard visual */}
-        <div className="flex items-center justify-start md:-ml-[6%]">
-        <Image
-            src="/dash2.png"
-            alt="Tenderbot dashboard preview"
-            width={1200}
-            height={750}
-            priority
-            className="
-            w-full md:w-[125%] max-w-none
-            drop-shadow-[0_24px_48px_rgba(0,0,0,0.22)]
-            transition-transform duration-300
-            hover:-translate-y-1
-            "
-        />
+        {/* Right column — HTML visual */}
+        <div className="flex items-center justify-center">
+        <HeroVisual />
         </div>
+
         </div>
     </section>
   );

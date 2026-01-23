@@ -133,3 +133,9 @@ button.bg-yellow-500,
 html {
   scroll-behavior: smooth;
 }
+
+@keyframes score-pop {
+  0% { transform: scale(0.96); }
+  60% { transform: scale(1.02); }
+  100% { transform: scale(1); }
+}

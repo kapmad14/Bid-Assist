@@ -1,6 +1,12 @@
+'use client';
+
 import Link from "next/link";
 
-export default function LaunchOffer() {
+type LaunchOfferProps = {
+  onBookDemo: () => void;
+};
+
+export default function LaunchOffer({ onBookDemo }: LaunchOfferProps) {
   return (
     <section className="bg-[#F5C84C]">
       <div className="mx-auto max-w-3xl px-6 py-20 text-center">
@@ -18,14 +24,16 @@ export default function LaunchOffer() {
           workflow — with no cost.
         </p>
 
-        {/* CTA */}
-        <div className="mt-12">
+        {/* CTAs */}
+        <div className="mt-12 flex flex-wrap justify-center gap-6">
+          
+          {/* Primary CTA — Get Started */}
           <Link
             href="/signup"
             className="
-              inline-flex h-14 min-w-[260px] items-center justify-center
+              inline-flex h-14 min-w-[240px] items-center justify-center
               rounded-md bg-black px-10
-              text-[18px] font-normal text-white
+              text-[18px] font-semibold text-white
               shadow-[0_8px_24px_rgba(0,0,0,0.25)]
               transition-all duration-300 ease-out
               hover:-translate-y-0.5
@@ -33,8 +41,25 @@ export default function LaunchOffer() {
               focus:outline-none focus:ring-2 focus:ring-black/30
             "
           >
-            Get Started — Book a Demo
+            Get Started
           </Link>
+
+          {/* Secondary CTA — Book a Demo */}
+          <button
+            type="button"
+            onClick={onBookDemo}
+            className="
+              inline-flex h-14 min-w-[240px] items-center justify-center
+              rounded-md border border-black/30 bg-black/10 px-10
+              text-[18px] font-semibold text-black
+              transition-all duration-300 ease-out
+              hover:bg-black/15
+              hover:-translate-y-0.5
+              focus:outline-none focus:ring-2 focus:ring-black/30
+            "
+          >
+            Book a Demo
+          </button>
         </div>
 
         {/* Footnote */}

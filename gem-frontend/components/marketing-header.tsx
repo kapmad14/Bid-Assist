@@ -3,7 +3,11 @@
 import Link from 'next/link';
 import Image from 'next/image';
 
-export function MarketingHeader() {
+type MarketingHeaderProps = {
+  onBookDemo: () => void;
+};
+
+export function MarketingHeader({ onBookDemo }: MarketingHeaderProps) {
   return (
     <header className="sticky top-0 z-50 w-full bg-black">
       <div className="mx-auto flex h-[70px] max-w-7xl items-center justify-between px-6">
@@ -27,17 +31,18 @@ export function MarketingHeader() {
           </nav>
 
           {/* Primary CTA */}
-          <Link
-            href="/book-demo"
-            className="
-              inline-flex h-10 items-center
-              rounded-md bg-[#F5C84C] px-6
-              text-[15px] font-medium text-black
-              transition-colors hover:bg-[#e6b93f]
-            "
-          >
-            Book a demo
-          </Link>
+            <button
+            type="button"
+            onClick={onBookDemo}
+                className="
+                inline-flex h-10 items-center
+                rounded-md bg-[#F5C84C] px-6
+                text-[15px] font-medium text-black
+                transition-colors hover:bg-[#e6b93f]
+                "
+            >
+            Book a Demo
+            </button>
         </div>
       </div>
     </header>
