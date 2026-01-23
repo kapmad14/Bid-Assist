@@ -28,7 +28,7 @@ export default function FinalCTA() {
               focus:outline-none focus:ring-2 focus:ring-black/20
             "
           >
-            Try Tenderbot Free
+            Try Tenderbot For Free
           </Link>
         </div>
 
