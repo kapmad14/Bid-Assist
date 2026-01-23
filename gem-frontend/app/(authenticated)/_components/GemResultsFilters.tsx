@@ -44,17 +44,17 @@ export function GemResultsFilters(props: {
   setShowSellerList: (v: boolean) => void;
 
   // --- REFS FOR OUTSIDE-CLICK ---
-  ministryRef: React.RefObject<HTMLDivElement>;
-  departmentRef: React.RefObject<HTMLDivElement>;
-  sellerRef: React.RefObject<HTMLDivElement>;
+  ministryRef: React.MutableRefObject<HTMLDivElement | null>;
+  departmentRef: React.MutableRefObject<HTMLDivElement | null>;
+  sellerRef: React.MutableRefObject<HTMLDivElement | null>;
 
   // --- KEYBOARD INDICES ---
   ministryIndex: number;
-  setMinistryIndex: (n: number) => void;
+  setMinistryIndex: React.Dispatch<React.SetStateAction<number>>;
   departmentIndex: number;
-  setDepartmentIndex: (n: number) => void;
+  setDepartmentIndex: React.Dispatch<React.SetStateAction<number>>;
   sellerIndex: number;
-  setSellerIndex: (n: number) => void;
+  setSellerIndex: React.Dispatch<React.SetStateAction<number>>;
 }) {
 
   // ================== 🔹 ADD THIS DESTRUCTURING HERE 🔹 ==================
