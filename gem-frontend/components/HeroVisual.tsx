@@ -29,18 +29,31 @@ useEffect(() => {
 }, []);
 
   return (
-    <div className="relative w-full">
+    <div
+    className="
+        group relative w-full
+        transition-transform duration-500 ease-out
 
-      <div
+        [@media(pointer:fine)]:hover:-translate-y-1
+        [@media(pointer:fine)]:motion-safe:hover:[transform:translateY(-4px)_rotateX(1deg)_rotateY(-1deg)]
+    "
+    >
+
+        <div
         className="
-          relative rounded-3xl bg-white p-10
-          shadow-[0_40px_90px_rgba(0,0,0,0.12)]
+            relative rounded-3xl bg-white p-10
+            shadow-[0_40px_90px_rgba(0,0,0,0.12)]
+            transition-shadow duration-500
+            [@media(pointer:fine)]:group-hover:shadow-[0_48px_120px_rgba(0,0,0,0.18)]
+            motion-reduce:transition-none
+
         "
-      >
+        >
+
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">
           <span className="text-sm font-medium text-gray-700">
-            Live GeM Intelligence
+            Live TenderBot Intelligence
           </span>
           <span className="rounded-full bg-black px-4 py-1.5 text-xs text-white">
             Active
@@ -118,7 +131,18 @@ useEffect(() => {
 
             {/* Relevance core */}
             <div className="relative">
-              <div className="absolute inset-0 rounded-2xl bg-[#F5C84C]/30 blur-2xl" />
+                <div
+                className="
+                    absolute inset-0 rounded-2xl
+                    bg-[#F5C84C]/30 blur-2xl
+                    transition-all duration-500
+
+                    [@media(pointer:fine)]:group-hover:bg-[#F5C84C]/40
+                    [@media(pointer:fine)]:group-hover:blur-3xl
+                "
+                />
+
+
                 <div
                 className="
                     relative rounded-2xl bg-[#FFF7DD] px-7 py-6 text-center shadow
