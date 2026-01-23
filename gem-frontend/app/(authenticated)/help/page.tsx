@@ -150,7 +150,7 @@ export default function HelpSupportPage() {
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         type="email"
-                        placeholder="you@example.com"
+                        placeholder="Your email ID"
                         className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#F7C846]"
                       />
                     </div>
@@ -295,7 +295,7 @@ export default function HelpSupportPage() {
                 <CardTitle className="text-base font-bold text-gray-900">Quick links</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-sm text-gray-800">
-                <a className="block text-blue-600 font-medium hover:underline" href="mailto:support@example.com">
+                <a className="block text-blue-600 font-medium hover:underline" href="mailto:support@tenderbot.app">
                   <Mail className="inline h-4 w-4 mr-2" />
                   Email support
                 </a>

@@ -11,7 +11,7 @@ import {
   YAxis,
   Tooltip,
   CartesianGrid,
-  ReferenceLine,
+  Treemap,
 } from "recharts";
 import { createClient } from "@supabase/supabase-js";
 
@@ -20,99 +20,232 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-/* ---------------- CUSTOM TOOLTIP ---------------- */
-function MirrorTooltip({ active, payload }: any) {
-  if (!active || !payload || !payload.length) return null;
+type TreemapMetric = "value" | "count";
 
-  const row = payload[0].payload;
+/* ---------------- TREEMAP SIZE CAPPING ---------------- */
+function capTreemapData(data: any[], capRatio = 0.4) {
+  if (!data.length) return [];
+
+  const sorted = [...data].sort((a, b) => b.rankValue - a.rankValue);
+
+  const maxItem = sorted[0];
+  const rest = sorted.slice(1);
+
+  const restTotal = rest.reduce(
+    (sum, d) => sum + d.rankValue,
+    0
+  );
+
+  return [
+    {
+      ...maxItem,          // ✅ PRESERVES bidCount
+      __size: capRatio,
+    },
+    ...rest.map((d) => ({
+      ...d,                // ✅ PRESERVES bidCount
+      __size:
+        restTotal > 0
+          ? (d.rankValue / restTotal) * (1 - capRatio)
+          : 0,
+    })),
+  ];
+}
+
+/* ---------------- LENIENT TEXT WRAPPING ---------------- */
+function wrapText(
+  text: string,
+  maxCharsPerLine = 36,
+  maxLines = 7
+) {
+  const words = text.split(" ");
+  const lines: string[] = [];
+  let current = "";
+
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+
+    if (next.length <= maxCharsPerLine) {
+      current = next;
+    } else {
+      lines.push(current);
+      current = word;
+      if (lines.length >= maxLines - 1) break;
+    }
+  }
+
+  if (current && lines.length < maxLines) {
+    lines.push(current);
+  }
+
+  return lines;
+}
+
+/* ---------------- CUSTOM TREEMAP NODE ---------------- */
+function TreemapNode(props: any) {
+  const {
+    x,
+    y,
+    width,
+    height,
+    name,
+    payload,
+    treemapMetric,
+  } = props;
+
+  // Always render rects — layout depends on this
+  const data = payload?.payload;
+
+  const bidCount =
+    typeof data?.bidCount === "number" ? data.bidCount : null;
+
+  const valueCr =
+    typeof data?.valueCr === "number" ? data.valueCr : null;
+
+  const isLeaf = bidCount !== null || valueCr !== null;
+  const showLabel = isLeaf && width > 110 && height > 70;
 
   return (
-    <div className="bg-gray-800 text-white p-3 rounded-lg shadow-lg text-sm border border-gray-700">
-      <div className="font-semibold mb-1">{row.day}</div>
+    <g>
+      {/* TILE */}
+      <rect
+        x={x}
+        y={y}
+        width={Math.max(0, width)}
+        height={Math.max(0, height)}
+        fill="#FFB703"
+        stroke="#111"
+      />
 
-      <div className="flex justify-between gap-4">
-        <span className="text-white">Bids:</span>
-        <span>{row.bid_count_raw.toLocaleString()}</span>
-      </div>
+      {/* TEXT ONLY FOR LEAF NODES */}
+      {showLabel && (
+        <>
+          <text
+            x={x + 10}
+            y={y + 22}
+            fontSize={12}
+            fontWeight={600}
+            fill="#000"
+            pointerEvents="none"
+          >
+            {name}
+          </text>
 
-      <div className="flex justify-between gap-4">
-        <span className="text-[#FFB703]">Value:</span>
-        <span>₹ {row.value_cr} Cr</span>
-      </div>
-    </div>
+          <text
+            x={x + 10}
+            y={y + 40}
+            fontSize={11}
+            fill="#222"
+            pointerEvents="none"
+          >
+            {treemapMetric === "count"
+              ? `${bidCount!.toLocaleString()} bids`
+              : `₹ ${valueCr!.toFixed(1)} Cr`}
+          </text>
+        </>
+      )}
+    </g>
   );
 }
-/* ----------------------------------------------- */
 
-export default function ResultsDashboard() {
+
+/* ===================================================== */
+
+export default function AnalyticsPage() {
   const [chartData, setChartData] = useState<any[]>([]);
+  const [treemapData, setTreemapData] = useState<any[]>([]);
+  const [treemapMetric, setTreemapMetric] =
+    useState<TreemapMetric>("value");
+
   const [kpis, setKpis] = useState({
     totalBids: 0,
     totalValueCr: 0,
     avgValueLakh: 0,
   });
-  const [loading, setLoading] = useState(true);
 
-  // T-30 to T-2 window
   const fromDate = dayjs().subtract(30, "day").format("YYYY-MM-DD");
   const toDate = dayjs().subtract(2, "day").format("YYYY-MM-DD");
 
+  /* ---------------- BASE DATA ---------------- */
   useEffect(() => {
-    async function fetchData() {
-      setLoading(true);
-
-      // ---- KPI QUERY ----
-      const { data: kpiData } = await supabase.rpc("get_results_kpis", {
-        from_date: fromDate,
-        to_date: toDate,
+    async function fetchBase() {
+      const kpiRes = await supabase.rpc("get_results_kpis", {
+        from_date: null,
+        to_date: null,
+        ministry_param: null,
       });
 
-      if (kpiData && kpiData.length) {
+      if (kpiRes.data?.length) {
         setKpis({
-          totalBids: kpiData[0].total_bids,
-          totalValueCr: kpiData[0].total_value_cr,
-          avgValueLakh: kpiData[0].avg_value_lakh,
+          totalBids: kpiRes.data[0].total_bids ?? 0,
+          totalValueCr: kpiRes.data[0].total_value_cr ?? 0,
+          avgValueLakh: kpiRes.data[0].avg_value_lakh ?? 0,
         });
       }
 
-      // ---- CHART QUERY ----
-      const { data } = await supabase.rpc("get_daily_histogram", {
-        from_date: fromDate,
-        to_date: toDate,
-      });
+      const { data: histogram } = await supabase.rpc(
+        "get_daily_histogram",
+        {
+          from_date: fromDate,
+          to_date: toDate,
+          ministry: null,
+          department: null,
+          seller: null,
+          bid_ra: null,
+        }
+      );
 
-      if (data) {
-        const formatted = data
-          .filter((d: any) => (d.bid_count || 0) > 0) // skip zero-bid days
-          .map((d: any) => ({
-            day: dayjs(d.day).format("DD MMM"),
-
-            // NATURAL SCALES (NO SCALING)
-            bid_count_raw: d.bid_count,     // LINE (top)
-            value_cr: d.total_value_cr,     // BARS (upward)
-          }));
-
-        setChartData(formatted);
-      }
-
-      setLoading(false);
+      setChartData(
+        histogram?.map((d: any) => ({
+          day: dayjs(d.day).format("DD MMM"),
+          bid_count_raw: d.bid_count ?? 0,
+          value_cr: d.total_value_cr ?? 0,
+        })) ?? []
+      );
     }
 
-    fetchData();
+    fetchBase();
   }, []);
 
-  if (loading) {
-    return <div className="p-8">Loading dashboard...</div>;
-  }
+  /* ---------------- TREEMAP ---------------- */
+  useEffect(() => {
+    async function fetchTreemap() {
+      const { data, error } = await supabase.rpc(
+        "get_top_ministries_treemap",
+        {
+          metric: treemapMetric,
+          limit_count: 15,
+        }
+      );
+
+      if (error) {
+        console.error("Treemap RPC error:", error);
+        return;
+      }
+
+      const normalized =
+        data?.map((m: any, i: number) => ({
+          name: m.ministry,
+          valueCr: Number(m.total_value_cr),
+          bidCount: Number(m.bid_count),
+          rankValue:
+            treemapMetric === "count"
+              ? Number(m.bid_count)
+              : Number(m.total_value_cr),
+          rank: i + 1,
+        })) ?? [];
+
+      setTreemapData(capTreemapData(normalized, 0.4));
+    }
+
+    fetchTreemap();
+  }, [treemapMetric]);
 
   return (
     <div className="p-8 space-y-6">
-      {/* -------- KPI CARDS -------- */}
+
+      {/* KPIs */}
       <div className="grid grid-cols-3 gap-4">
-        <KpiCard
-          title="Total Bids"
-          value={kpis.totalBids.toLocaleString()}
-        />
+        <KpiCard title="Total Bids" value={String(kpis.totalBids)} />
         <KpiCard
           title="Total Awarded Value"
           value={`₹ ${kpis.totalValueCr} Cr`}
@@ -123,63 +256,77 @@ export default function ResultsDashboard() {
         />
       </div>
 
-      {/* -------- CHART -------- */}
+      {/* HISTOGRAM */}
       <div className="bg-black p-6 rounded-xl h-[420px]">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={chartData} barCategoryGap={4} barGap={0}>
+          <ComposedChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#222" />
-
-            {/* SHARED X-AXIS */}
-            <XAxis
-              dataKey="day"
-              tick={{ fill: "#aaa", fontSize: 12 }}
-              axisLine={false}
-              tickLine={false}
-              interval={6}
-            />
-
-            {/* PRIMARY AXIS — BIDS (HIDDEN) */}
-            <YAxis yAxisId="bids" orientation="left" hide={true} />
-
-            {/* SECONDARY AXIS — VALUE (HIDDEN) */}
-            <YAxis yAxisId="value" orientation="right" hide={true} />
-
-            {/* BASELINE */}
-            <ReferenceLine
-              y={0}
-              stroke="#777"
-              strokeWidth={1.5}
-            />
-
-            {/* CUSTOM TOOLTIP */}
-            <Tooltip content={<MirrorTooltip />} />
-
-            {/* TOP — SMOOTH WHITE LINE FOR BIDS */}
-            <Line
-              yAxisId="bids"
-              type="monotone"
-              dataKey="bid_count_raw"
-              stroke="#FFFFFF"
-              strokeWidth={2.5}
-              dot={{ r: 3, fill: "#FFFFFF" }}
-              activeDot={{ r: 5 }}
-            />
-
-            {/* BOTTOM — REGULAR UPWARD BARS FOR VALUE */}
-            <Bar
-              yAxisId="value"
-              dataKey="value_cr"
-              barSize={7}
-              radius={[4, 4, 0, 0]}
-              fill="#FFB703"
-            />
+            <XAxis dataKey="day" tick={{ fill: "#aaa" }} axisLine={false} />
+            <YAxis hide />
+            <Tooltip />
+            <Line dataKey="bid_count_raw" stroke="#fff" strokeWidth={2.5} />
+            <Bar dataKey="value_cr" fill="#FFB703" barSize={7} />
           </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* TREEMAP */}
+      <div className="bg-black p-6 rounded-xl h-[380px]">
+
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h3 className="text-white text-sm">Top 15 Ministries</h3>
+            <p className="text-xs text-gray-400">
+              Ranked by{" "}
+              {treemapMetric === "value"
+                ? "total awarded value"
+                : "number of bids"}
+            </p>
+            <p className="text-xs text-gray-500">
+              Area capped at 40% for readability
+            </p>
+          </div>
+
+          <div className="flex bg-gray-900 rounded-lg p-1">
+            <button
+              onClick={() => setTreemapMetric("value")}
+              className={`px-3 py-1 text-xs rounded-md ${
+                treemapMetric === "value"
+                  ? "bg-[#FFB703] text-black"
+                  : "text-gray-400"
+              }`}
+            >
+              ₹ Value
+            </button>
+            <button
+              onClick={() => setTreemapMetric("count")}
+              className={`px-3 py-1 text-xs rounded-md ${
+                treemapMetric === "count"
+                  ? "bg-[#FFB703] text-black"
+                  : "text-gray-400"
+              }`}
+            >
+              Bid Count
+            </button>
+          </div>
+        </div>
+
+        <ResponsiveContainer width="100%" height="100%">
+          <Treemap
+            data={treemapData}
+            dataKey="__size"
+            nameKey="name"
+            content={(props) => (
+              <TreemapNode {...props} treemapMetric={treemapMetric} />
+            )}
+          />
         </ResponsiveContainer>
       </div>
     </div>
   );
 }
 
+/* ---------------- KPI CARD ---------------- */
 function KpiCard({ title, value }: { title: string; value: string }) {
   return (
     <div className="bg-black p-4 rounded-xl border border-gray-800">

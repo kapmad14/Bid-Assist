@@ -1,49 +1,57 @@
 #!/usr/bin/env python3
 """
-Pilot – Extract full card metadata from page-1 & page-2 (Awarded GeM Results)
+GeM Awarded Bids Scraper – Manual Filter Mode (Stable)
 
-Filtering logic is kept EXACTLY as earlier.
+- User applies filters & sort manually
+- Script waits for confirmation
+- Correct DOM + bid-level deduplication
+- Pagination logic UNCHANGED
+- No page cap (full scrape)
+- Resume-safe via checkpoint
 """
 
-import json, re, time
+import json, re, time, os
 from playwright.sync_api import sync_playwright
 from daily_gem_pdf_scraper import navigate_next, wait_for_page_change, find_bid_block_container
 from urllib.parse import urljoin
 from datetime import datetime
-from datetime import datetime, timedelta
-import argparse
-import os
 
+# ---------------- CONFIG ----------------
 ROOT = "https://bidplus.gem.gov.in"
 RESULTS_URL = ROOT + "/all-bids"
 
-
-DEFAULT_TARGET_DATE = (datetime.now() - timedelta(days=1)).strftime("%d-%m-%Y")
 RESULTS_DIR = "gem-scraper/results"
 os.makedirs(RESULTS_DIR, exist_ok=True)
-OUTFILE = None
 
-# ---------------- existing helpers ---------------- #
+DATA_FILE = os.path.join(RESULTS_DIR, "gem_results_manual_filtered.jsonl")
+CHECKPOINT_FILE = os.path.join(RESULTS_DIR, "gem_results_manual_filtered.chk")
+# ---------------------------------------
+
+
+# ---------------- helpers ----------------
 
 def click_filter(page, label_text):
     lbl = page.locator(f"label:has-text('{label_text}')")
     if lbl.count() == 0:
         raise RuntimeError(f"Filter not found: {label_text}")
     lbl.first.click()
-    time.sleep(1.5)
 
 def apply_filters(page):
     page.locator("text=Filters").first.click()
-    time.sleep(1)
     click_filter(page, "Bid/RA Status")
-    time.sleep(3)
     click_filter(page, "Bid /RA Awarded")
-    time.sleep(3)
+
+def wait_for_manual_confirmation():
+    print("\n🔴 MANUAL ACTION REQUIRED 🔴")
+    print("Apply filters & sort in the browser:")
+    print("  ✔ Bid/RA Status → Bid /RA Awarded")
+    print("  ✔ Bid End Date range (as required)")
+    print("  ✔ Sort → Bid End Date : Oldest First")
+    input("\nPress ENTER once filters & sorting are applied...")
 
 def normalize_datetime(dt_raw):
     if not dt_raw:
         return None
-
     for fmt in ("%d-%m-%Y %I:%M %p", "%d-%m-%Y %H:%M"):
         try:
             return datetime.strptime(dt_raw.strip(), fmt).isoformat()
@@ -52,7 +60,7 @@ def normalize_datetime(dt_raw):
     return None
 
 
-# ---------------- parsing helpers (lifted) ---------------- #
+# ---------------- parsing helpers ----------------
 
 def parse_start_datetime(text):
     return parse_datetime_label(text, "Start Date")
@@ -63,33 +71,22 @@ def parse_end_datetime(text):
 def parse_datetime_label(raw_text, label):
     if not raw_text:
         return None
-
     text = " ".join(raw_text.split())
 
     patterns = [
         r"{label}:\s*([0-9]{{1,2}}-[0-9]{{1,2}}-[0-9]{{4}}\s+[0-9]{{1,2}}:[0-9]{{2}}\s+[AP]M)",
-        r"{label}:\s*([0-9]{{2}}/[0-9]{{2}}/[0-9]{{4}}\s+[0-9]{{1,2}}:[0-9]{{2}}\s*[AP]M)",
         r"{label}:\s*([0-9]{{1,2}}-[0-9]{{1,2}}-[0-9]{{4}}\s+[0-9]{{2}}:[0-9]{{2}})",
-        r"{label}:\s*([0-9]{{2}}/[0-9]{{2}}/[0-9]{{4}}\s+[0-9]{{2}}:[0-9]{{2}})",
     ]
 
     for p in patterns:
-        try:
-            regex = re.compile(p.format(label=re.escape(label)), re.I)
-        except Exception as e:
-            print("Regex compile failed:", p, e)
-            continue
-
-        m = regex.search(text)
+        m = re.search(p.format(label=re.escape(label)), text, re.I)
         if m:
             return m.group(1)
-
     return None
 
 
 def parse_extra_fields(raw_text):
     lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
-
     item = quantity = ministry = department = organisation = None
 
     for i, line in enumerate(lines):
@@ -100,43 +97,23 @@ def parse_extra_fields(raw_text):
             try:
                 quantity = int(line.split(":",1)[1].replace(",","").strip())
             except:
-                quantity = None
+                pass
 
         if "department name and address" in line.lower():
-            j = i + 1
             parts = []
+            j = i + 1
             while j < len(lines) and not lines[j].lower().startswith("start date"):
                 parts.append(lines[j])
                 j += 1
 
-            if len(parts) >= 1:
-                ministry = parts[0]
-
-            if len(parts) >= 2:
-                department = parts[1]
-
-            if len(parts) >= 3:
-                # join all remaining lines to preserve full organisation name
-                organisation = " ".join(parts[2:])
+            if parts: ministry = parts[0]
+            if len(parts) > 1: department = parts[1]
+            if len(parts) > 2: organisation = " ".join(parts[2:])
 
     return item, quantity, ministry, department, organisation
 
 
-# ---------------- card extraction ---------------- #
-
-def parse_end_date(raw_text):
-    dt = parse_end_datetime(raw_text)
-    if not dt:
-        return None
-
-    for fmt in ("%d-%m-%Y %I:%M %p", "%d-%m-%Y %H:%M"):
-        try:
-            return datetime.strptime(dt.strip(), fmt).date()
-        except Exception:
-            continue
-
-    return None
-
+# ---------------- card extraction ----------------
 
 def extract_card(card):
     raw_text = card.inner_text().strip()
@@ -158,9 +135,7 @@ def extract_card(card):
         if ra_number and txt == ra_number and href:
             ra_detail_url = urljoin(ROOT, href)
 
-
-    bid_hover_url = None
-    ra_hover_url  = None
+    bid_hover_url = ra_hover_url = None
 
     if card.locator("a:has-text('View Bid Results')").count():
         href = card.locator("a:has-text('View Bid Results')").first.get_attribute("href")
@@ -172,20 +147,11 @@ def extract_card(card):
 
     item, quantity, ministry, department, organisation = parse_extra_fields(raw_text)
 
-    stage = re.search(r"Status:\s*(.*?)\n", raw_text)
-    bid_ra_status = re.search(r"Bid/RA Status:\s*(.*?)\n", raw_text)
-    tech_status = re.search(r"Technical Status:\s*(.*?)\n", raw_text)
-
-    start_raw = parse_start_datetime(raw_text)
-    end_raw   = parse_end_datetime(raw_text)
-
-    has_ra = True if ra_number else False
-
     return {
         "bid_number": bid_number,
         "bid_detail_url": bid_detail_url,
         "bid_hover_url": bid_hover_url,
-        "has_reverse_auction": has_ra,
+        "has_reverse_auction": bool(ra_number),
         "ra_number": ra_number,
         "ra_detail_url": ra_detail_url,
         "ra_hover_url": ra_hover_url,
@@ -194,103 +160,95 @@ def extract_card(card):
         "ministry": ministry,
         "department": department,
         "organisation_address": organisation,
-
-        "start_datetime_raw": start_raw,
-        "end_datetime_raw": end_raw,
-        "start_datetime": normalize_datetime(start_raw),
-        "end_datetime": normalize_datetime(end_raw),
-
-        "stage": stage.group(1).strip() if stage else None,
-        "bid_ra_status": bid_ra_status.group(1).strip() if bid_ra_status else None,
-        "technical_status": tech_status.group(1).strip() if tech_status else None,
+        "start_datetime_raw": parse_start_datetime(raw_text),
+        "end_datetime_raw": parse_end_datetime(raw_text),
+        "start_datetime": normalize_datetime(parse_start_datetime(raw_text)),
+        "end_datetime": normalize_datetime(parse_end_datetime(raw_text)),
         "raw_card_text": raw_text
     }
 
 
-# ---------------- main ---------------- #
+# ---------------- persistence ----------------
+
+def append_records(records):
+    with open(DATA_FILE, "a", encoding="utf-8") as f:
+        for r in records:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+def save_checkpoint(page_no):
+    with open(CHECKPOINT_FILE, "w") as f:
+        f.write(str(page_no))
+
+def load_checkpoint():
+    if os.path.exists(CHECKPOINT_FILE):
+        return int(open(CHECKPOINT_FILE).read().strip())
+    return 1
+
+
+# ---------------- main ----------------
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--date", help="End Date to scrape in DD-MM-YYYY format (default: yesterday)")
-    args = parser.parse_args()
-
-    target_date = args.date or DEFAULT_TARGET_DATE
-    OUTFILE = os.path.join(RESULTS_DIR, f"gem_results_{target_date}.json")
-
-    print(f"Scraping tenders with End Date = {target_date}")
+    start_page = load_checkpoint()
+    print(f"Starting from page {start_page}")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False, slow_mo=200)
         page = browser.new_page()
         page.goto(RESULTS_URL)
-        page.wait_for_selector("a.bid_no_hover")
+        page.wait_for_selector("a.bid_no_hover", timeout=30000)
 
         apply_filters(page)
+        wait_for_manual_confirmation()
 
-        results = []
+        page.wait_for_selector("a.bid_no_hover", timeout=30000)
 
-        seen_bids = set()
+        page_no = start_page
+        seen_bids_global = set()
 
-        page_no = 1
-        passed_target = False
+        # fast-forward if resuming
+        for i in range(1, start_page):
+            navigate_next(page, None, i)
+            wait_for_page_change(page, page.url, None)
 
         while True:
-            links = page.locator("a.bid_no_hover")
+            print(f"Processing page {page_no}...")
+            page_records = []
+
             seen_cards = set()
+            links = page.locator("a.bid_no_hover")
 
             for i in range(links.count()):
-                link = links.nth(i)
-                card = find_bid_block_container(link)
+                card = find_bid_block_container(links.nth(i))
 
                 try:
-                    key = card.inner_text().strip()[:120]
-                except Exception:
+                    card_key = card.inner_text().strip()[:120]
+                except:
                     continue
 
-                if key in seen_cards:
+                if card_key in seen_cards:
                     continue
-                seen_cards.add(key)
+                seen_cards.add(card_key)
 
                 rec = extract_card(card)
-                if not rec:
+                if not rec or not rec.get("bid_number"):
                     continue
 
-                bn = rec.get("bid_number")
-                if not bn or bn in seen_bids:
+                bn = rec["bid_number"]
+                if bn in seen_bids_global:
                     continue
-                seen_bids.add(bn)
+                seen_bids_global.add(bn)
 
-                end_date = parse_end_date(rec["raw_card_text"])
-                if not end_date:
-                    continue
+                page_records.append(rec)
 
-                td = datetime.strptime(target_date, "%d-%m-%Y").date()
+            append_records(page_records)
+            save_checkpoint(page_no)
 
-                if end_date < td:
-                    passed_target = True
-                    break
-
-                if end_date != td:
-                    continue
-
-                results.append(rec)
-
-            # ---------- pagination stop logic ----------
-            if passed_target:
-                break
+            print(f"Saved {len(page_records)} records from page {page_no}")
 
             prev = page.url
             navigate_next(page, None, page_no)
             wait_for_page_change(page, prev, None)
             page_no += 1
-
-
-        with open(OUTFILE, "w", encoding="utf-8") as f:
-            json.dump(results, f, indent=2)
-
-
-        print(f"Saved {len(results)} records → {OUTFILE}")
-        browser.close()
 
 
 if __name__ == "__main__":

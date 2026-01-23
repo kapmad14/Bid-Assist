@@ -1,7 +1,7 @@
 import json
 
-INPUT = "gem-scraper/results/gem_results_17-01-2026.jsonl"
-OUTPUT = "gem-scraper/results/gem_results_17-01-2026_array.json"
+INPUT = "gem-scraper/results/gem_results_21-01-2026_failed.jsonl"
+OUTPUT = "gem-scraper/results/gem_results_21-01-2026.json"
 
 records = []
 

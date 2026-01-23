@@ -18,6 +18,7 @@ import requests
 from pathlib import Path
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+from tqdm import tqdm
 
 # ---------- CONFIG ---------- #
 
@@ -31,7 +32,7 @@ if not SUPABASE_URL or not SERVICE_ROLE_KEY:
 
 REST = SUPABASE_URL.rstrip("/") + "/rest/v1"
 BATCH_SIZE = 20
-MAX_BATCHES = 200
+MAX_BATCHES = 8000
 
 
 HEADERS = {
@@ -255,78 +256,98 @@ def update_row(row_id, payload, status):
     if not r.ok:
         print("Update failed:", r.text)
 
+def render_progress(done, total, errors, bar_width=40):
+    pct = done / total if total else 0
+    filled = int(bar_width * pct)
+    bar = "█" * filled + "-" * (bar_width - filled)
+
+    # Note the newline at the END of this line 👇
+    print(
+        f"[{bar}] {done}/{total} ({pct*100:5.1f}%)  |  Errors: {errors}/{done}"
+    )
+
 # ---------- MAIN LOOP ---------- #
 
 def main():
     last_id = 0
-    total = 0
+    error_count = 0
 
-    for _ in range(MAX_BATCHES):
-        batch = fetch_pending_batch(last_id)
-        if not batch:
-            print("\n🎯 No more pending rows. Done.")
-            break
+    # ---------- CORRECT TOTAL COUNT ----------
+    count_url = (
+        f"{REST}/gem_results"
+        f"?extraction_status=eq.pending"
+        f"&select=id"
+    )
 
-        print(f"\nProcessing batch starting after id={last_id} ...")
+    count_headers = HEADERS.copy()
+    count_headers["Prefer"] = "count=exact"
 
-        for row in batch:
-            row_id = row["id"]
-            bid_url = row["bid_hover_url"]
-            ra_url = row.get("ra_hover_url")
+    r = requests.get(count_url, headers=count_headers)
+    r.raise_for_status()
 
-            try:
-                if row.get("has_reverse_auction"):
-                    # ---------- Case B: Reverse Auction ----------
-                    print(f"→ Processing TECH from bid: {bid_url}")
-                    tech_scrape = scrape_bid_or_ra(bid_url)
+    total_pending = int(r.headers.get("Content-Range", "0/0").split("/")[-1])
 
-                    # Guard: RA flag true but no RA URL
-                    if not ra_url:
+    print(f"\nTotal pending rows: {total_pending}\n")
+
+    processed = 0
+
+    with tqdm(total=total_pending, desc="Processing GeM results") as pbar:
+
+        for _ in range(MAX_BATCHES):
+            batch = fetch_pending_batch(last_id)
+            if not batch:
+                print("\n🎯 No more pending rows. Done.")
+                break
+
+            for row in batch:
+                row_id = row["id"]
+                bid_url = row["bid_hover_url"]
+                ra_url = row.get("ra_hover_url")
+
+                try:
+                    if row.get("has_reverse_auction"):
+                        tech_scrape = scrape_bid_or_ra(bid_url)
+
+                        if not ra_url:
+                            raise ValueError(
+                                "has_reverse_auction is true but ra_hover_url is null"
+                            )
+
+                        fin_scrape = scrape_bid_or_ra(ra_url)
+
+                        scraped = tech_scrape.copy()
+                        for k, v in fin_scrape.items():
+                            if k.startswith(("l1_", "l2_", "l3_")):
+                                scraped[k] = v
+
+                    else:
+                        scraped = scrape_bid_or_ra(bid_url)
+
+                    if scraped["l1_seller"] is None:
                         raise ValueError(
-                            "has_reverse_auction is true but ra_hover_url is null"
+                            "No L1 details extracted — likely layout change or missing table"
                         )
 
-                    print(f"→ Processing FIN from RA: {ra_url}")
-                    fin_scrape = scrape_bid_or_ra(ra_url)
+                    update_row(row_id, scraped, "success")
 
-                    # --- SAFE MERGE: keep technical counts from BID,
-                    #     take only L1/L2/L3 from RA ---
-                    scraped = tech_scrape.copy()
-
-                    for k, v in fin_scrape.items():
-                        if k.startswith(("l1_", "l2_", "l3_")):
-                            scraped[k] = v
-
-                else:
-                    # ---------- Case A: No Reverse Auction ----------
-                    # (handles: two tables OR single "Evaluation" table)
-                    target_url = bid_url
-                    print(f"→ Processing id={row_id}, url={target_url}")
-                    scraped = scrape_bid_or_ra(target_url)
-
-                # ---- sanity check: require L1 at minimum ----
-                if scraped["l1_seller"] is None:
-                    raise ValueError(
-                        "No L1 details extracted — likely layout change or missing table"
+                except Exception as e:
+                    error_count += 1
+                    print(f"\n❌ Error on id={row_id}: {e}")
+                    update_row(
+                        row_id,
+                        {"extraction_error": str(e)},
+                        "error"
                     )
 
-                update_row(row_id, scraped, "success")
-                print(f"   ✅ success")
+                last_id = row_id
+                processed += 1
+                pbar.update(1)
 
-            except Exception as e:
-                print(f"   ❌ error: {e}")
-                update_row(
-                    row_id,
-                    {"extraction_error": str(e)},
-                    "error"
-                )
+            time.sleep(1.5)
 
-            last_id = row_id
-            total += 1
+    print(f"\nProcessed total rows: {processed}")
+    print(f"Final errors: {error_count}")
 
-        time.sleep(1.5)  # gentle pause for GeM
-
-    print(f"\nProcessed total rows: {total}")
 
 if __name__ == "__main__":
     main()
