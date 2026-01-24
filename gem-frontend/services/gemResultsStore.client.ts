@@ -16,6 +16,7 @@ export const gemResultsClientStore = {
   async getResults(args: GetResultsArgs): Promise<{
     data: GemResult[];
     total: number;
+    isCapped: boolean;
   }> {
     const params = new URLSearchParams({
       page: String(args.page),
@@ -41,10 +42,31 @@ export const gemResultsClientStore = {
 
     return res.json();
   },
+
+    // ✅ LIVE AUTOSUGGEST (scales to millions of rows)
+  async suggest(
+    type: "ministry" | "department" | "seller",
+    q: string
+  ): Promise<string[]> {
+    // ✅ Start only after 2 characters
+    if (!q || q.trim().length < 2) return [];
+
+    const res = await fetch(
+      `/api/gem-results/suggest?type=${type}&q=${encodeURIComponent(q)}`,
+      {
+        cache: "no-store",
+      }
+    );
+
+    if (!res.ok) return [];
+
+    const json = await res.json();
+    return json.options ?? [];
+  },
+
   async getAutosuggest(): Promise<{
     ministries: string[];
     departments: string[];
-    sellers: string[];
   }> {
     const res = await fetch("/api/gem-results/autosuggest", {
       cache: "no-store",

@@ -21,6 +21,7 @@ export default function ResultsPageClient() {
   const [results, setResults] = useState<GemResult[]>([]);
   const [totalRecords, setTotalRecords] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [isCapped, setIsCapped] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // UI typing state (fast)
@@ -62,7 +63,6 @@ export default function ResultsPageClient() {
   // Global autosuggest options loaded once from server
   const [ministryOptions, setMinistryOptions] = useState<string[]>([]);
   const [departmentOptions, setDepartmentOptions] = useState<string[]>([]);
-  const [sellerOptions, setSellerOptions] = useState<string[]>([]);
 
   const [previewForId, setPreviewForId] = useState<number | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -102,11 +102,11 @@ export default function ResultsPageClient() {
   // ✅ STEP 5C — load global autosuggest ONCE
   useEffect(() => {
     gemResultsClientStore.getAutosuggest()
-      .then(({ ministries, departments, sellers }) => {
+      .then(({ ministries, departments }) => {
         setMinistryOptions(ministries);
         setDepartmentOptions(departments);
-        setSellerOptions(sellers);
       })
+
       .catch(err => {
         console.error("Failed to load autosuggest options:", err);
       });
@@ -282,7 +282,7 @@ export default function ResultsPageClient() {
     setError(null);
 
     try {
-      const { data, total } = await gemResultsClientStore.getResults({
+      const { data, total, isCapped } = await gemResultsClientStore.getResults({
         page: currentPage,
         limit: PAGE_SIZE,
         global: globalSearch || undefined,
@@ -295,6 +295,7 @@ export default function ResultsPageClient() {
 
       setResults(data);
       setTotalRecords(total);
+      setIsCapped(isCapped);
 
       // After first successful fetch, disable global spinner
       setIsFirstLoad(false);
@@ -304,6 +305,7 @@ export default function ResultsPageClient() {
       setError(err?.message ?? "Failed to load results");
       setResults([]);
       setTotalRecords(0);
+      setIsCapped(false);
     } finally {
       setIsLoading(false);
     }
@@ -356,7 +358,16 @@ export default function ResultsPageClient() {
 
 
 
-  const lastPage = Math.max(1, Math.ceil(totalRecords / PAGE_SIZE));
+  const lastPage = isCapped
+    ? 10 // homepage shows latest 200 results only
+    : Math.max(1, Math.ceil(totalRecords / PAGE_SIZE));
+
+  useEffect(() => {
+    if (isCapped && currentPage > 10) {
+      router.push("/results?page=10");
+    }
+  }, [isCapped, currentPage, router]);
+
 
   const showingStart = useMemo(() => {
     if (totalRecords === 0) return 0;
@@ -421,7 +432,6 @@ export default function ResultsPageClient() {
 
         ministryOptions={ministryOptions}
         departmentOptions={departmentOptions}
-        sellerOptions={sellerOptions}
 
         showMinistryList={showMinistryList}
         setShowMinistryList={setShowMinistryList}
@@ -770,6 +780,14 @@ export default function ResultsPageClient() {
           </div>
         )} 
 
+      {/* ✅ Homepage Notice */}
+      {isCapped && (
+          <div className="text-center text-sm text-gray-600 mt-3">
+            Showing the latest <span className="font-semibold">200</span> tenders.
+            Apply filters to explore more results.
+          </div>
+      )}
+
       {/* Pagination */}
         {totalRecords > 0 && (
         <div className="py-8 flex justify-center">
@@ -832,22 +850,25 @@ export default function ResultsPageClient() {
                 );
             })()}
 
-            {/* Next Button */}
-            <button
+            {/* Next Button (hidden in capped mode) */}
+            {!isCapped && (
+              <button
                 onClick={() =>
-                router.push(`/results?page=${Math.min(lastPage, currentPage + 1)}`)
+                  router.push(`/results?page=${Math.min(lastPage, currentPage + 1)}`)
                 }
-                disabled={currentPage === lastPage}
+                disabled={isCapped || currentPage === lastPage}
                 className={`px-3 py-1.5 rounded-md border text-sm font-medium transition-all
-                ${
+                  ${
                     currentPage === lastPage
-                    ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
-                    : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
-                }
+                      ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
+                      : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
+                  }
                 `}
-            >
+              >
                 Next
-            </button>
+              </button>
+            )}
+
             </div>
         </div>
         )}

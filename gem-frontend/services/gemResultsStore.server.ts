@@ -1,5 +1,3 @@
-"use server";
-
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { GemResult } from "@/types";
 
@@ -27,8 +25,26 @@ export async function getGemResultsServer({
 }: GetResultsArgs): Promise<{
   data: GemResult[];
   total: number;
+  isCapped: boolean;
 }> {
   const supabase = await createServerSupabaseClient();
+
+    // ✅ FAST HOMEPAGE MODE (NO FILTERS)
+  const isUnfiltered =
+    !bidRa &&
+    !item &&
+    !ministry &&
+    !department &&
+    !seller &&
+    !global;
+
+  // ✅ Homepage cap: latest 200 rows (10 pages)
+  const CAP_LIMIT = 200;
+
+  // If homepage → force page 1 + limit 200
+  const effectiveLimit = limit; // always page size (20)
+  const effectivePage = page;   // allow pagination normally
+
 
   const applyFilters = (q: any) => {
     if (item) {
@@ -77,38 +93,48 @@ export async function getGemResultsServer({
     return q;
   };
 
-  const from = (page - 1) * limit;
-  const to = from + limit - 1;
-
-  // Get total count of SUCCESS rows
-  let countQuery = supabase
-    .from("gem_results")
-    .select("*", { count: "exact", head: true })
-    .eq("extraction_status", "success");
-
-  countQuery = applyFilters(countQuery);
-
-  const { count, error: countErr } = await countQuery;
+  const from = (effectivePage - 1) * effectiveLimit;
+  const to = from + effectiveLimit - 1;
 
 
-  if (countErr) {
-    throw new Error(`Count failed: ${countErr.message}`);
+    // ✅ TOTAL COUNT
+  let total = 0;
+
+  if (isUnfiltered) {
+    // ✅ Homepage mode: skip expensive COUNT(*)
+    total = CAP_LIMIT;
+  } else {
+    // ✅ Filtered mode: exact count
+    let countQuery = supabase
+      .from("gem_results")
+      .select("id", { count: "estimated" }) // ✅ faster + safer
+      .eq("extraction_status", "success");
+
+
+    countQuery = applyFilters(countQuery);
+
+    const { count, error: countErr } = await countQuery;
+
+    if (countErr) {
+      throw new Error(`Count failed: ${countErr.message}`);
+    }
+
+    total = count ?? 0;
   }
 
-// Fetch paginated data  ✅ (FIXED ORDER)
-let dataQuery = supabase
-  .from("gem_results")
-  .select("*")
-  .eq("extraction_status", "success");
+  // Fetch paginated data  ✅ (FIXED ORDER)
+  let dataQuery = supabase
+    .from("gem_results")
+    .select("*")
+    .eq("extraction_status", "success");
 
-// 👉 APPLY FILTERS FIRST
-dataQuery = applyFilters(dataQuery);
+  // 👉 APPLY FILTERS FIRST
+  dataQuery = applyFilters(dataQuery);
 
-// 👉 THEN order + range
-const { data, error } = await dataQuery
-  .order("created_at", { ascending: false })
-  .range(from, to);
-
+  // 👉 THEN order + range
+  const { data, error } = await dataQuery
+    .order("created_at", { ascending: false })
+    .range(from, to);
 
   if (error) {
     throw new Error(`Results fetch failed: ${error.message}`);
@@ -116,6 +142,7 @@ const { data, error } = await dataQuery
 
   return {
     data: (data ?? []) as GemResult[],
-    total: count ?? 0,
+    total,
+    isCapped: isUnfiltered,
   };
 }

@@ -5,9 +5,9 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
 
   const page = Number(searchParams.get("page") ?? 1);
-  const limit = Number(searchParams.get("limit") ?? 10);
+  const limit = Number(searchParams.get("limit") ?? 20);
 
-  // NEW: read filters from URL
+  // Read filters from URL
   const bidRa = searchParams.get("bidRa") || undefined;
   const item = searchParams.get("item") || undefined;
   const ministry = searchParams.get("ministry") || undefined;
@@ -15,12 +15,17 @@ export async function GET(request: Request) {
   const seller = searchParams.get("seller") || undefined;
   const global = searchParams.get("global") || undefined;
 
+  // ✅ Do NOT increase page size.
+  // Keep normal pagination (20 per page)
+  const effectiveLimit = limit;
+  const effectivePage = page;
+
 
   try {
     const result = await getGemResultsServer({
-      page,
+      page: effectivePage,
+      limit: effectiveLimit,
       global,
-      limit,
       bidRa,
       item,
       ministry,
@@ -33,4 +38,3 @@ export async function GET(request: Request) {
     return new NextResponse(err?.message ?? "Server error", { status: 500 });
   }
 }
-

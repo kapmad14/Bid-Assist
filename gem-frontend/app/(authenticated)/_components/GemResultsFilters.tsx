@@ -1,7 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { Info } from "lucide-react";
+import { gemResultsClientStore } from "@/services/gemResultsStore.client";
 
 /**
  * Reusable filter container that renders the full
@@ -33,7 +34,6 @@ export function GemResultsFilters(props: {
   // --- AUTOSUGGEST OPTIONS ---
   ministryOptions: string[];
   departmentOptions: string[];
-  sellerOptions: string[];
 
   // --- DROPDOWN VISIBILITY ---
   showMinistryList: boolean;
@@ -77,7 +77,6 @@ export function GemResultsFilters(props: {
 
     ministryOptions,
     departmentOptions,
-    sellerOptions,
 
     showMinistryList,
     setShowMinistryList,
@@ -98,6 +97,10 @@ export function GemResultsFilters(props: {
     setSellerIndex,
   } = props;
   // ======================================================================
+
+  // ✅ Live seller autosuggest (fetched on demand)
+  const [sellerLiveOptions, setSellerLiveOptions] = useState<string[]>([]);
+  const [sellerLoading, setSellerLoading] = useState(false);
 
   return (
     <div className="bg-white border rounded-xl shadow-sm px-4 py-3 mb-6 grid grid-cols-1 md:grid-cols-4 gap-x-6 gap-y-3">
@@ -352,96 +355,127 @@ export function GemResultsFilters(props: {
 
         {/* SELLER AUTOSUGGEST (L1/L2/L3) */}
         <div className="relative">
-          <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">
+        <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">
             Seller Name
-          </label>
-            <div className="relative">
-              <input
-                value={sellerFilterInput}
-                onFocus={() => {
-                  setShowSellerList(true);
-                  setSellerIndex(-1);
-                }}
-                onChange={(e) => {
-                  setSellerFilterInput(e.target.value);
-                  setShowSellerList(true);
-                  setSellerIndex(-1);
-                }}
-                onKeyDown={(e) => {
-                  const filtered = sellerOptions
-                    .filter(s =>
-                      s.toLowerCase().includes(sellerFilterInput.toLowerCase())
-                    )
-                    .slice(0, 8);
+        </label>
 
-                  if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    setSellerIndex(i => Math.min(i + 1, filtered.length - 1));
-                  }
+        <div className="relative">
+            <input
+            value={sellerFilterInput}
+            onFocus={() => {
+                setShowSellerList(true);
+                setSellerIndex(-1);
+            }}
+            onChange={(e) => {
+            const val = e.target.value;
+            setSellerFilterInput(val);
+            setSellerIndex(-1);
 
-                  if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    setSellerIndex(i => Math.max(i - 1, 0));
-                  }
+            // ✅ Only start after 2 characters
+            if (val.trim().length < 2) {
+                setSellerLiveOptions([]);
+                setShowSellerList(false);
+                return;
+            }
 
-                  if (e.key === "Enter" && sellerIndex >= 0) {
-                    e.preventDefault();
-                    const picked = filtered[sellerIndex];
-                    if (picked) {
-                      setSellerFilterInput(picked);
-                      setShowSellerList(false);
-                    }
-                  }
-                }}
-                placeholder="Search Seller Name..."
-                className="w-full border rounded-lg px-3 py-2 text-sm pr-8"
-              />
+            setSellerLoading(true);
+            setShowSellerList(true);
 
-              {sellerFilterInput && (
-                <button
-                  type="button"
-                    onClick={() => {
-                    setSellerFilterInput("");
+            // ✅ Debounce API call
+            const timeout = setTimeout(async () => {
+                const opts = await gemResultsClientStore.suggest("seller", val);
+                setSellerLiveOptions(opts);
+                setSellerLoading(false);
+            }, 250);
+
+            return () => clearTimeout(timeout);
+            }}
+
+            onKeyDown={(e) => {
+                if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setSellerIndex((i) =>
+                    Math.min(i + 1, sellerLiveOptions.length - 1)
+                );
+                }
+
+                if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setSellerIndex((i) => Math.max(i - 1, 0));
+                }
+
+                if (e.key === "Enter" && sellerIndex >= 0) {
+                e.preventDefault();
+                const picked = sellerLiveOptions[sellerIndex];
+                if (picked) {
+                    setSellerFilterInput(picked);
                     setShowSellerList(false);
                     setSellerIndex(-1);
-                    }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
+                }
+                }
+            }}
+            placeholder="Search Seller Name..."
+            className="w-full border rounded-lg px-3 py-2 text-sm pr-8"
+            />
 
+            {/* Clear button */}
+            {sellerFilterInput && (
+            <button
+                type="button"
+                onClick={() => {
+                setSellerFilterInput("");
+                setSellerLiveOptions([]);
+                setShowSellerList(false);
+                setSellerIndex(-1);
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
+            >
+                ✕
+            </button>
+            )}
+        </div>
 
-            {showSellerList && sellerFilterInput && (
-              <div
-                ref={sellerRef}
-                className="absolute left-0 right-0 bg-white border mt-1 rounded shadow max-h-40 overflow-auto z-10"
-              >
-              {sellerOptions
-                .filter(s =>
-                  s.toLowerCase().includes(sellerFilterInput.toLowerCase())
-                )
-                .slice(0, 8)
-                .map((s, idx) => (
-                  <div
-                    key={s}
-                    onMouseEnter={() => setSellerIndex(idx)}
-                    onClick={() => {
+        {/* ✅ Dropdown */}
+        {showSellerList && sellerFilterInput.trim().length >= 2 && (
+            <div
+            ref={sellerRef}
+            className="absolute left-0 right-0 bg-white border mt-1 rounded shadow max-h-40 overflow-auto z-10"
+            >
+            {/* Loading */}
+            {sellerLoading && (
+                <div className="px-3 py-2 text-xs text-gray-400">
+                Loading...
+                </div>
+            )}
+
+            {/* No matches */}
+            {!sellerLoading && sellerLiveOptions.length === 0 && (
+                <div className="px-3 py-2 text-xs text-gray-400">
+                No matches found
+                </div>
+            )}
+
+            {/* Suggestions */}
+            {sellerLiveOptions.map((s, idx) => (
+                <div
+                key={s}
+                onMouseEnter={() => setSellerIndex(idx)}
+                onClick={() => {
                     setSellerFilterInput(s);
                     setShowSellerList(false);
                     setSellerIndex(-1);
-                    }}
-                    className={`px-3 py-2 text-sm cursor-pointer ${
-                      idx === sellerIndex ? "bg-blue-50" : "hover:bg-gray-100"
-                    }`}
-                  >
-                    {s}
-                  </div>
-                ))}
+                }}
+                className={`px-3 py-2 text-sm cursor-pointer ${
+                    idx === sellerIndex ? "bg-blue-50" : "hover:bg-gray-100"
+                }`}
+                >
+                {s}
+                </div>
+            ))}
             </div>
-          )}
+        )}
         </div>
+
 
         {/* GLOBAL SEARCH */}
         <div className="relative">
