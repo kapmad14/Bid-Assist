@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Info } from "lucide-react";
 import { gemResultsClientStore } from "@/services/gemResultsStore.client";
 
@@ -102,6 +102,44 @@ export function GemResultsFilters(props: {
   const [sellerLiveOptions, setSellerLiveOptions] = useState<string[]>([]);
   const [sellerLoading, setSellerLoading] = useState(false);
 
+  // ✅ Ranked + limited dropdown options (Ministry & Department)
+const rankedMinistries = ministryOptions
+  .filter((m) =>
+    m.toLowerCase().includes(ministryFilterInput.toLowerCase())
+  )
+  .sort((a, b) => {
+    const q = ministryFilterInput.toLowerCase();
+
+    const aStarts = a.toLowerCase().startsWith(q);
+    const bStarts = b.toLowerCase().startsWith(q);
+
+    if (aStarts && !bStarts) return -1;
+    if (!aStarts && bStarts) return 1;
+
+    return a.localeCompare(b);
+  })
+  .slice(0, 8);
+
+const rankedDepartments = departmentOptions
+  .filter((d) =>
+    d.toLowerCase().includes(departmentFilterInput.toLowerCase())
+  )
+  .sort((a, b) => {
+    const q = departmentFilterInput.toLowerCase();
+
+    const aStarts = a.toLowerCase().startsWith(q);
+    const bStarts = b.toLowerCase().startsWith(q);
+
+    if (aStarts && !bStarts) return -1;
+    if (!aStarts && bStarts) return 1;
+
+    return a.localeCompare(b);
+  })
+  .slice(0, 8);
+
+  // ✅ Debounce timer holder (so we cancel old requests)
+  const sellerDebounceRef = React.useRef<NodeJS.Timeout | null>(null);
+
   return (
     <div className="bg-white border rounded-xl shadow-sm px-4 py-3 mb-6 grid grid-cols-1 md:grid-cols-4 gap-x-6 gap-y-3">
       
@@ -187,31 +225,30 @@ export function GemResultsFilters(props: {
                   setMinistryIndex(-1);
                 }}
                 onKeyDown={(e) => {
-                  const filtered = ministryOptions
-                    .filter(m =>
-                      m.toLowerCase().includes(ministryFilterInput.toLowerCase())
-                    )
-                    .slice(0, 8);
+                const filtered = rankedMinistries;
 
-                  if (e.key === "ArrowDown") {
+                if (e.key === "ArrowDown") {
                     e.preventDefault();
-                    setMinistryIndex(i => Math.min(i + 1, filtered.length - 1));
-                  }
+                    setMinistryIndex((i) => Math.min(i + 1, filtered.length - 1));
+                }
 
-                  if (e.key === "ArrowUp") {
+                if (e.key === "ArrowUp") {
                     e.preventDefault();
-                    setMinistryIndex(i => Math.max(i - 1, 0));
-                  }
+                    setMinistryIndex((i) => Math.max(i - 1, 0));
+                }
 
-                  if (e.key === "Enter" && ministryIndex >= 0) {
+                if (e.key === "Enter" && ministryIndex >= 0) {
                     e.preventDefault();
                     const picked = filtered[ministryIndex];
                     if (picked) {
-                      setMinistryFilterInput(picked);
-                      setShowMinistryList(false);
+                    setMinistryFilterInput(picked);
+                    setShowMinistryList(false);
+                    setMinistryIndex(-1);
                     }
-                  }
+                }
                 }}
+
+
                 placeholder="Type Ministry Name..."
                 className="w-full border rounded-lg px-3 py-2 text-sm pr-8"
               />
@@ -237,26 +274,22 @@ export function GemResultsFilters(props: {
                 ref={ministryRef}
                 className="absolute left-0 right-0 bg-white border mt-1 rounded shadow max-h-40 overflow-auto z-10"
               >
-              {ministryOptions
-                .filter(m =>
-                  m.toLowerCase().includes(ministryFilterInput.toLowerCase())
-                )
-                .slice(0, 8)
-                .map((m, idx) => (
-                  <div
+                {rankedMinistries.map((m, idx) => (
+                <div
                     key={m}
                     onMouseEnter={() => setMinistryIndex(idx)}
                     onClick={() => {
-                      setMinistryFilterInput(m);
-                      setShowMinistryList(false);
+                    setMinistryFilterInput(m);
+                    setShowMinistryList(false);
                     }}
                     className={`px-3 py-2 text-sm cursor-pointer ${
-                      idx === ministryIndex ? "bg-blue-50" : "hover:bg-gray-100"
+                    idx === ministryIndex ? "bg-blue-50" : "hover:bg-gray-100"
                     }`}
-                  >
+                >
                     {m}
-                  </div>
+                </div>
                 ))}
+
             </div>
           )}
         </div>
@@ -279,31 +312,29 @@ export function GemResultsFilters(props: {
                   setDepartmentIndex(-1);
                 }}
                 onKeyDown={(e) => {
-                  const filtered = departmentOptions
-                    .filter(d =>
-                      d.toLowerCase().includes(departmentFilterInput.toLowerCase())
-                    )
-                    .slice(0, 8);
+                const filtered = rankedDepartments;
 
-                  if (e.key === "ArrowDown") {
+                if (e.key === "ArrowDown") {
                     e.preventDefault();
-                    setDepartmentIndex(i => Math.min(i + 1, filtered.length - 1));
-                  }
+                    setDepartmentIndex((i) => Math.min(i + 1, filtered.length - 1));
+                }
 
-                  if (e.key === "ArrowUp") {
+                if (e.key === "ArrowUp") {
                     e.preventDefault();
-                    setDepartmentIndex(i => Math.max(i - 1, 0));
-                  }
+                    setDepartmentIndex((i) => Math.max(i - 1, 0));
+                }
 
-                  if (e.key === "Enter" && departmentIndex >= 0) {
+                if (e.key === "Enter" && departmentIndex >= 0) {
                     e.preventDefault();
                     const picked = filtered[departmentIndex];
                     if (picked) {
-                      setDepartmentFilterInput(picked);
-                      setShowDepartmentList(false);
+                    setDepartmentFilterInput(picked);
+                    setShowDepartmentList(false);
+                    setDepartmentIndex(-1);
                     }
-                  }
+                }
                 }}
+
                 placeholder="Type Department Name..."
                 className="w-full border rounded-lg px-3 py-2 text-sm pr-8"
               />
@@ -329,26 +360,23 @@ export function GemResultsFilters(props: {
                 ref={departmentRef}
                 className="absolute left-0 right-0 bg-white border mt-1 rounded shadow max-h-40 overflow-auto z-10"
               >
-              {departmentOptions
-                .filter(d =>
-                  d.toLowerCase().includes(departmentFilterInput.toLowerCase())
-                )
-                .slice(0, 8)
-                .map((d, idx) => (
-                  <div
+                {rankedDepartments.map((d, idx) => (
+                <div
                     key={d}
                     onMouseEnter={() => setDepartmentIndex(idx)}
                     onClick={() => {
-                      setDepartmentFilterInput(d);
-                      setShowDepartmentList(false);
+                    setDepartmentFilterInput(d);
+                    setShowDepartmentList(false);
+                    setDepartmentIndex(-1);
                     }}
                     className={`px-3 py-2 text-sm cursor-pointer ${
-                      idx === departmentIndex ? "bg-blue-50" : "hover:bg-gray-100"
+                    idx === departmentIndex ? "bg-blue-50" : "hover:bg-gray-100"
                     }`}
-                  >
+                >
                     {d}
-                  </div>
+                </div>
                 ))}
+
             </div>
           )}
         </div>
@@ -381,15 +409,19 @@ export function GemResultsFilters(props: {
             setSellerLoading(true);
             setShowSellerList(true);
 
-            // ✅ Debounce API call
-            const timeout = setTimeout(async () => {
-                const opts = await gemResultsClientStore.suggest("seller", val);
-                setSellerLiveOptions(opts);
-                setSellerLoading(false);
-            }, 250);
+            // ✅ Cancel previous scheduled request
+            if (sellerDebounceRef.current) {
+            clearTimeout(sellerDebounceRef.current);
+            }
 
-            return () => clearTimeout(timeout);
+            // ✅ Schedule a new request
+            sellerDebounceRef.current = setTimeout(async () => {
+            const opts = await gemResultsClientStore.suggest("seller", val);
+            setSellerLiveOptions(opts);
+            setSellerLoading(false);
+            }, 250);
             }}
+
 
             onKeyDown={(e) => {
                 if (e.key === "ArrowDown") {
@@ -423,8 +455,16 @@ export function GemResultsFilters(props: {
             <button
                 type="button"
                 onClick={() => {
+                // ✅ Cancel pending API debounce
+                if (sellerDebounceRef.current) {
+                    clearTimeout(sellerDebounceRef.current);
+                    sellerDebounceRef.current = null;
+                }
+
+                // ✅ Reset everything
                 setSellerFilterInput("");
                 setSellerLiveOptions([]);
+                setSellerLoading(false);
                 setShowSellerList(false);
                 setSellerIndex(-1);
                 }}
@@ -433,6 +473,7 @@ export function GemResultsFilters(props: {
                 ✕
             </button>
             )}
+
         </div>
 
         {/* ✅ Dropdown */}
