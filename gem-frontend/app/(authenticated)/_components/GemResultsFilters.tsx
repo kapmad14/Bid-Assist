@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Info } from "lucide-react";
+import { X } from "lucide-react";
 import { gemResultsClientStore } from "@/services/gemResultsStore.client";
 
 /**
@@ -30,6 +30,9 @@ export function GemResultsFilters(props: {
 
   // --- CLEAR ---
   clearFilters: () => void;
+
+  // --- RESULTS COUNT ---
+  totalResults: number;
 
   // --- AUTOSUGGEST OPTIONS ---
   ministryOptions: string[];
@@ -74,6 +77,7 @@ export function GemResultsFilters(props: {
     setGlobalSearchInput,
 
     clearFilters,
+    totalResults,
 
     ministryOptions,
     departmentOptions,
@@ -101,6 +105,15 @@ export function GemResultsFilters(props: {
   // ✅ Live seller autosuggest (fetched on demand)
   const [sellerLiveOptions, setSellerLiveOptions] = useState<string[]>([]);
   const [sellerLoading, setSellerLoading] = useState(false);
+
+  // ✅ Step 3: Detect if any filter is active
+  const hasActiveFilters =
+    itemFilterInput.trim() !== "" ||
+    ministryFilterInput.trim() !== "" ||
+    departmentFilterInput.trim() !== "" ||
+    sellerFilterInput.trim() !== "" ||
+    bidRaFilterInput.trim() !== "" ||
+    globalSearchInput.trim() !== "";
 
   // ✅ Ranked + limited dropdown options (Ministry & Department)
 const rankedMinistries = ministryOptions
@@ -141,16 +154,11 @@ const rankedDepartments = departmentOptions
   const sellerDebounceRef = React.useRef<NodeJS.Timeout | null>(null);
 
   return (
-    <div className="bg-white border rounded-xl shadow-sm px-4 py-3 mb-6 grid grid-cols-1 md:grid-cols-4 gap-x-6 gap-y-3">
+    <div className="bg-white border rounded-xl shadow-sm px-4 py-4 mb-6
+        grid grid-cols-1
+        md:grid-cols-[30%_30%_30%_10%]
+        gap-x-4 gap-y-4">
       
-      {/* ====== USER GUIDE ====== */}
-      <div className="flex items-center text-sm text-gray-700 max-w-[200px] leading-snug">
-        <Info className="w-4 h-4 mr-2 text-blue-600 flex-shrink-0" />
-        <span className="font-medium">
-          Customize filters for targeted results
-        </span>
-      </div>
-
         {/* BID / RA NUMBER FILTER */}
         <div className="relative">
           <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">
@@ -293,6 +301,34 @@ const rankedDepartments = departmentOptions
             </div>
           )}
         </div>
+
+        {/* ✅ Clear Filters Button (Aligned to Inputs) */}
+        <div className="flex items-end justify-start">
+        <button
+            onClick={clearFilters}
+            className={`
+            h-[35px] w-[52px]
+            flex items-center justify-center
+            rounded-xl
+            border
+            transition
+            ${
+                hasActiveFilters
+                ? "bg-black border-black"
+                : "bg-[#F6D36B] border-[#F1C94A]"
+            }
+            `}
+        >
+            <X
+            className={`w-5 h-5 ${
+                hasActiveFilters ? "text-white" : "text-black"
+            }`}
+            strokeWidth={3}
+            />
+        </button>
+        </div>
+
+
 
         {/* DEPARTMENT AUTOSUGGEST */}
         <div className="relative">
@@ -545,26 +581,17 @@ const rankedDepartments = departmentOptions
             )}
           </div>
         </div>
-
-        {/* ROW 2 — COLUMN 4: CLEAR ALL PILL (CENTERED) */}
-        <div className="flex items-center justify-center pt-4">
-          <button
-            onClick={clearFilters}
-            className="
-              text-xs
-              text-blue-700
-              bg-blue-50
-              border border-blue-200
-              hover:bg-blue-100
-              px-3 py-1
-              rounded-full
-              transition
-              whitespace-nowrap
-            "
-          >
-            Clear all filters
-          </button>
+        {/* ✅ Result Count (Bottom Right Cell) */}
+        {hasActiveFilters && totalResults !== undefined && (
+        <div className="mt-6 flex items-center justify-left font-small text-gray-700">
+            <span className="leading-tight text-right">
+            <div>{totalResults.toLocaleString()}</div>
+            <div className="text-xs text-gray-500">results</div>
+            </span>
         </div>
+        )}
+
+    
     </div>
   );
 }

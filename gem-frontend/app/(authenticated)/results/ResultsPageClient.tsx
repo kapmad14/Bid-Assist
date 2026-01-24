@@ -420,6 +420,8 @@ export default function ResultsPageClient() {
         sellerFilterInput={sellerFilterInput}
         bidRaFilterInput={bidRaFilterInput}
         globalSearchInput={globalSearchInput}
+        totalResults={totalRecords}
+
 
         setItemFilterInput={setItemFilterInput}
         setMinistryFilterInput={setMinistryFilterInput}
