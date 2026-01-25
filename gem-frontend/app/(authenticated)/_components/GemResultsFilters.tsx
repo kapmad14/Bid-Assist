@@ -590,8 +590,6 @@ const rankedDepartments = departmentOptions
             </span>
         </div>
         )}
-
-    
     </div>
   );
 }
