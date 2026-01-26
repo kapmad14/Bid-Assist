@@ -11,8 +11,9 @@ export async function GET(request: NextRequest) {
 
   // ✅ Create redirect response FIRST
   const response = NextResponse.redirect(
-    new URL("/dashboard", requestUrl.origin)
+    new URL("/auth/post-callback", requestUrl.origin)
   );
+
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
