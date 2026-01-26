@@ -57,7 +57,7 @@ export default function DashboardPage() {
     { date: string; count: number }[]
   >([]);
 
-
+  const [showWelcome, setShowWelcome] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +70,16 @@ export default function DashboardPage() {
     catalogTotal: 0,
     catalogPaused: 0,
   });
+
+  useEffect(() => {
+    const hasSeen = localStorage.getItem("tb-welcome");
+
+    if (!hasSeen) {
+      setShowWelcome(true);
+      localStorage.setItem("tb-welcome", "true");
+    }
+  }, []);
+
 
   useEffect(() => {
     let mounted = true;
@@ -234,6 +244,44 @@ export default function DashboardPage() {
 
   // ================== LOADING UI ====================
   if (loading) {
+    {/* ✅ TenderBot Welcome Modal */}
+    {showWelcome && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+        <div className="w-full max-w-md rounded-3xl bg-white shadow-2xl px-8 py-7 text-center">
+
+          {/* Accent */}
+          <div className="mx-auto mb-4 h-10 w-10 rounded-full bg-[#F7C846] flex items-center justify-center">
+            <span className="text-black text-xl font-extrabold">✓</span>
+          </div>
+
+          <h2 className="text-2xl font-extrabold text-[#0E121A]">
+            Welcome to TenderBot
+          </h2>
+
+          <p className="mt-2 text-sm text-black/60 leading-relaxed">
+            Your workspace is ready. Start exploring tenders, shortlist opportunities,
+            and unlock AI-powered recommendations.
+          </p>
+
+          <button
+            onClick={() => setShowWelcome(false)}
+            className="mt-6 w-full rounded-2xl bg-black text-white py-3 font-semibold
+                      hover:bg-[#111] transition-all active:scale-[0.99]"
+          >
+            Get started →
+          </button>
+
+          {/* Subtle skip */}
+          <button
+            onClick={() => setShowWelcome(false)}
+            className="mt-3 text-xs text-black/40 hover:text-black transition"
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+    )}
+
     return (
       <div className="min-h-screen bg-[#F5F5F7] p-6">
         <div className="h-10 w-64 bg-gray-200 rounded-xl mb-6 animate-pulse" />
