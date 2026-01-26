@@ -7,11 +7,15 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-client';
-import { Loader2, CheckCircle2, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Eye, EyeOff } from 'lucide-react';
 import Image from 'next/image';
 
 export default function SignupPage() {
   const router = useRouter();
+
+  // ✅ Always use production domain if available
+  const siteUrl =
+    process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
 
   // ✅ Prevent Supabase from initializing on server
   const supabase = useMemo(() => {
@@ -54,7 +58,7 @@ export default function SignupPage() {
       email,
       password,
       options: {
-        emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`,
+        emailRedirectTo: `${siteUrl}/auth/callback`,
       },
     });
 
@@ -64,8 +68,7 @@ export default function SignupPage() {
       return;
     }
 
-    // ✅ Email confirmation ON → user is NOT logged in yet
-    // ✅ Show success message instead of redirecting
+    // ✅ Email confirmation ON → show success message
     setSuccess(true);
     setLoading(false);
   };
@@ -75,16 +78,16 @@ export default function SignupPage() {
     if (!supabase) return;
 
     const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
+      provider: "google",
       options: {
-        redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`,
+        redirectTo: `${siteUrl}/auth/callback`,
+        skipBrowserRedirect: false,
       },
     });
 
-    if (error) {
-      setError(error.message);
-    }
+    if (error) setError(error.message);
   };
+
 
   return (
     <div className="fixed inset-0 bg-[#0E121A] flex items-center justify-center p-4 z-50 overflow-y-auto">
@@ -230,6 +233,7 @@ export default function SignupPage() {
           {/* Google Signup */}
           <button
             onClick={handleGoogleSignup}
+            disabled={loading || success}
             className="w-full flex items-center justify-center gap-3 px-6 py-3.5 bg-[#F0F0F0] rounded-2xl hover:bg-gray-200 transition-all shadow-[0_2px_8px_rgba(0,0,0,0.08)]"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24">

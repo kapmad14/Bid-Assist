@@ -15,6 +15,8 @@ export default function LoginPage() {
   const { user, loading: authLoading } = useAuth();
 
   const router = useRouter();
+  const siteUrl =
+    process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -56,11 +58,13 @@ export default function LoginPage() {
     const supabase = createClient();
 
     const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
+      provider: "google",
       options: {
-        redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`,
+        redirectTo: `${siteUrl}/auth/callback`,
+        skipBrowserRedirect: false,
       },
     });
+
 
     if (error) setError(error.message);
   };

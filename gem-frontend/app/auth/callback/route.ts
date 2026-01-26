@@ -5,13 +5,14 @@ export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get("code");
 
-  // ✅ Invalid callback → send user to login
   if (!code) {
     return NextResponse.redirect(new URL("/login", requestUrl.origin));
   }
 
-  // ✅ Response object used for cookie writing
-  let response = NextResponse.next();
+  // ✅ Create redirect response FIRST
+  const response = NextResponse.redirect(
+    new URL("/dashboard", requestUrl.origin)
+  );
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -31,12 +32,7 @@ export async function GET(request: NextRequest) {
     }
   );
 
-  // ✅ This writes the session cookie correctly
   await supabase.auth.exchangeCodeForSession(code);
 
-  // ✅ Redirect only AFTER cookies are written
-  response = NextResponse.redirect(
-    new URL("/auth/post-callback", requestUrl.origin)
-  );
   return response;
 }
