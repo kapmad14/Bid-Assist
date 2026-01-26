@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase-client';
 import { useEffect, useState, useRef, createContext, useContext } from 'react';
+import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import type { Session, User } from '@supabase/supabase-js';
 
@@ -13,6 +14,7 @@ type AuthContextType = {
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const router = useRouter(); // ✅ add this
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
 
   const [user, setUser] = useState<User | null>(null);
@@ -22,24 +24,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     supabaseRef.current = createClient();
     const supabase = supabaseRef.current;
 
+    // ✅ Initial load
     supabase.auth
-      .getSession()
-      .then(({ data }: { data: { session: Session | null } }) => {
+    .getSession()
+    .then(({ data }: { data: { session: Session | null } }) => {
         setUser(data.session?.user ?? null);
         setLoading(false);
-      });
+    });
 
+
+    // ✅ Listen for login/signup/logout
     const { data: sub } = supabase.auth.onAuthStateChange(
-    (_event: string, session: Session | null) => {
+    (event: string, session: Session | null) => {
         setUser(session?.user ?? null);
         setLoading(false);
+
+        if (event === "SIGNED_IN" || event === "SIGNED_OUT") {
+        router.refresh();
+        }
     }
     );
+
 
     return () => {
       sub.subscription.unsubscribe();
     };
-  }, []);
+  }, [router]);
 
   if (loading) {
     return (
@@ -51,16 +61,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider value={{ user, loading }}>
-        {children}
+      {children}
     </AuthContext.Provider>
-    );
-
+  );
 }
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) {
-    throw new Error('useAuth must be used within AuthProvider');
-  }
+  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
   return ctx;
 }

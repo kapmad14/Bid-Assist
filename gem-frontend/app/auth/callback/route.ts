@@ -1,13 +1,17 @@
-import { createServerClient } from '@supabase/ssr'
-import { NextResponse, type NextRequest } from 'next/server'
+import { createServerClient } from "@supabase/ssr";
+import { NextResponse, type NextRequest } from "next/server";
 
 export async function GET(request: NextRequest) {
-  const requestUrl = new URL(request.url)
-  const code = requestUrl.searchParams.get('code')
+  const requestUrl = new URL(request.url);
+  const code = requestUrl.searchParams.get("code");
 
-  const response = NextResponse.redirect(new URL('/dashboard', request.url))
+  // ✅ Invalid callback → send user to login
+  if (!code) {
+    return NextResponse.redirect(new URL("/login", requestUrl.origin));
+  }
 
-  if (!code) return response
+  // ✅ Response object used for cookie writing
+  let response = NextResponse.next();
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -15,19 +19,22 @@ export async function GET(request: NextRequest) {
     {
       cookies: {
         get(name: string) {
-          return request.cookies.get(name)?.value
+          return request.cookies.get(name)?.value;
         },
         set(name: string, value: string, options: any) {
-          response.cookies.set({ name, value, ...options })
+          response.cookies.set({ name, value, ...options });
         },
         remove(name: string, options: any) {
-          response.cookies.set({ name, value: '', ...options })
+          response.cookies.set({ name, value: "", ...options });
         },
       },
     }
-  )
+  );
 
-  await supabase.auth.exchangeCodeForSession(code)
+  // ✅ This writes the session cookie correctly
+  await supabase.auth.exchangeCodeForSession(code);
 
-  return response
+  // ✅ Redirect only AFTER cookies are written
+  response = NextResponse.redirect(new URL("/dashboard", requestUrl.origin));
+  return response;
 }

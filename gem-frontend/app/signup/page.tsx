@@ -27,6 +27,8 @@ export default function SignupPage() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
 
   const handleEmailSignup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,15 +36,16 @@ export default function SignupPage() {
 
     setLoading(true);
     setError(null);
+    setSuccess(false);
 
     if (password !== confirmPassword) {
-      setError('Passwords do not match');
+      setError("Passwords do not match");
       setLoading(false);
       return;
     }
 
     if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+      setError("Password must be at least 6 characters");
       setLoading(false);
       return;
     }
@@ -61,7 +64,10 @@ export default function SignupPage() {
       return;
     }
 
-    // ✅ DO NOTHING ELSE — callback handles navigation
+    // ✅ Email confirmation ON → user is NOT logged in yet
+    // ✅ Show success message instead of redirecting
+    setSuccess(true);
+    setLoading(false);
   };
 
 
@@ -109,6 +115,20 @@ export default function SignupPage() {
               <p className="text-sm text-[#FC574E]">{error}</p>
             </div>
           )}
+
+          {/* Success Message */}
+          {success && (
+            <div className="mb-6 p-4 bg-green-100 border-2 border-green-200 rounded-2xl">
+              <p className="text-sm font-semibold text-green-700">
+                ✅ Account created successfully!
+              </p>
+              <p className="text-sm text-green-700 mt-1">
+                Please check your email and click the confirmation link to activate your
+                account.
+              </p>
+            </div>
+          )}
+
 
           {/* Signup Form */}
           <form onSubmit={handleEmailSignup} className="space-y-5">
@@ -170,7 +190,7 @@ export default function SignupPage() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || success}
               className="w-full py-4 px-6 bg-[#F7C846] text-[#0E121A] font-bold rounded-2xl hover:bg-[#F7C846]/90 transform hover:scale-[1.02] transition-all shadow-[0_4px_12px_rgba(247,200,70,0.4)] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
             >
               {loading ? (
@@ -178,11 +198,24 @@ export default function SignupPage() {
                   <Loader2 className="h-5 w-5 animate-spin mr-2" />
                   Creating account...
                 </span>
+              ) : success ? (
+                "Check your email ✅"
               ) : (
-                'Create Account'
+                "Create Account"
               )}
+
             </button>
           </form>
+          {success && (
+            <p className="text-center text-sm mt-4">
+              <Link
+                href="/login"
+                className="font-bold text-[#0E121A] hover:text-[#F7C846]"
+              >
+                Proceed to Sign In →
+              </Link>
+            </p>
+          )}
 
           {/* Divider */}
           <div className="relative my-8">
