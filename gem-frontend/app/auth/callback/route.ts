@@ -35,6 +35,8 @@ export async function GET(request: NextRequest) {
   await supabase.auth.exchangeCodeForSession(code);
 
   // ✅ Redirect only AFTER cookies are written
-  response = NextResponse.redirect(new URL("/dashboard", requestUrl.origin));
+  response = NextResponse.redirect(
+    new URL("/auth/post-callback", requestUrl.origin)
+  );
   return response;
 }
