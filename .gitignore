@@ -45,3 +45,4 @@ data/
 logs/
 *.db
 *.loggem-scraper/daily_data/
+gem-scraper/results/
