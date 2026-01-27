@@ -17,7 +17,8 @@ import {
   Building2, 
   FileText, 
   Filter,
-  Star
+  Star,
+  X
 } from 'lucide-react';
 
 import { tenderClientStore } from '@/services/tenderStore.client';
@@ -131,8 +132,19 @@ function TendersContentInner() {
   const [bidTypeFilter, setBidTypeFilter] = useState<'all' | 'single' | 'two'>('all');
   const [evaluationType, setEvaluationType] =
     useState<'all' | 'item' | 'total'>('all');
+  // ✅ Autosuggest typing vs applied filter
+  const [ministryInput, setMinistryInput] = useState<string>('');
+  const [ministryFilter, setMinistryFilter] = useState<string>(''); // applied only after debounce/select
+  const [departmentFilter, setDepartmentFilter] = useState<string>('');
 
+  const [ministrySuggestions, setMinistrySuggestions] = useState<string[]>([]);
+  const [showMinistryDropdown, setShowMinistryDropdown] = useState(false);
+  const [ministrySelected, setMinistrySelected] = useState(false);
 
+  const [activeMinistryIndex, setActiveMinistryIndex] = useState(-1);
+  // ✅ Ref for dropdown scrolling
+  const ministryDropdownRef = useRef<HTMLDivElement | null>(null);
+  const ministryWrapperRef = useRef<HTMLDivElement | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
   const [debugError, setDebugError] = useState<string | null>(null);
@@ -160,6 +172,88 @@ function TendersContentInner() {
     return () => clearTimeout(t);
   }, [searchInput]);
 
+  // ✅ Reset keyboard selection whenever suggestions refresh
+  useEffect(() => {
+    setActiveMinistryIndex(-1);
+  }, [ministrySuggestions]);
+
+  // ✅ Step 4D: Auto-scroll highlighted option into view
+  useEffect(() => {
+    if (activeMinistryIndex < 0) return;
+
+    const dropdown = ministryDropdownRef.current;
+    if (!dropdown) return;
+
+    const activeEl = dropdown.querySelector(
+      `[data-ministry-index="${activeMinistryIndex}"]`
+    ) as HTMLElement | null;
+
+    activeEl?.scrollIntoView({
+      block: "nearest",
+    });
+  }, [activeMinistryIndex]);
+
+  // ✅ Step 4E: Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        ministryWrapperRef.current &&
+        !ministryWrapperRef.current.contains(event.target as Node)
+      ) {
+        setShowMinistryDropdown(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+
+  // ✅ Step 4B: Ministry autosuggest (trigger after 4 chars)
+  useEffect(() => {
+    const q = ministryInput.trim();
+
+    // ✅ If user already selected something, do NOT reopen dropdown
+    if (ministrySelected) return;
+
+    if (q.length < 4) {
+      setMinistrySuggestions([]);
+      setShowMinistryDropdown(false);
+      return;
+    }
+
+    const t = setTimeout(async () => {
+      const results = await tenderClientStore.getMinistrySuggestions(q);
+
+      setMinistrySuggestions(results);
+
+      // ✅ Only show dropdown if results exist
+      if (results.length > 0) {
+        setShowMinistryDropdown(true);
+      }
+    }, 250);
+
+    return () => clearTimeout(t);
+  }, [ministryInput, ministrySelected]);
+
+
+  // ✅ STEP 4B.1D: Apply ministry filter only after user pauses typing
+  useEffect(() => {
+    const q = ministryInput.trim();
+
+    // Only apply filter after 4 chars OR empty (clear)
+    if (q.length > 0 && q.length < 4) return;
+
+    const t = setTimeout(() => {
+      setMinistryFilter(q);
+      setCurrentPage(1);
+    }, 500); // wait for typing stop
+
+    return () => clearTimeout(t);
+  }, [ministryInput]);
     const logUserEvent = useCallback(
       async (eventType: string, eventValue?: any) => {
         try {
@@ -207,6 +301,10 @@ function TendersContentInner() {
     setBidTypeFilter('all');
     setEvaluationType('all');
     setRecommendedOnly(false);
+    setMinistryFilter('');
+    setMinistryInput('');
+    setMinistrySelected(false);
+    setDepartmentFilter('');
     resetToFirstPage();
     };
 
@@ -236,6 +334,8 @@ function TendersContentInner() {
         evaluationType,
         source: initialSource === 'gem' ? 'gem' : 'all',
         recommendationsOnly: recommendedOnly,
+        ministry: ministryFilter,
+        department: departmentFilter,
       });
 
 
@@ -261,11 +361,27 @@ function TendersContentInner() {
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, searchTerm, sortBy, activeTab, emdNeeded, reverseAuction, initialSource, bidTypeFilter, evaluationType, recommendedOnly, logUserEvent, supabase]);
+   }, [
+   currentPage,
+   searchTerm,
+   sortBy,
+   activeTab,
+   emdNeeded,
+   reverseAuction,
+   initialSource,
+   bidTypeFilter,
+   evaluationType,
+   recommendedOnly,
+   ministryFilter,
+   departmentFilter,
+   logUserEvent,
+   supabase
+ ]);
+
 
   useEffect(() => {
     fetchTenders();
-  }, [currentPage, searchTerm, activeTab, sortBy, emdNeeded, reverseAuction, bidTypeFilter, evaluationType, recommendedOnly]);
+  }, [currentPage, searchTerm, activeTab, sortBy, emdNeeded, reverseAuction, bidTypeFilter, evaluationType, recommendedOnly, ministryFilter, departmentFilter]);
 
 
   // Shortlist toggle with optimistic update and rollback
@@ -554,6 +670,175 @@ function TendersContentInner() {
               </button>
             </div>
           </div>
+        {/* ✅ NEW: Ministry + Department Filters (Step 3A - Simple Inputs) */}
+        <div className="mb-4 space-y-3">
+
+        {/* Ministry Filter */}
+        <div ref={ministryWrapperRef} className="relative">
+          <label
+            htmlFor="ministry-filter"
+            className="text-xs font-bold text-gray-700 uppercase mb-1 block"
+          >
+            Ministry
+          </label>
+
+          {/* ✅ Ministry Input */}
+            <input
+              id="ministry-filter"
+              type="text"
+              placeholder="Type 4+ letters..."
+              value={ministryInput}
+              onChange={(e) => {
+                const val = e.target.value;
+
+                setMinistryInput(val);
+
+                // ✅ User typing again → unlock dropdown mode
+                if (ministrySelected) {
+                  setMinistrySelected(false);
+                }
+              }}
+
+              onKeyDown={(e) => {
+                if (!showMinistryDropdown) return;
+
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setActiveMinistryIndex((prev) =>
+                    Math.min(prev + 1, ministrySuggestions.length - 1)
+                  );
+                }
+
+                if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setActiveMinistryIndex((prev) => Math.max(prev - 1, 0));
+                }
+
+                if (e.key === "Enter") {
+                  e.preventDefault();
+
+                  const selected = ministrySuggestions[activeMinistryIndex];
+                  if (!selected) return;
+
+                  setMinistryInput(selected);
+                  setMinistryFilter(selected);
+                  setMinistrySelected(true);
+
+                  setShowMinistryDropdown(false);
+                  setMinistrySuggestions([]);
+                  setActiveMinistryIndex(-1);
+                  setCurrentPage(1);
+                }
+
+                if (e.key === "Escape") {
+                  setShowMinistryDropdown(false);
+                }
+              }}
+
+              onFocus={() => {
+                // ✅ Do not reopen if locked
+                if (ministrySelected) return;
+
+                if (ministrySuggestions.length > 0) {
+                  setShowMinistryDropdown(true);
+                }
+              }}
+
+              // ✅ Add padding-right so X button does not overlap
+              className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm font-medium focus:border-[#F7C846] focus:ring-1 focus:ring-[#F7C846] outline-none"
+            />
+
+            {/* ✅ Clear (X) Button */}
+            {ministryInput.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  // ✅ Clear everything
+                  setMinistryInput("");
+                  setMinistryFilter("");
+
+                  // ✅ Unlock selection mode
+                  setMinistrySelected(false);
+
+                  // ✅ Close dropdown cleanly
+                  setShowMinistryDropdown(false);
+                  setMinistrySuggestions([]);
+                  setActiveMinistryIndex(-1);
+
+                  // ✅ Reset pagination
+                  setCurrentPage(1);
+
+                  // ✅ Refocus input
+                  setTimeout(() => {
+                    document.getElementById("ministry-filter")?.focus();
+                  }, 50);
+                }}
+                className="absolute right-3 top-[55%] -translate-y-1/4
+                  w-7 h-7 flex items-center justify-center
+                  rounded-full hover:bg-gray-100 text-gray-500 hover:text-gray-800"
+                aria-label="Clear ministry"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+
+
+          {/* ✅ Dropdown */}
+          {showMinistryDropdown &&
+            !ministrySelected &&
+            ministrySuggestions.length > 0 && (
+            <div
+              ref={ministryDropdownRef}
+              className="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-auto"
+            >
+              {ministrySuggestions.map((name, idx) => (
+                <button
+                  key={name}
+                  type="button"
+                  data-ministry-index={idx}
+                  onClick={() => {
+                    setMinistryInput(name);
+                    setMinistryFilter(name);
+                    setMinistrySelected(true);
+                    setShowMinistryDropdown(false);
+                    setMinistrySuggestions([]);
+                    setActiveMinistryIndex(-1);
+                    setCurrentPage(1);
+                  }}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 ${
+                    idx === activeMinistryIndex ? "bg-gray-100 font-semibold" : ""
+                  }`}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+
+          {/* Department Filter */}
+          <div>
+            <label
+              htmlFor="department-filter"
+              className="text-xs font-bold text-gray-700 uppercase mb-1 block"
+            >
+              Department (contains)
+            </label>
+            <input
+              id="department-filter"
+              type="text"
+              placeholder="Type department name..."
+              value={departmentFilter}
+              onChange={(e) => {
+                setDepartmentFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium focus:border-[#F7C846] focus:ring-1 focus:ring-[#F7C846] outline-none"
+            />
+          </div>
+
+        </div>
 
           {/* Accordion Filters */}
           <div className="divide-y divide-gray-100">

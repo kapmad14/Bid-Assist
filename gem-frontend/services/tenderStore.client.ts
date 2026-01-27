@@ -33,6 +33,8 @@ type GetTendersParams = {
   sortBy?: 'newest' | 'oldest' | 'closing-soon' | 'closing-latest';
   recommendationsOnly?: boolean;
   source?: 'gem' | 'all';
+  ministry?: string;
+  department?: string;
 };
 
 class TenderClientStore {
@@ -167,6 +169,70 @@ class TenderClientStore {
     }
     }
 
+    // ---------------------------------------------------------
+    // ✅ AUTOSUGGEST (Step 4A)
+    // Ministry + Department ranked suggestions
+    // Triggered only when user types ≥4 characters (UI handles that)
+    // ---------------------------------------------------------
+
+    async getMinistrySuggestions(prefix: string): Promise<string[]> {
+      const supabase = await getSupabase();
+      const q = prefix.trim();
+
+      if (q.length < 4) return [];
+
+      const { data, error } = await supabase
+        .from("tenders")
+        .select("ministry")
+        .ilike("ministry", `%${q}%`)
+        .not("ministry", "is", null)
+        .limit(200); // pull small pool, rank client-side
+
+      if (error || !data) return [];
+
+      // frequency rank
+      const freq = new Map<string, number>();
+      for (const row of data) {
+        const name = row.ministry?.trim();
+        if (!name) continue;
+        freq.set(name, (freq.get(name) ?? 0) + 1);
+      }
+
+      return [...freq.entries()]
+        .sort((a, b) => b[1] - a[1]) // highest frequency first
+        .slice(0, 10)
+        .map(([name]) => name);
+    }
+
+    async getDepartmentSuggestions(prefix: string): Promise<string[]> {
+      const supabase = await getSupabase();
+      const q = prefix.trim();
+
+      if (q.length < 4) return [];
+
+      const { data, error } = await supabase
+        .from("tenders")
+        .select("department")
+        .ilike("department", `%${q}%`)
+        .not("department", "is", null)
+        .limit(300); // department has higher variety
+
+      if (error || !data) return [];
+
+      // frequency rank
+      const freq = new Map<string, number>();
+      for (const row of data) {
+        const name = row.department?.trim();
+        if (!name) continue;
+        freq.set(name, (freq.get(name) ?? 0) + 1);
+      }
+
+      return [...freq.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([name]) => name);
+    }
+    
   async getTenders(params: GetTendersParams): Promise<{ data: Tender[]; total: number }> {
     const supabase = await getSupabase();
     const nowIso = new Date().toISOString();
@@ -254,6 +320,14 @@ class TenderClientStore {
 
     const clauses = cols.map(c => `${c}.ilike.${like}`);
     query = query.or(clauses.join(','));
+    }
+
+    if (params.ministry?.trim()) {
+      query = query.ilike("ministry", `%${params.ministry.trim()}%`);
+    }
+
+    if (params.department?.trim()) {
+      query = query.ilike("department", `%${params.department.trim()}%`);
     }
 
     // ------------------------------------------
