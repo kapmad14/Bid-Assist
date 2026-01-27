@@ -13,6 +13,7 @@ import {
   X,
   LifeBuoy,
   LayoutList,
+  SlidersHorizontal,
 } from 'lucide-react';
 import Image from 'next/image';
 
