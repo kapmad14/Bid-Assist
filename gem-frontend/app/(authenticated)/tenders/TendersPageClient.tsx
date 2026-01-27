@@ -135,7 +135,20 @@ function TendersContentInner() {
   // ✅ Autosuggest typing vs applied filter
   const [ministryInput, setMinistryInput] = useState<string>('');
   const [ministryFilter, setMinistryFilter] = useState<string>(''); // applied only after debounce/select
-  const [departmentFilter, setDepartmentFilter] = useState<string>('');
+  // ✅ Department Autosuggest
+  const [departmentInput, setDepartmentInput] = useState<string>("");
+  const [departmentFilter, setDepartmentFilter] = useState<string>("");
+
+  const [departmentSuggestions, setDepartmentSuggestions] = useState<string[]>([]);
+  const [showDepartmentDropdown, setShowDepartmentDropdown] = useState(false);
+
+  const [departmentSelected, setDepartmentSelected] = useState(false);
+  const [activeDepartmentIndex, setActiveDepartmentIndex] = useState(-1);
+
+  // ✅ Refs
+  const departmentDropdownRef = useRef<HTMLDivElement | null>(null);
+  const departmentWrapperRef = useRef<HTMLDivElement | null>(null);
+
 
   const [ministrySuggestions, setMinistrySuggestions] = useState<string[]>([]);
   const [showMinistryDropdown, setShowMinistryDropdown] = useState(false);
@@ -177,6 +190,11 @@ function TendersContentInner() {
     setActiveMinistryIndex(-1);
   }, [ministrySuggestions]);
 
+  useEffect(() => {
+    setActiveDepartmentIndex(-1);
+  }, [departmentSuggestions]);
+
+
   // ✅ Step 4D: Auto-scroll highlighted option into view
   useEffect(() => {
     if (activeMinistryIndex < 0) return;
@@ -193,6 +211,22 @@ function TendersContentInner() {
     });
   }, [activeMinistryIndex]);
 
+  useEffect(() => {
+    if (activeDepartmentIndex < 0) return;
+
+    const dropdown = departmentDropdownRef.current;
+    if (!dropdown) return;
+
+    const activeEl = dropdown.querySelector(
+      `[data-department-index="${activeDepartmentIndex}"]`
+    ) as HTMLElement | null;
+
+    activeEl?.scrollIntoView({
+      block: "nearest",
+    });
+  }, [activeDepartmentIndex]);
+
+
   // ✅ Step 4E: Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -201,6 +235,23 @@ function TendersContentInner() {
         !ministryWrapperRef.current.contains(event.target as Node)
       ) {
         setShowMinistryDropdown(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        departmentWrapperRef.current &&
+        !departmentWrapperRef.current.contains(event.target as Node)
+      ) {
+        setShowDepartmentDropdown(false);
       }
     };
 
@@ -240,6 +291,31 @@ function TendersContentInner() {
   }, [ministryInput, ministrySelected]);
 
 
+  useEffect(() => {
+    const q = departmentInput.trim();
+
+    // ✅ If already selected → do not reopen dropdown
+    if (departmentSelected) return;
+
+    if (q.length < 3) {
+      setDepartmentSuggestions([]);
+      setShowDepartmentDropdown(false);
+      return;
+    }
+
+    const t = setTimeout(async () => {
+      const results = await tenderClientStore.getDepartmentSuggestions(q);
+
+      setDepartmentSuggestions(results);
+
+      if (results.length > 0) {
+        setShowDepartmentDropdown(true);
+      }
+    }, 250);
+
+    return () => clearTimeout(t);
+  }, [departmentInput, departmentSelected]);
+
   // ✅ STEP 4B.1D: Apply ministry filter only after user pauses typing
   useEffect(() => {
     const q = ministryInput.trim();
@@ -254,6 +330,20 @@ function TendersContentInner() {
 
     return () => clearTimeout(t);
   }, [ministryInput]);
+
+  useEffect(() => {
+    const q = departmentInput.trim();
+
+    if (q.length > 0 && q.length < 3) return;
+
+    const t = setTimeout(() => {
+      setDepartmentFilter(q);
+      setCurrentPage(1);
+    }, 500);
+
+    return () => clearTimeout(t);
+  }, [departmentInput]);
+
     const logUserEvent = useCallback(
       async (eventType: string, eventValue?: any) => {
         try {
@@ -305,6 +395,8 @@ function TendersContentInner() {
     setMinistryInput('');
     setMinistrySelected(false);
     setDepartmentFilter('');
+    setDepartmentInput('');
+    setDepartmentSelected(false);
     resetToFirstPage();
     };
 
@@ -817,28 +909,147 @@ function TendersContentInner() {
         </div>
 
 
-          {/* Department Filter */}
-          <div>
-            <label
-              htmlFor="department-filter"
-              className="text-xs font-bold text-gray-700 uppercase mb-1 block"
-            >
-              Department (contains)
-            </label>
-            <input
-              id="department-filter"
-              type="text"
-              placeholder="Type department name..."
-              value={departmentFilter}
-              onChange={(e) => {
-                setDepartmentFilter(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium focus:border-[#F7C846] focus:ring-1 focus:ring-[#F7C846] outline-none"
-            />
-          </div>
+        {/* Department Filter */}
+        <div ref={departmentWrapperRef} className="relative">
+          <label
+            htmlFor="department-filter"
+            className="text-xs font-bold text-gray-700 uppercase mb-1 block"
+          >
+            Department
+          </label>
+              <input
+                id="department-filter"
+                type="text"
+                placeholder="Type 4+ letters..."
+                value={departmentInput}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setDepartmentInput(val);
 
-        </div>
+                  // ✅ Unlock if user types again
+                  if (departmentSelected) {
+                    setDepartmentSelected(false);
+                  }
+                }}
+
+                onKeyDown={(e) => {
+                  if (!showDepartmentDropdown) return;
+
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setActiveDepartmentIndex((prev) =>
+                      Math.min(prev + 1, departmentSuggestions.length - 1)
+                    );
+                  }
+
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setActiveDepartmentIndex((prev) => Math.max(prev - 1, 0));
+                  }
+
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    const selected = departmentSuggestions[activeDepartmentIndex];
+                    if (!selected) return;
+
+                    setDepartmentInput(selected);
+                    setDepartmentFilter(selected);
+
+                    // ✅ Lock selection
+                    setDepartmentSelected(true);
+
+                    setShowDepartmentDropdown(false);
+                    setDepartmentSuggestions([]);
+                    setActiveDepartmentIndex(-1);
+
+                    setCurrentPage(1);
+                  }
+
+                  if (e.key === "Escape") {
+                    setShowDepartmentDropdown(false);
+                  }
+                }}
+
+                onFocus={() => {
+                  if (departmentSelected) return;
+                  if (departmentSuggestions.length > 0) {
+                    setShowDepartmentDropdown(true);
+                  }
+                }}
+
+                className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg
+                  text-sm font-medium focus:border-[#F7C846] focus:ring-1 focus:ring-[#F7C846] outline-none"
+              />
+
+              {/* ✅ Clear Button */}
+              {departmentInput.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDepartmentInput("");
+                    setDepartmentFilter("");
+
+                    setDepartmentSelected(false);
+
+                    setShowDepartmentDropdown(false);
+                    setDepartmentSuggestions([]);
+                    setActiveDepartmentIndex(-1);
+
+                    setCurrentPage(1);
+
+                    setTimeout(() => {
+                      document.getElementById("department-filter")?.focus();
+                    }, 50);
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/5
+                    w-7 h-7 flex items-center justify-center
+                    rounded-full hover:bg-gray-100 text-gray-500 hover:text-gray-800"
+                  aria-label="Clear department"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+
+              {/* ✅ Dropdown */}
+              {showDepartmentDropdown &&
+                !departmentSelected &&
+                departmentSuggestions.length > 0 && (
+                  <div
+                    ref={departmentDropdownRef}
+                    className="absolute z-30 mt-1 w-full bg-white border border-gray-200
+                      rounded-lg shadow-lg max-h-56 overflow-auto"
+                  >
+                    {departmentSuggestions.map((name, idx) => (
+                      <button
+                        key={name}
+                        type="button"
+                        data-department-index={idx}
+                        onClick={() => {
+                          setDepartmentInput(name);
+                          setDepartmentFilter(name);
+
+                          setDepartmentSelected(true);
+
+                          setShowDepartmentDropdown(false);
+                          setDepartmentSuggestions([]);
+                          setActiveDepartmentIndex(-1);
+
+                          setCurrentPage(1);
+                        }}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 ${
+                          idx === activeDepartmentIndex
+                            ? "bg-gray-100 font-semibold"
+                            : ""
+                        }`}
+                      >
+                        {name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+            </div>
+
+          </div>
 
           {/* Accordion Filters */}
           <div className="divide-y divide-gray-100">
@@ -1003,12 +1214,10 @@ function TendersContentInner() {
               </Link>
             </div>
           </div>
-
         </div>
       </div>
-
       
-      {/* --- MAIN CONTENT AREA --- */}
+        {/* --- MAIN CONTENT AREA --- */}
       <div className="flex-1 min-w-0 flex flex-col" aria-busy={isLoading}>        
         {/* Top Controls */}
         <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">

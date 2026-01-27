@@ -208,6 +208,7 @@ class TenderClientStore {
       const supabase = await getSupabase();
       const q = prefix.trim();
 
+      // ✅ Department triggers after 4 chars
       if (q.length < 4) return [];
 
       const { data, error } = await supabase
@@ -215,24 +216,30 @@ class TenderClientStore {
         .select("department")
         .ilike("department", `%${q}%`)
         .not("department", "is", null)
-        .limit(300); // department has higher variety
+        .limit(400); // department has higher variety
 
       if (error || !data) return [];
 
-      // frequency rank
+      // ✅ Frequency rank + normalization
       const freq = new Map<string, number>();
+
       for (const row of data) {
-        const name = row.department?.trim();
+        const raw = row.department;
+        if (!raw) continue;
+
+        const name = raw.trim();
         if (!name) continue;
+
         freq.set(name, (freq.get(name) ?? 0) + 1);
       }
 
       return [...freq.entries()]
-        .sort((a, b) => b[1] - a[1])
+        .sort((a, b) => b[1] - a[1]) // highest frequency first
         .slice(0, 10)
         .map(([name]) => name);
     }
-    
+
+
   async getTenders(params: GetTendersParams): Promise<{ data: Tender[]; total: number }> {
     const supabase = await getSupabase();
     const nowIso = new Date().toISOString();
