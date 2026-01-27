@@ -23,20 +23,26 @@ export async function GET(request: Request) {
   let data: any[] = [];
   let error: any = null;
 
-  // ✅ SELLER CASE (L1/L2/L3)
-  if (type === "seller") {
-    const res = await supabase
-      .from("gem_results")
-      .select("l1_seller, l2_seller, l3_seller")
-      .eq("extraction_status", "success")
-      .or(
-        `l1_seller.ilike.%${q}%,l2_seller.ilike.%${q}%,l3_seller.ilike.%${q}%`
-      )
-      .limit(12);
+    // ✅ SELLER CASE (Dictionary Based)
+    if (type === "seller") {
+    const query = q.trim().toUpperCase();
 
-    data = res.data ?? [];
-    error = res.error;
-  }
+    const res = await supabase
+        .from("seller_dictionary")
+        .select("seller_name")
+        .ilike("seller_name", `${query}%`) // ✅ Prefix match only
+        .order("l1_count", { ascending: false }) // ✅ Ranked sellers first
+        .limit(8);
+
+    if (res.error) {
+        return new NextResponse(res.error.message, { status: 500 });
+    }
+
+    return NextResponse.json({
+        options: res.data?.map((r) => r.seller_name) ?? [],
+    });
+    }
+
 
   // ✅ MINISTRY / DEPARTMENT CASE
   else if (column) {
@@ -60,41 +66,10 @@ export async function GET(request: Request) {
     return new NextResponse(error.message, { status: 500 });
   }
 
-  // ✅ Clean unique options
-  let options: string[] = [];
-
-  if (type === "seller") {
-    const query = q.toLowerCase();
-
-    options = Array.from(
-    new Set(
-        data.flatMap((r: any) =>
-        [r.l1_seller, r.l2_seller, r.l3_seller].filter(Boolean)
-        )
-    )
-    )
-    // ✅ Only keep matches
-    .filter((s) => s.toLowerCase().includes(query))
-
-    // ✅ Rank: startsWith first
-    .sort((a, b) => {
-        const aStarts = a.toLowerCase().startsWith(query);
-        const bStarts = b.toLowerCase().startsWith(query);
-
-        if (aStarts && !bStarts) return -1;
-        if (!aStarts && bStarts) return 1;
-
-        return a.localeCompare(b); // fallback alphabetical
-    })
-
-    // ✅ Only top 8
-    .slice(0, 8);
-
-  } else {
-    options = Array.from(
-      new Set(data.map((r: any) => r[column!]).filter(Boolean))
+    // ✅ Clean unique options (Ministry/Department only)
+    const options = Array.from(
+    new Set(data.map((r: any) => r[column!]).filter(Boolean))
     ).slice(0, 8);
-  }
 
-  return NextResponse.json({ options });
+    return NextResponse.json({ options });
 }
