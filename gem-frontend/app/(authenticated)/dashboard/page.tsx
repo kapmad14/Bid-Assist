@@ -287,7 +287,7 @@ export default function DashboardPage() {
 
           {/* CTA */}
           <button
-            onClick={() => router.push('/tenders')}
+            onClick={() => router.push('/tenders2?from=dashboard')}
             className="w-full rounded-2xl bg-black text-white py-2 font-semibold
                       transition-all duration-200
                       flex items-center justify-center gap-2
@@ -305,7 +305,7 @@ export default function DashboardPage() {
         {/* BLACK METRIC BLOCKS */}
         <div className="space-y-4">
           <div
-            onClick={() => router.push('/tenders?tab=Active&from=dashboard')}
+            onClick={() => router.push('/tenders2?tab=Active&from=dashboard')}
             className="rounded-3xl bg-black px-5 py-6 shadow-lg min-h-[140px]
                       flex flex-col justify-center cursor-pointer
                       transition-all hover:scale-[1.02] hover:bg-[#111]"
@@ -315,7 +315,7 @@ export default function DashboardPage() {
           </div>
 
           <div
-            onClick={() => router.push('/tenders?tab=Closing%20Soon&from=dashboard')}
+            onClick={() => router.push('/tenders2?tab=Closing%20Soon&from=dashboard')}
             className="rounded-3xl bg-black px-5 py-6 shadow-lg min-h-[140px]
                       flex flex-col justify-center cursor-pointer
                       transition-all hover:scale-[1.02] hover:bg-[#111]"
@@ -328,7 +328,7 @@ export default function DashboardPage() {
 
         <div className="space-y-4">
           <div
-            onClick={() => router.push('/tenders?tab=Shortlisted&from=dashboard')}
+            onClick={() => router.push('/shortlisted?from=dashboard')}
             className="rounded-3xl bg-black px-5 py-6 shadow-lg min-h-[140px]
                       flex flex-col justify-center cursor-pointer
                       transition-all hover:scale-[1.02] hover:bg-[#111]"
@@ -338,7 +338,7 @@ export default function DashboardPage() {
           </div>
 
           <div
-            onClick={() => router.push('/tenders?recommended=true&from=dashboard')}
+            onClick={() => router.push('/recommended?from=dashboard')}
             className="rounded-3xl bg-black px-5 py-6 shadow-lg min-h-[140px]
                       flex flex-col justify-center cursor-pointer
                       transition-all hover:scale-[1.02] hover:bg-[#111]"
