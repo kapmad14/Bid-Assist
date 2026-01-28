@@ -14,6 +14,8 @@ import {
   LifeBuoy,
   LayoutList,
   SlidersHorizontal,
+  Star,
+  Bookmark,
 } from 'lucide-react';
 import Image from 'next/image';
 
@@ -39,9 +41,12 @@ type SidebarMenuItem = {
 
 const menuItems = [
   { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
-  { label: 'Tenders', icon: FileText, path: '/tenders' },
+  { label: 'Tenders', icon: FileText, path: '/tenders2' },
   // changed to Box to visually differentiate Catalog
   { label: 'Catalogue', icon: Box, path: '/catalog' },
+  { label: 'Recommended', icon: Bookmark, path: '/recommended' },
+  { label: 'Shortlisted', icon: Star, path: '/shortlisted' },
+
   { label: 'Results', icon: LayoutList, path: '/results' },
   { 
     label: 'Analytics', 

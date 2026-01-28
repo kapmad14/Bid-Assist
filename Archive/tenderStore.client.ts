@@ -42,11 +42,6 @@ class TenderClientStore {
   private storageKey = 'tenderflow_shortlist';
   private _isSyncingShortlist = false;
 
-  // ✅ Recommended tender IDs cache (scoped per user)
-  private recommendedIdsCache: {
-    userId: string;
-    ids: number[];
-  } | null = null;
 
   public isShortlistCooldown = false;
 
@@ -164,37 +159,9 @@ class TenderClientStore {
         .select('tender_id');
 
         if (!error && data) {
-        // ✅ Step 1: Raw shortlist IDs
-        const rawIds = data.map((r: any) => Number(r.tender_id));
-
-        // ✅ Step 2: Check which tenders still exist + active
-        const { data: validRows } = await supabase
-          .from("tenders")
-          .select("id")
-          .in("id", rawIds)
-          .gte("end_datetime", new Date().toISOString());
-
-        // ✅ Force correct Set<string> typing
-        const validIds: Set<string> = new Set(
-          (validRows || []).map((r: any) => String(r.id))
+        this.shortlistedIds = new Set(
+            data.map((r: any) => String(r.tender_id))
         );
-
-        // ✅ Step 3: Remove stale shortlist entries from server
-        const staleIds = rawIds.filter(
-          (id: number) => !validIds.has(String(id))
-        );
-
-        if (staleIds.length > 0) {
-          console.warn("🧹 Cleaning stale shortlist IDs:", staleIds);
-
-          await supabase
-            .from("user_shortlists")
-            .delete()
-            .in("tender_id", staleIds);
-        }
-
-        // ✅ Step 4: Save only clean shortlist locally
-        this.shortlistedIds = validIds;
         this.saveLocal();
         }
     } catch (e) {
@@ -281,103 +248,40 @@ class TenderClientStore {
     // RECOMMENDATIONS (RPC)
     // ------------------------------------------
     if (params.recommendationsOnly) {
-
       const { data: auth } = await supabase.auth.getUser();
       const user = auth?.user;
       if (!user?.id) return { data: [], total: 0 };
 
-      // ✅ Always load recommended IDs per user
-      if (
-        !this.recommendedIdsCache ||
-        this.recommendedIdsCache.userId !== user.id
-      ) {
-        const { data: recRows, error: recErr } = await supabase
-          .from("recommendations")
-          .select("tender_id")
-          .eq("user_id", user.id);
-
-        if (recErr || !recRows?.length) {
-          console.warn("No recommendations found", recErr);
-          return { data: [], total: 0 };
-        }
-
-        // ✅ Store cache scoped to this user
-        this.recommendedIdsCache = {
-          userId: user.id,
-          ids: recRows
-            .map((r: any): number => Number(r.tender_id))
-            .filter((n: number) => Number.isInteger(n) && n > 0),
-        };
-      }
-
-      const ids = this.recommendedIdsCache.ids;
-      if (!ids || ids.length === 0) return { data: [], total: 0 };
-
-      // ✅ Main query: tenders filtered to recommended set
-      let query = supabase
-        .from("tenders")
-        .select("*", { count: "exact" })
-        .in("id", ids)
-        .eq("simple_extraction", "success");
-
-      // ✅ Apply filters normally
-      if (params.search?.trim()) {
-        query = query.ilike("item", `%${params.search.trim()}%`);
-      }
-
-      if (params.ministry?.trim()) {
-        query = query.ilike("ministry", `%${params.ministry.trim()}%`);
-      }
-
-      if (params.department?.trim()) {
-        query = query.ilike("department", `%${params.department.trim()}%`);
-      }
-
-      if (params.emdFilter === "yes") query = query.gt("emd_amount", 0);
-      if (params.emdFilter === "no") {
-        query = query.or("emd_amount.is.null,emd_amount.eq.0");
-      }
-
-      if (params.reverseAuction === "yes") {
-        query = query.eq("reverse_auction_enabled", true);
-      }
-
-      if (params.reverseAuction === "no") {
-        query = query.eq("reverse_auction_enabled", false);
-      }
-
-      if (params.bidType === "single") {
-        query = query.ilike("bid_type", "%single%");
-      }
-
-      if (params.bidType === "two") {
-        query = query.ilike("bid_type", "%two%");
-      }
-
-      if (params.evaluationType === "item") {
-        query = query.ilike("evaluation_method", "%item%");
-      }
-
-      if (params.evaluationType === "total") {
-        query = query.ilike("evaluation_method", "%total%");
-      }
-
-      // ✅ Always newest tenders first
-      query = query.order("bid_date", { ascending: false });
-
-      // ✅ Pagination
       const from = (params.page - 1) * params.limit;
-      const to = from + params.limit - 1;
 
-      const { data: rows, count, error } = await query.range(from, to);
-      if (error || !rows) return { data: [], total: 0 };
+      const { data: rpcRows, error } = await supabase.rpc(
+        'get_recommended_tenders_with_count',
+        {
+          p_user: user.id,
+          p_limit: params.limit,
+          p_offset: from
+        }
+      );
 
-      return {
-        data: rows.map((r: any) => this.mapRowToTender(r)),
-        total: count || 0,
-      };
+      if (error || !rpcRows) return { data: [], total: 0 };
+
+      const first = rpcRows[0];
+      const total = first ? Number(first.total_count) || 0 : 0;
+
+    return {
+        data: rpcRows.map((r: any) => {
+        const { total_count, ...rest } = r;
+
+        // 🔧 Inject bid_date into row shape expected by mapper
+        return this.mapRowToTender({
+            ...rest,
+            bid_date: r.bid_date,   // ← THIS IS THE FIX
+        });
+        }),
+        total
+    };
     }
-    
+
     // ------------------------------------------
     // STANDARD QUERY (no archive filtering)
     // ------------------------------------------
@@ -472,98 +376,44 @@ class TenderClientStore {
             return { data: [], total: 0 };
         }
 
-        // ✅ NEW: shortlist must behave like recommendations
-        // Apply filters BEFORE pagination
+        // Total shortlist count for pagination UI
+        const totalShortlisted = allIds.length;
 
-        let shortlistQuery = supabase
-          .from("tenders")
-          .select("*", { count: "exact" })
-          .in("id", allIds)
-          .eq("simple_extraction", "success");
+        // Slice client-side for the current page
+        const startIdx = (params.page - 1) * params.limit;
+        const pageIds = allIds.slice(startIdx, startIdx + params.limit);
 
-        // ✅ Keyword Search
-        if (params.search?.trim()) {
-          shortlistQuery = shortlistQuery.ilike(
-            "item",
-            `%${params.search.trim()}%`
-          );
+        if (pageIds.length === 0) {
+            // Requested page out of range
+            return { data: [], total: totalShortlisted };
         }
 
-        // ✅ Ministry Filter
-        if (params.ministry?.trim()) {
-          shortlistQuery = shortlistQuery.ilike(
-            "ministry",
-            `%${params.ministry.trim()}%`
-          );
-        }
-
-        // ✅ Department Filter
-        if (params.department?.trim()) {
-          shortlistQuery = shortlistQuery.ilike(
-            "department",
-            `%${params.department.trim()}%`
-          );
-        }
-
-        // ✅ EMD Filter
-        if (params.emdFilter === "yes") {
-          shortlistQuery = shortlistQuery.gt("emd_amount", 0);
-        }
-
-        if (params.emdFilter === "no") {
-          shortlistQuery = shortlistQuery.or(
-            "emd_amount.is.null,emd_amount.eq.0"
-          );
-        }
-
-        // ✅ Reverse Auction Filter
-        if (params.reverseAuction === "yes") {
-          shortlistQuery = shortlistQuery.eq("reverse_auction_enabled", true);
-        }
-
-        if (params.reverseAuction === "no") {
-          shortlistQuery = shortlistQuery.eq("reverse_auction_enabled", false);
-        }
-
-        // ✅ Bid Type Filter
-        if (params.bidType === "single") {
-          shortlistQuery = shortlistQuery.ilike("bid_type", "%single%");
-        }
-
-        if (params.bidType === "two") {
-          shortlistQuery = shortlistQuery.ilike("bid_type", "%two%");
-        }
-
-        // ✅ Evaluation Method Filter
-        if (params.evaluationType === "item") {
-          shortlistQuery = shortlistQuery.ilike("evaluation_method", "%item%");
-        }
-
-        if (params.evaluationType === "total") {
-          shortlistQuery = shortlistQuery.ilike("evaluation_method", "%total%");
-        }
-
-        // ✅ Always newest first (like recommendations)
-        shortlistQuery = shortlistQuery.order("bid_date", {
-          ascending: false,
-        });
-
-        // ✅ Pagination AFTER filtering
-        const from = (params.page - 1) * params.limit;
-        const to = from + params.limit - 1;
-
-        const { data: rows, count, error } = await shortlistQuery.range(from, to);
+        // Fetch only this page's records
+        const { data: rows, error } = await supabase
+            .from('tenders')
+            .select('*')
+            .in('id', pageIds);
 
         if (error || !Array.isArray(rows)) {
-          console.error("❌ Shortlist fetch error", error);
-          return { data: [], total: 0 };
+            console.error("❌ Shortlist fetch error", {
+                error,
+                pageIds,
+                totalShortlisted
+            });
+            return { data: [], total: totalShortlisted };
         }
 
+        // EARLY RETURN — DO NOT CONTINUE TO query.range()
         return {
-          data: rows.map((r) => this.mapRowToTender(r)),
-          total: count || 0,
+            data: rows.map(r => this.mapRowToTender(r)),
+            total: totalShortlisted
         };
     }
+
+
+
+
+
 
     // ------------------------------------------
     // EMD FILTER
