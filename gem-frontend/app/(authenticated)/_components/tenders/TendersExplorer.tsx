@@ -1420,7 +1420,15 @@ function TendersContentInner({ mode }: { mode: ExplorerMode }) {
 
             // fallback key and details URL
             const safeKey = tender.id ?? `${tender.bidNumber ?? 'unknown'}-${idx}`;
-            const detailsHref = `/tenders/${tender.id}?from=${mode}&page=${currentPage}`;
+            // ✅ Preserve correct back navigation source
+            const fromParam =
+                mode === "shortlisted"
+                ? "shortlisted"
+                : mode === "recommended"
+                ? "recommended"
+                : "tenders2";
+
+            const detailsHref = `/tenders/${tender.id}?from=${fromParam}&page=${currentPage}`;
 
             // click handler for the card (uses router to avoid wrapping a button in <a>)
             const onCardClick = (e: React.MouseEvent) => {

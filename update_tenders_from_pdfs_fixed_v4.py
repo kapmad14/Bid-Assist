@@ -236,7 +236,10 @@ def extract_selected_fields_from_pdf(pdf_path: str) -> dict:
     )
     if emd is None:
         emd = extract_numeric_amount(ascii_text, ["EMD Amount", "EMD Amount:"])
-    emd_out = emd if isinstance(emd, int) else None
+    if isinstance(emd, int) and emd < 1000:
+        emd_out = None
+    else:
+        emd_out = emd if isinstance(emd, int) else None
 
     # pages_count
     try:

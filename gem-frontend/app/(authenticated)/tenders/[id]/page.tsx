@@ -71,8 +71,18 @@ export default function TenderDetailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const pageFromList = searchParams?.get('page') ?? '1';
+  const fromSource = searchParams?.get("from") ?? "tenders2";
   const tenderIdParam = params?.id;
   const tenderIdNum = tenderIdParam ? Number(tenderIdParam) : NaN;
+  const backUrl = `/${fromSource}?page=${pageFromList}`;
+
+  // ✅ Back button label should match source page
+  const backLabel =
+    fromSource === "shortlisted"
+      ? "Back to Shortlisted Tenders"
+      : fromSource === "recommended"
+      ? "Back to Recommended Tenders"
+      : "Back to All Tenders";
 
   // Sync shortlist from DB so detail page always shows correct state
   useEffect(() => {
@@ -407,12 +417,12 @@ const handlePreviewAdditionalDocs = async () => {
         </p>
         <div className="text-center mt-4">
           <Button
-            onClick={() => router.push(`/tenders?page=${pageFromList}`)}
+            onClick={() => router.push(backUrl)}
             variant="outline"
             className="border-2 border-gray-300 font-bold text-gray-900 hover:bg-gray-50"
           >
             <ArrowLeft className="h-5 w-5 mr-2" aria-hidden />
-            Back to All Tenders
+            {backLabel}
           </Button>
         </div>
       </div>
@@ -427,12 +437,12 @@ const handlePreviewAdditionalDocs = async () => {
       <div className="bg-white border-b-2 border-gray-200 px-4 py-4 shadow-sm">
         <div className="container mx-auto">
           <Button
-            onClick={() => router.push(`/tenders?page=${pageFromList}`)}
+            onClick={() => router.push(backUrl)}
             variant="outline"
             className="border-2 border-gray-300 font-bold text-gray-900 hover:bg-gray-50"
           >
             <ArrowLeft className="h-5 w-5 mr-2" aria-hidden />
-            Back to All Tenders
+            {backLabel}
           </Button>
         </div>
       </div>
