@@ -182,6 +182,9 @@ function TendersContentInner({ mode }: { mode: ExplorerMode }) {
   const [departmentInput, setDepartmentInput] = useState<string>("");
   const [departmentFilter, setDepartmentFilter] = useState<string>("");
 
+  const [locationInput, setLocationInput] = useState<string>("");
+  const [locationFilter, setLocationFilter] = useState<string>("");
+
   const [departmentSuggestions, setDepartmentSuggestions] = useState<string[]>([]);
   const [showDepartmentDropdown, setShowDepartmentDropdown] = useState(false);
 
@@ -405,6 +408,20 @@ function TendersContentInner({ mode }: { mode: ExplorerMode }) {
     return () => clearTimeout(t);
   }, [departmentInput]);
 
+  // ✅ Location Search activates only after 4 chars (or clear)
+  useEffect(() => {
+    const q = locationInput.trim();
+
+    if (q.length > 0 && q.length < 4) return;
+
+    const t = setTimeout(() => {
+      setLocationFilter(q);
+      setCurrentPage(1);
+    }, 500);
+
+    return () => clearTimeout(t);
+  }, [locationInput]);
+
     const logUserEvent = useCallback(
       async (eventType: string, eventValue?: any) => {
         try {
@@ -501,6 +518,7 @@ function TendersContentInner({ mode }: { mode: ExplorerMode }) {
         recommendationsOnly: recommendationsOnlyFinal,
         ministry: ministryFilter,
         department: departmentFilter,
+        location: locationFilter,
       });
 
 
@@ -540,6 +558,7 @@ function TendersContentInner({ mode }: { mode: ExplorerMode }) {
    recommendedOnly,
    ministryFilter,
    departmentFilter,
+   locationFilter,
    itemFilter,
    logUserEvent,
    supabase
@@ -1172,6 +1191,49 @@ function TendersContentInner({ mode }: { mode: ExplorerMode }) {
             </div>
 
           </div>
+
+        {/* ✅ NEW: Location Search (Address OR Pincode) */}
+        <div className="relative">
+          <label
+            htmlFor="location-filter"
+            className="text-xs font-bold text-gray-700 uppercase mb-1 block"
+          >
+            Location Search
+          </label>
+
+          <input
+            id="location-filter"
+            type="text"
+            placeholder="Type 4+ letters or pincode..."
+            value={locationInput}
+            onChange={(e) => setLocationInput(e.target.value)}
+            className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg
+              text-sm font-medium focus:border-[#F7C846]
+              focus:ring-1 focus:ring-[#F7C846] outline-none"
+          />
+
+          {/* ✅ Clear Button */}
+          {locationInput.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setLocationInput("");
+                setLocationFilter("");
+                setCurrentPage(1);
+
+                setTimeout(() => {
+                  document.getElementById("location-filter")?.focus();
+                }, 50);
+              }}
+              className="absolute right-3 top-1/2 -translate-y-1/5
+                w-7 h-7 flex items-center justify-center
+                rounded-full hover:bg-gray-100 text-gray-500 hover:text-gray-800"
+              aria-label="Clear location"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
 
           {/* Accordion Filters */}
           <div className="divide-y divide-gray-100">

@@ -36,6 +36,7 @@ type GetTendersParams = {
   ministry?: string;
   department?: string;
   itemSearch?: string;
+  location?: string;
 };
 
 class TenderClientStore {
@@ -341,6 +342,13 @@ class TenderClientStore {
         query = query.ilike("department", `%${params.department.trim()}%`);
       }
 
+      if (params.location?.trim()) {
+        const loc = params.location.trim();
+        query = query.or(
+          `organization_address.ilike.%${loc}%,pincode.ilike.${loc}%`
+        );
+      }
+
       if (params.emdFilter === "yes") query = query.gt("emd_amount", 0);
       if (params.emdFilter === "no") {
         query = query.or("emd_amount.is.null,emd_amount.eq.0");
@@ -449,6 +457,14 @@ class TenderClientStore {
       query = query.ilike("department", `%${params.department.trim()}%`);
     }
 
+    // ✅ ADD HERE
+    if (params.location?.trim()) {
+      const loc = params.location.trim();
+      query = query.or(
+        `organization_address.ilike.%${loc}%,pincode.ilike.${loc}%`
+      );
+    }
+
     // ------------------------------------------
     // STATUS FILTERS (as earlier working logic)
     // ------------------------------------------
@@ -526,6 +542,14 @@ class TenderClientStore {
           shortlistQuery = shortlistQuery.ilike(
             "department",
             `%${params.department.trim()}%`
+          );
+        }
+
+        // ✅ Location Search (organization_address OR pincode)
+        if (params.location?.trim()) {
+          const loc = params.location.trim();
+          shortlistQuery = shortlistQuery.or(
+            `organization_address.ilike.%${loc}%,pincode.ilike.${loc}%`
           );
         }
 
