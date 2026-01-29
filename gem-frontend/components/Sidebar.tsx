@@ -48,12 +48,6 @@ const menuItems = [
   { label: 'Shortlisted', icon: Star, path: '/shortlisted' },
 
   { label: 'Results', icon: LayoutList, path: '/results' },
-  { 
-    label: 'Analytics', 
-    icon: LayoutDashboard,        // reusing dashboard icon for clarity
-    path: '/analytics' 
-  },
-  { label: 'PDF Test', icon: FileText, path: '/gem-pdf-test' },
   { label: 'Help & Support', icon: LifeBuoy, path: '/help' },
 ];
 
