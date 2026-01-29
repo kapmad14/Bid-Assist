@@ -35,6 +35,7 @@ type GetTendersParams = {
   source?: 'gem' | 'all';
   ministry?: string;
   department?: string;
+  itemSearch?: string;
 };
 
 class TenderClientStore {
@@ -324,6 +325,13 @@ class TenderClientStore {
       if (params.search?.trim()) {
         query = query.ilike("item", `%${params.search.trim()}%`);
       }
+      // ✅ Item Search (item column only)
+      if (params.itemSearch?.trim()) {
+        query = query.ilike(
+          "item",
+          `%${params.itemSearch.trim()}%`
+        );
+      }
 
       if (params.ministry?.trim()) {
         query = query.ilike("ministry", `%${params.ministry.trim()}%`);
@@ -425,6 +433,14 @@ class TenderClientStore {
     query = query.or(clauses.join(','));
     }
 
+    // ✅ Item Search Filter (item column only)
+    if (params.itemSearch?.trim()) {
+      query = query.ilike(
+        "item",
+        `%${params.itemSearch.trim()}%`
+      );
+    }
+
     if (params.ministry?.trim()) {
       query = query.ilike("ministry", `%${params.ministry.trim()}%`);
     }
@@ -486,6 +502,14 @@ class TenderClientStore {
           shortlistQuery = shortlistQuery.ilike(
             "item",
             `%${params.search.trim()}%`
+          );
+        }
+
+        // ✅ Item Search (item column only)
+        if (params.itemSearch?.trim()) {
+          shortlistQuery = shortlistQuery.ilike(
+            "item",
+            `%${params.itemSearch.trim()}%`
           );
         }
 

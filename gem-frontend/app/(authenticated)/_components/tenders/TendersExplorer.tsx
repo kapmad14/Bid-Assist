@@ -159,6 +159,11 @@ function TendersContentInner({ mode }: { mode: ExplorerMode }) {
   // Filters & UI state
   const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+
+  // ✅ Item Search (applies only on item column, starts at 4 chars)
+  const [itemInput, setItemInput] = useState<string>("");
+  const [itemFilter, setItemFilter] = useState<string>("");
+
   const [sortBy, setSortBy] = useState<SortOption>('newest');
   const [activeTab, setActiveTab] = useState<TabOption>(() => {
     if (qpTab === 'Closing Soon') return 'Closing Soon';
@@ -225,6 +230,21 @@ function TendersContentInner({ mode }: { mode: ExplorerMode }) {
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [searchInput]);
+
+  // ✅ Step X: Item Search (debounced, only applies after 4 chars or cleared)
+  useEffect(() => {
+   const q = itemInput.trim();
+
+   // Only apply when empty OR >= 3 chars
+   if (q.length > 0 && q.length < 3) return;
+
+   const t = setTimeout(() => {
+     setItemFilter(q);
+     setCurrentPage(1);
+   }, 500);
+
+   return () => clearTimeout(t);
+  }, [itemInput]);
 
   // ✅ Reset keyboard selection whenever suggestions refresh
   useEffect(() => {
@@ -338,7 +358,7 @@ function TendersContentInner({ mode }: { mode: ExplorerMode }) {
     // ✅ If already selected → do not reopen dropdown
     if (departmentSelected) return;
 
-    if (q.length < 3) {
+    if (q.length < 4) {
       setDepartmentSuggestions([]);
       setShowDepartmentDropdown(false);
       return;
@@ -375,7 +395,7 @@ function TendersContentInner({ mode }: { mode: ExplorerMode }) {
   useEffect(() => {
     const q = departmentInput.trim();
 
-    if (q.length > 0 && q.length < 3) return;
+    if (q.length > 0 && q.length < 4) return;
 
     const t = setTimeout(() => {
       setDepartmentFilter(q);
@@ -425,6 +445,8 @@ function TendersContentInner({ mode }: { mode: ExplorerMode }) {
     const handleClearAllFilters = () => {
     setSearchInput('');
     setSearchTerm('');
+    setItemInput('');
+    setItemFilter('');
     setSortBy('newest');
     setActiveTab('Active');
     setEmdNeeded('all');
@@ -468,6 +490,7 @@ function TendersContentInner({ mode }: { mode: ExplorerMode }) {
         page: currentPage,
         limit: PAGE_SIZE,
         search: searchTerm,
+        itemSearch: itemFilter,
         statusFilter,
         sortBy,
         emdFilter: emdNeeded,
@@ -517,6 +540,7 @@ function TendersContentInner({ mode }: { mode: ExplorerMode }) {
    recommendedOnly,
    ministryFilter,
    departmentFilter,
+   itemFilter,
    logUserEvent,
    supabase
  ]);
@@ -524,7 +548,7 @@ function TendersContentInner({ mode }: { mode: ExplorerMode }) {
 
   useEffect(() => {
     fetchTenders();
-  }, [mode, currentPage, searchTerm, activeTab, sortBy, emdNeeded, reverseAuction, bidTypeFilter, evaluationType, recommendedOnly, ministryFilter, departmentFilter]);
+  }, [fetchTenders]);
 
 
   // Shortlist toggle with optimistic update and rollback
@@ -769,7 +793,7 @@ function TendersContentInner({ mode }: { mode: ExplorerMode }) {
 
           {/* Keyword Search */}
           <div className="mb-4">
-            <label htmlFor="tender-search" className="text-xs font-bold text-gray-700 uppercase mb-1 block">Keyword Search</label>
+            <label htmlFor="tender-search" className="text-xs font-bold text-gray-700 uppercase mb-1 block">General Search</label>
             <div className="flex gap-2">
               <div className="relative flex-1">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" aria-hidden />
@@ -810,6 +834,54 @@ function TendersContentInner({ mode }: { mode: ExplorerMode }) {
               >
                 Go
               </button>
+            </div>
+          </div>
+
+          {/* ✅ NEW: Item Search Filter (item column only) */}
+          <div className="mb-4">
+            <label
+              htmlFor="item-filter"
+              className="text-xs font-bold text-gray-700 uppercase mb-1 block"
+            >
+              Item Search
+            </label>
+
+            <div className="relative">
+              <input
+                id="item-filter"
+                type="text"
+                placeholder="Type 3+ letters..."
+                value={itemInput}
+                onChange={(e) => setItemInput(e.target.value)}
+                className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm font-medium
+                  focus:border-[#F7C846] focus:ring-1 focus:ring-[#F7C846] outline-none"
+              />
+
+              {/* ✅ Clear (X) Button */}
+              {itemInput.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    // ✅ Clear input + applied filter
+                    setItemInput("");
+                    setItemFilter("");
+
+                    // ✅ Reset pagination
+                    setCurrentPage(1);
+
+                    // ✅ Refocus input
+                    setTimeout(() => {
+                      document.getElementById("item-filter")?.focus();
+                    }, 50);
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2
+                    w-7 h-7 flex items-center justify-center
+                    rounded-full hover:bg-gray-100 text-gray-500 hover:text-gray-800"
+                  aria-label="Clear item search"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
             </div>
           </div>
         {/* ✅ NEW: Ministry + Department Filters (Step 3A - Simple Inputs) */}
@@ -1377,6 +1449,8 @@ function TendersContentInner({ mode }: { mode: ExplorerMode }) {
                     onClick={() => {
                       setSearchInput('');
                       setSearchTerm('');
+                      setItemInput('');
+                      setItemFilter('');
                       setEmdNeeded('all');
                       setBidTypeFilter('all');
                       setEvaluationType('all');
