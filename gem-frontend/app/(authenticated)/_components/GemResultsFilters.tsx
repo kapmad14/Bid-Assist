@@ -20,6 +20,10 @@ export function GemResultsFilters(props: {
   bidRaFilterInput: string;
   globalSearchInput: string;
 
+  catalogueCategories: string[];
+  setCatalogueCategories: (v: string[]) => void;
+  catalogueOptions: string[];
+
   // --- SETTERS ---
   setItemFilterInput: (v: string) => void;
   setMinistryFilterInput: (v: string) => void;
@@ -69,6 +73,10 @@ export function GemResultsFilters(props: {
     bidRaFilterInput,
     globalSearchInput,
 
+    catalogueCategories,
+    setCatalogueCategories,
+    catalogueOptions,
+
     setItemFilterInput,
     setMinistryFilterInput,
     setDepartmentFilterInput,
@@ -115,6 +123,8 @@ export function GemResultsFilters(props: {
     bidRaFilterInput.trim() !== "" ||
     globalSearchInput.trim() !== "";
 
+const hasCatalogueActive = catalogueCategories.length > 0;
+
   // ✅ Ranked + limited dropdown options (Ministry & Department)
 const rankedMinistries = ministryOptions
   .filter((m) =>
@@ -152,6 +162,44 @@ const rankedDepartments = departmentOptions
 
   // ✅ Debounce timer holder (so we cancel old requests)
   const sellerDebounceRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  const [showCatalogueList, setShowCatalogueList] = useState(false);
+  const [catalogueSearch, setCatalogueSearch] = useState("");
+  const [catalogueIndex, setCatalogueIndex] = useState(-1);
+  const catalogueWrapperRef = React.useRef<HTMLDivElement | null>(null);
+
+  // ✅ Close catalogue dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const t = e.target as Node;
+
+      if (
+        catalogueWrapperRef.current &&
+        !catalogueWrapperRef.current.contains(t)
+      ) {
+        setShowCatalogueList(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  useEffect(() => {
+    if (!showCatalogueList) {
+      setCatalogueSearch("");
+      setCatalogueIndex(-1);
+    }
+  }, [showCatalogueList]);
+
+  // ✅ Filtered catalogue categories (search inside dropdown)
+  const filteredCatalogueOptions =
+    catalogueSearch.trim().length === 0
+      ? catalogueOptions
+      : catalogueOptions.filter((c) =>
+          c.toLowerCase().includes(catalogueSearch.toLowerCase())
+        );
+
 
   return (
     <div className="bg-white border rounded-xl shadow-sm px-4 py-4 mb-6
@@ -553,8 +601,171 @@ const rankedDepartments = departmentOptions
         )}
         </div>
 
+                {/* ✅ CATALOGUE FILTER (Category Multi-Select) */}
+        <div ref={catalogueWrapperRef} className="relative">
+          <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">
+            Catalogue
+          </label>
 
-        {/* GLOBAL SEARCH */}
+          <input
+            readOnly
+            value={
+              catalogueCategories.length === 0
+                ? ""
+                : catalogueCategories.length === catalogueOptions.length
+                ? "All Items Selected"
+                : catalogueCategories.length === 1
+                ? catalogueCategories[0]
+                : "Multiple Items Selected"
+            }
+            placeholder="Select My Items"
+            onClick={() => {
+              setShowCatalogueList((v) => !v);
+              setCatalogueIndex(-1);
+            }}
+            onKeyDown={(e) => {
+                if (!showCatalogueList && e.key === "ArrowDown") {
+                setShowCatalogueList(true);
+                setCatalogueIndex(-1);
+                return;
+                }
+
+                if (e.key === "Escape") {
+                setShowCatalogueList(false);
+                }
+
+                if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setCatalogueIndex((i) =>
+                    Math.min(i + 1, filteredCatalogueOptions.length - 1)
+                );
+                }
+
+                if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setCatalogueIndex((i) => Math.max(i - 1, -1));
+                }
+
+                if (e.key === "Enter") {
+                e.preventDefault();
+
+                // ✅ Case 1: Select All row
+                if (catalogueIndex === -1) {
+                    if (catalogueCategories.length === catalogueOptions.length) {
+                    setCatalogueCategories([]);
+                    } else {
+                    setCatalogueCategories([...catalogueOptions]);
+                    }
+                    return;
+                }
+
+                // ✅ Case 2: Category rows
+                if (catalogueIndex >= 0) {
+                    const picked = filteredCatalogueOptions[catalogueIndex];
+                    if (!picked) return;
+
+                    if (catalogueCategories.includes(picked)) {
+                    setCatalogueCategories(
+                        catalogueCategories.filter((c) => c !== picked)
+                    );
+                    } else {
+                    setCatalogueCategories([...catalogueCategories, picked]);
+                    }
+                }
+                }
+            }}
+
+            className={`
+              w-full border rounded-lg px-3 py-2 text-sm pr-8
+              cursor-pointer
+              transition
+              ${
+                hasCatalogueActive
+                  ? "bg-yellow-50 border-yellow-300"
+                  : "bg-white border-gray-300"
+              }
+            `}
+          />
+
+          {/* Dropdown caret */}
+          <span className="absolute right-3 top-[34px] text-gray-400 pointer-events-none">
+            ▾
+          </span>
+
+            {showCatalogueList && (
+            <div
+                className="absolute left-0 right-0 bg-white border mt-1 rounded shadow max-h-60 overflow-auto z-20"
+            >
+            {/* ✅ Search box (only when >10 categories) */}
+            {catalogueOptions.length > 10 && (
+            <div className="p-2 border-b">
+                <input
+                value={catalogueSearch}
+                onChange={(e) => setCatalogueSearch(e.target.value)}
+                placeholder="Search catalogue..."
+                className="w-full border rounded-md px-2 py-1 text-sm"
+                />
+            </div>
+            )}
+
+            {/* Select All */}
+            {catalogueOptions.length > 0 && (
+              <div
+                className={`px-3 py-2 border-b ${
+                    catalogueIndex === -1 ? "bg-yellow-100" : ""
+                }`}
+              >
+
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={
+                      catalogueCategories.length === catalogueOptions.length
+                    }
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setCatalogueCategories([...catalogueOptions]);
+                      } else {
+                        setCatalogueCategories([]);
+                      }
+                    }}
+                  />
+                  Select All
+                </label>
+              </div>
+            )}
+
+            {/* Categories */}
+            {filteredCatalogueOptions.map((cat, idx) => (
+              <label
+                key={cat}
+                className={`flex items-center gap-2 px-3 py-2 text-sm cursor-pointer
+                ${idx === catalogueIndex ? "bg-yellow-100" : "hover:bg-gray-50"}
+                `}
+              >
+                <input
+                  type="checkbox"
+                  checked={catalogueCategories.includes(cat)}
+                  onChange={() => {
+                    if (catalogueCategories.includes(cat)) {
+                      setCatalogueCategories(
+                        catalogueCategories.filter((c) => c !== cat)
+                      );
+                    } else {
+                      setCatalogueCategories([...catalogueCategories, cat]);
+                    }
+                  }}
+                />
+                {cat}
+              </label>
+            ))}
+          </div>
+          )}
+        </div>
+        
+
+        {/* GLOBAL SEARCH (HIDDEN FOR NOW) */}
+        {false && (
         <div className="relative">
           <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">
             General Search
@@ -580,7 +791,10 @@ const rankedDepartments = departmentOptions
               </button>
             )}
           </div>
+          
         </div>
+         )}
+         
         {/* ✅ Result Count (Bottom Right Cell) */}
         {hasActiveFilters && totalResults !== undefined && (
         <div className="mt-6 flex items-center justify-left font-small text-gray-700">

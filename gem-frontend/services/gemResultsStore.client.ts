@@ -4,6 +4,7 @@ type GetResultsArgs = {
   page: number;
   limit: number;
   global?: string;
+  catalogue?: string[];
   bidRa?: string;
   item?: string;
   ministry?: string;
@@ -29,6 +30,10 @@ export const gemResultsClientStore = {
     if (args.department) params.append("department", args.department);
     if (args.seller) params.append("seller", args.seller);
     if (args.global) params.append("global", args.global);
+    // ✅ Catalogue categories (multi)
+    if (args.catalogue) {
+      args.catalogue.forEach((c) => params.append("catalogue", c));
+    }
 
 
     const res = await fetch(`/api/gem-results?${params.toString()}`, {

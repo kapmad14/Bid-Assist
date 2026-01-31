@@ -10,6 +10,7 @@ type GetResultsArgs = {
   department?: string;
   seller?: string;
   global?: string;
+  catalogue?: string[];
 };
 
 
@@ -22,6 +23,7 @@ export async function getGemResultsServer({
   department,
   seller,
   global,
+  catalogue,
 }: GetResultsArgs): Promise<{
   data: GemResult[];
   total: number;
@@ -36,7 +38,9 @@ export async function getGemResultsServer({
     !ministry &&
     !department &&
     !seller &&
-    !global;
+    !global &&
+    (!catalogue || catalogue.length === 0);
+
 
   // ✅ Homepage cap: latest 200 rows (10 pages)
   const CAP_LIMIT = 200;
@@ -49,6 +53,14 @@ export async function getGemResultsServer({
   const applyFilters = (q: any) => {
     if (item) {
       q = q.ilike("l1_item", `%${item}%`);
+    }
+    // ✅ Catalogue Category Filter (OR match against l1_item)
+    if (catalogue && catalogue.length > 0) {
+      const orClause = catalogue
+        .map((cat) => `l1_item.ilike.%${cat}%`)
+        .join(",");
+
+      q = q.or(orClause);
     }
 
     if (global) {

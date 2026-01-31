@@ -32,6 +32,8 @@ export default function ResultsPageClient() {
   const [bidRaFilterInput, setBidRaFilterInput] = useState("");
   const [globalSearchInput, setGlobalSearchInput] = useState("");
 
+  const [catalogueCategories, setCatalogueCategories] = useState<string[]>([]);
+
 
   // Actual filters that trigger fetch (slow)
   const [itemFilter, setItemFilter] = useState("");
@@ -63,6 +65,8 @@ export default function ResultsPageClient() {
   // Global autosuggest options loaded once from server
   const [ministryOptions, setMinistryOptions] = useState<string[]>([]);
   const [departmentOptions, setDepartmentOptions] = useState<string[]>([]);
+
+  const [catalogueOptions, setCatalogueOptions] = useState<string[]>([]);
 
   const [previewForId, setPreviewForId] = useState<number | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -111,6 +115,18 @@ export default function ResultsPageClient() {
         console.error("Failed to load autosuggest options:", err);
       });
   }, []);
+
+    // ✅ Load user catalogue categories ONCE
+    useEffect(() => {
+      fetch("/api/catalogue/categories", { cache: "no-store" })
+        .then((res) => res.json())
+        .then((json) => {
+          setCatalogueOptions(json.categories ?? []);
+        })
+        .catch((err) => {
+          console.error("Failed to load catalogue categories:", err);
+        });
+    }, []);
 
   // ✅ STEP 2 — close dropdowns when clicking outside
   useEffect(() => {
@@ -291,6 +307,7 @@ export default function ResultsPageClient() {
         ministry: ministryFilter || undefined,
         department: departmentFilter || undefined,
         seller: sellerFilter || undefined,
+        catalogue: catalogueCategories.length > 0 ? catalogueCategories : undefined,
       });
 
       setResults(data);
@@ -317,6 +334,7 @@ export default function ResultsPageClient() {
     sellerFilter,
     bidRaFilter,
     globalSearch,
+    catalogueCategories,
     isFirstLoad,
   ]);
 
@@ -429,6 +447,10 @@ export default function ResultsPageClient() {
         setSellerFilterInput={setSellerFilterInput}
         setBidRaFilterInput={setBidRaFilterInput}
         setGlobalSearchInput={setGlobalSearchInput}
+
+        catalogueCategories={catalogueCategories}
+        setCatalogueCategories={setCatalogueCategories}
+        catalogueOptions={catalogueOptions}
 
         clearFilters={clearFilters}
 
