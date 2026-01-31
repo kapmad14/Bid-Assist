@@ -51,7 +51,7 @@ export async function getGemResultsServer({
 
 
   const applyFilters = (q: any) => {
-    if (item) {
+    if (item && item.trim().length >= 3) {
       q = q.ilike("l1_item", `%${item}%`);
     }
     // ✅ Catalogue Category Filter (OR match against l1_item)
@@ -81,22 +81,25 @@ export async function getGemResultsServer({
     }
 
 
-    if (bidRa) {
+    // ✅ Bid/RA filter only after 7 characters
+    if (bidRa && bidRa.trim().length >= 7) {
       q = q.or(
         `bid_number.ilike.%${bidRa}%,ra_number.ilike.%${bidRa}%`
       );
     }
 
-
-    if (ministry) {
+    // ✅ Ministry filter only after 3 characters
+    if (ministry && ministry.trim().length >= 3) {
       q = q.ilike("ministry", `%${ministry}%`);
     }
 
-    if (department) {
+    // ✅ Department filter only after 3 characters
+    if (department && department.trim().length >= 3) {
       q = q.ilike("department", `%${department}%`);
     }
 
-    if (seller) {
+    // ✅ Seller filter only after 3 characters
+    if (seller && seller.trim().length >= 3) {
       q = q.or(
         `l1_seller.ilike.%${seller}%,l2_seller.ilike.%${seller}%,l3_seller.ilike.%${seller}%`
       );
