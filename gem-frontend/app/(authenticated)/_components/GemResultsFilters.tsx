@@ -210,38 +210,184 @@ const rankedDepartments = departmentOptions
         grid grid-cols-1
         md:grid-cols-[30%_30%_30%_10%]
         gap-x-4 gap-y-4">
-      
-        {/* BID / RA NUMBER FILTER */}
-        <div className="relative">
+
+                {/* ✅ CATALOGUE FILTER (Category Multi-Select) */}
+        <div ref={catalogueWrapperRef} className="relative">
           <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">
-            Bid / RA Number
+            Catalogue
           </label>
 
-          <div className="relative">
-            <input
-              value={bidRaFilterInput}
-              onChange={(e) => setBidRaFilterInput(e.target.value)}
-              placeholder="Search Bid or RA Number..."
-              className={`w-full border rounded-lg px-3 py-2 text-sm pr-8 transition ${
-              bidRaFilterInput.trim()
-                  ? "bg-yellow-50 ring-2 ring-yellow-300"
-                  : "bg-white ring-1 ring-gray-200"
-              }`}
-              />
+          <input
+            readOnly
+            value={
+              catalogueCategories.length === 0
+                ? ""
+                : catalogueCategories.length === catalogueOptions.length
+                ? "All Items Selected"
+                : catalogueCategories.length === 1
+                ? catalogueCategories[0]
+                : "Multiple Items Selected"
+            }
+            placeholder="Select My Items"
+            onClick={() => {
+              setShowCatalogueList((v) => !v);
+              setCatalogueIndex(-1);
+            }}
+            onKeyDown={(e) => {
+                if (!showCatalogueList && e.key === "ArrowDown") {
+                setShowCatalogueList(true);
+                setCatalogueIndex(-1);
+                return;
+                }
 
-            {bidRaFilterInput && (
-            <button
-                type="button"
-                onClick={() => {
-                setBidRaFilterInput("");
-                }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
+                if (e.key === "Escape") {
+                setShowCatalogueList(false);
+                }
+
+                if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setCatalogueIndex((i) =>
+                    Math.min(i + 1, filteredCatalogueOptions.length - 1)
+                );
+                }
+
+                if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setCatalogueIndex((i) => Math.max(i - 1, -1));
+                }
+
+                if (e.key === "Enter") {
+                e.preventDefault();
+
+                // ✅ Case 1: Select All row
+                if (catalogueIndex === -1) {
+                    if (catalogueCategories.length === catalogueOptions.length) {
+                    setCatalogueCategories([]);
+                    } else {
+                    setCatalogueCategories([...catalogueOptions]);
+                    }
+                    return;
+                }
+
+                // ✅ Case 2: Category rows
+                if (catalogueIndex >= 0) {
+                    const picked = filteredCatalogueOptions[catalogueIndex];
+                    if (!picked) return;
+
+                    if (catalogueCategories.includes(picked)) {
+                    setCatalogueCategories(
+                        catalogueCategories.filter((c) => c !== picked)
+                    );
+                    } else {
+                    setCatalogueCategories([...catalogueCategories, picked]);
+                    }
+                }
+                }
+            }}
+
+            className={`
+              w-full border rounded-lg px-3 py-2 text-sm pr-8
+              cursor-pointer
+              transition
+              ${
+                hasCatalogueActive
+                  ? "bg-yellow-50 border-yellow-300"
+                  : "bg-white border-gray-300"
+              }
+            `}
+          />
+          {/* ✅ Clear Catalogue button (same style as others) */}
+          {catalogueCategories.length > 0 && (
+              <button
+              type="button"
+              onClick={() => {
+                  setCatalogueCategories([]);
+                  setShowCatalogueList(false);
+                  setCatalogueSearch("");
+                  setCatalogueIndex(-1);
+              }}
+              className="absolute right-8 top-[34px] -translate-y-1/3 text-gray-700 hover:text-gray-700"
               >
-                ✕
+              ✕
               </button>
+          )}
+          {/* Dropdown caret */}
+            <span className="absolute right-3 top-1/2 -translate-y-1/20 text-gray-400 pointer-events-none">
+            <ChevronDown className="w-4 h-4" />
+            </span>
+
+
+            {showCatalogueList && (
+            <div
+                className="absolute left-0 right-0 bg-white border mt-1 rounded shadow max-h-60 overflow-auto z-20"
+            >
+            {/* ✅ Search box (only when >10 categories) */}
+            {catalogueOptions.length > 10 && (
+            <div className="p-2 border-b">
+                <input
+                value={catalogueSearch}
+                onChange={(e) => setCatalogueSearch(e.target.value)}
+                placeholder="Search catalogue..."
+                className="w-full border rounded-md px-2 py-1 text-sm"
+                />
+            </div>
             )}
+
+            {/* Select All */}
+            {catalogueOptions.length > 0 && (
+              <div
+                className={`px-3 py-2 border-b ${
+                    catalogueIndex === -1 ? "bg-yellow-100" : ""
+                }`}
+              >
+
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={
+                      catalogueCategories.length === catalogueOptions.length
+                    }
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setCatalogueCategories([...catalogueOptions]);
+                      } else {
+                        setCatalogueCategories([]);
+                      }
+                    }}
+                  />
+                  Select All
+                </label>
+              </div>
+            )}
+
+            {/* Categories */}
+            {filteredCatalogueOptions.map((cat, idx) => (
+              <label
+                key={cat}
+                className={`flex items-center gap-2 px-3 py-2 text-sm cursor-pointer
+                ${idx === catalogueIndex ? "bg-yellow-100" : "hover:bg-gray-50"}
+                `}
+              >
+                <input
+                  type="checkbox"
+                  checked={catalogueCategories.includes(cat)}
+                  onChange={() => {
+                    if (catalogueCategories.includes(cat)) {
+                      setCatalogueCategories(
+                        catalogueCategories.filter((c) => c !== cat)
+                      );
+                    } else {
+                      setCatalogueCategories([...catalogueCategories, cat]);
+                    }
+                  }}
+                />
+                {cat}
+              </label>
+            ))}
           </div>
+          )}
         </div>
+
 
         {/* L1 ITEM FILTER (simple text search) */}
         <div className="relative">
@@ -625,181 +771,36 @@ const rankedDepartments = departmentOptions
         )}
         </div>
 
-                {/* ✅ CATALOGUE FILTER (Category Multi-Select) */}
-        <div ref={catalogueWrapperRef} className="relative">
+        {/* BID / RA NUMBER FILTER */}
+        <div className="relative">
           <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">
-            Catalogue
+            Bid / RA Number
           </label>
 
-          <input
-            readOnly
-            value={
-              catalogueCategories.length === 0
-                ? ""
-                : catalogueCategories.length === catalogueOptions.length
-                ? "All Items Selected"
-                : catalogueCategories.length === 1
-                ? catalogueCategories[0]
-                : "Multiple Items Selected"
-            }
-            placeholder="Select My Items"
-            onClick={() => {
-              setShowCatalogueList((v) => !v);
-              setCatalogueIndex(-1);
-            }}
-            onKeyDown={(e) => {
-                if (!showCatalogueList && e.key === "ArrowDown") {
-                setShowCatalogueList(true);
-                setCatalogueIndex(-1);
-                return;
-                }
+          <div className="relative">
+            <input
+              value={bidRaFilterInput}
+              onChange={(e) => setBidRaFilterInput(e.target.value)}
+              placeholder="Search Bid or RA Number..."
+              className={`w-full border rounded-lg px-3 py-2 text-sm pr-8 transition ${
+              bidRaFilterInput.trim()
+                  ? "bg-yellow-50 ring-2 ring-yellow-300"
+                  : "bg-white ring-1 ring-gray-200"
+              }`}
+              />
 
-                if (e.key === "Escape") {
-                setShowCatalogueList(false);
-                }
-
-                if (e.key === "ArrowDown") {
-                e.preventDefault();
-                setCatalogueIndex((i) =>
-                    Math.min(i + 1, filteredCatalogueOptions.length - 1)
-                );
-                }
-
-                if (e.key === "ArrowUp") {
-                e.preventDefault();
-                setCatalogueIndex((i) => Math.max(i - 1, -1));
-                }
-
-                if (e.key === "Enter") {
-                e.preventDefault();
-
-                // ✅ Case 1: Select All row
-                if (catalogueIndex === -1) {
-                    if (catalogueCategories.length === catalogueOptions.length) {
-                    setCatalogueCategories([]);
-                    } else {
-                    setCatalogueCategories([...catalogueOptions]);
-                    }
-                    return;
-                }
-
-                // ✅ Case 2: Category rows
-                if (catalogueIndex >= 0) {
-                    const picked = filteredCatalogueOptions[catalogueIndex];
-                    if (!picked) return;
-
-                    if (catalogueCategories.includes(picked)) {
-                    setCatalogueCategories(
-                        catalogueCategories.filter((c) => c !== picked)
-                    );
-                    } else {
-                    setCatalogueCategories([...catalogueCategories, picked]);
-                    }
-                }
-                }
-            }}
-
-            className={`
-              w-full border rounded-lg px-3 py-2 text-sm pr-8
-              cursor-pointer
-              transition
-              ${
-                hasCatalogueActive
-                  ? "bg-yellow-50 border-yellow-300"
-                  : "bg-white border-gray-300"
-              }
-            `}
-          />
-          {/* ✅ Clear Catalogue button (same style as others) */}
-          {catalogueCategories.length > 0 && (
-              <button
-              type="button"
-              onClick={() => {
-                  setCatalogueCategories([]);
-                  setShowCatalogueList(false);
-                  setCatalogueSearch("");
-                  setCatalogueIndex(-1);
-              }}
-              className="absolute right-8 top-[34px] -translate-y-1/3 text-gray-700 hover:text-gray-700"
+            {bidRaFilterInput && (
+            <button
+                type="button"
+                onClick={() => {
+                setBidRaFilterInput("");
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
               >
-              ✕
+                ✕
               </button>
-          )}
-          {/* Dropdown caret */}
-            <span className="absolute right-3 top-1/2 -translate-y-1/20 text-gray-400 pointer-events-none">
-            <ChevronDown className="w-4 h-4" />
-            </span>
-
-
-            {showCatalogueList && (
-            <div
-                className="absolute left-0 right-0 bg-white border mt-1 rounded shadow max-h-60 overflow-auto z-20"
-            >
-            {/* ✅ Search box (only when >10 categories) */}
-            {catalogueOptions.length > 10 && (
-            <div className="p-2 border-b">
-                <input
-                value={catalogueSearch}
-                onChange={(e) => setCatalogueSearch(e.target.value)}
-                placeholder="Search catalogue..."
-                className="w-full border rounded-md px-2 py-1 text-sm"
-                />
-            </div>
             )}
-
-            {/* Select All */}
-            {catalogueOptions.length > 0 && (
-              <div
-                className={`px-3 py-2 border-b ${
-                    catalogueIndex === -1 ? "bg-yellow-100" : ""
-                }`}
-              >
-
-                <label className="flex items-center gap-2 text-sm cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={
-                      catalogueCategories.length === catalogueOptions.length
-                    }
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setCatalogueCategories([...catalogueOptions]);
-                      } else {
-                        setCatalogueCategories([]);
-                      }
-                    }}
-                  />
-                  Select All
-                </label>
-              </div>
-            )}
-
-            {/* Categories */}
-            {filteredCatalogueOptions.map((cat, idx) => (
-              <label
-                key={cat}
-                className={`flex items-center gap-2 px-3 py-2 text-sm cursor-pointer
-                ${idx === catalogueIndex ? "bg-yellow-100" : "hover:bg-gray-50"}
-                `}
-              >
-                <input
-                  type="checkbox"
-                  checked={catalogueCategories.includes(cat)}
-                  onChange={() => {
-                    if (catalogueCategories.includes(cat)) {
-                      setCatalogueCategories(
-                        catalogueCategories.filter((c) => c !== cat)
-                      );
-                    } else {
-                      setCatalogueCategories([...catalogueCategories, cat]);
-                    }
-                  }}
-                />
-                {cat}
-              </label>
-            ))}
           </div>
-          )}
         </div>
         
 
