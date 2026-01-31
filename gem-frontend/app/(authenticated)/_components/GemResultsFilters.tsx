@@ -129,6 +129,13 @@ export function GemResultsFilters(props: {
     "bg-white border-gray-300";
 const hasCatalogueActive = catalogueCategories.length > 0;
 
+  // ✅ Item + Catalogue should not work together
+  const itemActive = itemFilterInput.trim().length > 0;
+  const catalogueActive = catalogueCategories.length > 0;
+
+  const disableItem = catalogueActive;
+  const disableCatalogue = itemActive;
+
   // ✅ Ranked + limited dropdown options (Ministry & Department)
 const rankedMinistries = ministryOptions
   .filter((m) =>
@@ -229,6 +236,7 @@ const rankedDepartments = departmentOptions
 
           <input
             readOnly
+            disabled={disableCatalogue}
             value={
               catalogueCategories.length === 0
                 ? ""
@@ -238,8 +246,13 @@ const rankedDepartments = departmentOptions
                 ? catalogueCategories[0]
                 : "Multiple Items Selected"
             }
-            placeholder="Select My Items"
+            placeholder={
+              disableCatalogue
+                ? "Unselect ITEM NAME to use this filter"
+                : "Select My Items"
+            }
             onClick={() => {
+              if (disableCatalogue) return;  
               setShowCatalogueList((v) => !v);
               setCatalogueIndex(-1);
             }}
@@ -304,6 +317,11 @@ const rankedDepartments = departmentOptions
                   ? "bg-yellow-50 border-yellow-300"
                   : "bg-white border-gray-300"
               }
+              ${
+                  disableCatalogue
+                  ? "!bg-gray-100 !border-gray-200 text-gray-400 placeholder:text-gray-400 cursor-not-allowed"
+                  : "cursor-pointer"
+              }
             `}
           />
           {/* ✅ Clear Catalogue button (same style as others) */}
@@ -327,7 +345,7 @@ const rankedDepartments = departmentOptions
             </span>
 
 
-            {showCatalogueList && (
+            {showCatalogueList && !disableCatalogue && (
             <div
                 className="absolute left-0 right-0 bg-white border mt-1 rounded shadow max-h-60 overflow-auto z-20"
             >
@@ -409,12 +427,24 @@ const rankedDepartments = departmentOptions
             <input
               value={itemFilterInput}
               onChange={(e) => setItemFilterInput(e.target.value)}
-              placeholder="Search Item..."
-              className={`w-full border rounded-lg px-3 py-2 text-sm pr-8 transition ${
-              itemFilterInput.trim()
+              disabled={disableItem}
+              placeholder={
+                disableItem
+                  ? "Unselect CATALOGUE to use this filter"
+                  : "Search Item..."
+              }
+              className={`w-full border rounded-lg px-3 py-2 text-sm pr-8 transition
+              ${
+                  itemFilterInput.trim()
                   ? "bg-yellow-50 ring-2 ring-yellow-300"
                   : "bg-white ring-1 ring-gray-200"
-              }`}
+              }
+              ${
+                  disableItem
+                  ? "!bg-gray-100 !border-gray-200 text-gray-400 placeholder:text-gray-400 cursor-not-allowed"
+                  : ""
+              }
+             `}
               />
 
             {itemFilterInput && (
