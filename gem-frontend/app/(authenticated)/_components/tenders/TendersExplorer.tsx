@@ -1373,30 +1373,6 @@ function TendersContentInner({ mode }: { mode: ExplorerMode }) {
                     ))}
                 </div>
                 </FilterSection>
-
-
-          </div>
-          {/* --- Guidance Banner for New Users --- */}
-          <div className="mt-4 bg-gray-50 border border-gray-100 rounded-lg p-3 text-xs leading-relaxed text-gray-600">
-            <p className="font-semibold text-gray-900">New here?</p>
-            <ul className="list-disc pl-4 mt-1 space-y-1">
-              <li>
-                <span className="font-semibold">Shortlist</span> ⭐ — Save tenders to revisit later.
-              </li>
-              <li>
-                <span className="font-semibold">Recommended for Me</span> 🔶 — Shows tenders based on items you’ve added in your <span className="underline font-medium">Catalogue</span>.
-              </li>
-            </ul>
-
-            {/* Optional subtle CTA */}
-            <div className="mt-2">
-              <Link 
-                href="/catalog"
-                className="text-[11px] font-semibold text-[#0E121A] underline hover:text-black"
-              >
-                Add items to Catalogue →
-              </Link>
-            </div>
           </div>
         </div>
       </div>
