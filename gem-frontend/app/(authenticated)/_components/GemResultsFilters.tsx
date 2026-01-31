@@ -170,6 +170,16 @@ const rankedDepartments = departmentOptions
   const [showCatalogueList, setShowCatalogueList] = useState(false);
   const [catalogueSearch, setCatalogueSearch] = useState("");
   const [catalogueIndex, setCatalogueIndex] = useState(-1);
+
+  // ✅ TEST MODE: Default Catalogue = Select All
+  useEffect(() => {
+    if (
+      catalogueOptions.length > 0 &&
+      catalogueCategories.length === 0
+    ) {
+      setCatalogueCategories([...catalogueOptions]);
+    }
+  }, [catalogueOptions]);
   const catalogueWrapperRef = React.useRef<HTMLDivElement | null>(null);
 
   // ✅ Close catalogue dropdown on outside click
@@ -223,7 +233,7 @@ const rankedDepartments = departmentOptions
               catalogueCategories.length === 0
                 ? ""
                 : catalogueCategories.length === catalogueOptions.length
-                ? "All Items Selected"
+                ? "Complete Catalogue Selected"
                 : catalogueCategories.length === 1
                 ? catalogueCategories[0]
                 : "Multiple Items Selected"
