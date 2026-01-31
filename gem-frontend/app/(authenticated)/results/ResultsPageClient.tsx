@@ -351,6 +351,7 @@ export default function ResultsPageClient() {
     setSellerFilterInput("");
     setBidRaFilterInput("");
     setGlobalSearchInput("");
+    setCatalogueCategories([]);
 
     // 2) Clear real filters (that trigger fetch)
     setItemFilter("");

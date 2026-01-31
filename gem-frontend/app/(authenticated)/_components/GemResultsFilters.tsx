@@ -121,7 +121,8 @@ export function GemResultsFilters(props: {
     departmentFilterInput.trim() !== "" ||
     sellerFilterInput.trim() !== "" ||
     bidRaFilterInput.trim() !== "" ||
-    globalSearchInput.trim() !== "";
+    globalSearchInput.trim() !== "" ||
+    catalogueCategories.length > 0;
   const activeInputStyle =
     "bg-yellow-50 border-yellow-300";
   const inactiveInputStyle =
@@ -709,7 +710,21 @@ const rankedDepartments = departmentOptions
               }
             `}
           />
-
+          {/* ✅ Clear Catalogue button (same style as others) */}
+          {catalogueCategories.length > 0 && (
+              <button
+              type="button"
+              onClick={() => {
+                  setCatalogueCategories([]);
+                  setShowCatalogueList(false);
+                  setCatalogueSearch("");
+                  setCatalogueIndex(-1);
+              }}
+              className="absolute right-8 top-[34px] -translate-y-1/3 text-gray-700 hover:text-gray-700"
+              >
+              ✕
+              </button>
+          )}
           {/* Dropdown caret */}
             <span className="absolute right-3 top-1/2 -translate-y-1/20 text-gray-400 pointer-events-none">
             <ChevronDown className="w-4 h-4" />
