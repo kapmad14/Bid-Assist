@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { X } from "lucide-react";
+import { X, ChevronDown } from "lucide-react";
 import { gemResultsClientStore } from "@/services/gemResultsStore.client";
 
 /**
@@ -122,7 +122,10 @@ export function GemResultsFilters(props: {
     sellerFilterInput.trim() !== "" ||
     bidRaFilterInput.trim() !== "" ||
     globalSearchInput.trim() !== "";
-
+  const activeInputStyle =
+    "bg-yellow-50 border-yellow-300";
+  const inactiveInputStyle =
+    "bg-white border-gray-300";
 const hasCatalogueActive = catalogueCategories.length > 0;
 
   // ✅ Ranked + limited dropdown options (Ministry & Department)
@@ -218,8 +221,12 @@ const rankedDepartments = departmentOptions
               value={bidRaFilterInput}
               onChange={(e) => setBidRaFilterInput(e.target.value)}
               placeholder="Search Bid or RA Number..."
-              className="w-full border rounded-lg px-3 py-2 text-sm pr-8"
-            />
+              className={`w-full border rounded-lg px-3 py-2 text-sm pr-8 transition ${
+              bidRaFilterInput.trim()
+                  ? "bg-yellow-50 ring-2 ring-yellow-300"
+                  : "bg-white ring-1 ring-gray-200"
+              }`}
+              />
 
             {bidRaFilterInput && (
             <button
@@ -246,8 +253,12 @@ const rankedDepartments = departmentOptions
               value={itemFilterInput}
               onChange={(e) => setItemFilterInput(e.target.value)}
               placeholder="Search Item..."
-              className="w-full border rounded-lg px-3 py-2 text-sm pr-8"
-            />
+              className={`w-full border rounded-lg px-3 py-2 text-sm pr-8 transition ${
+              itemFilterInput.trim()
+                  ? "bg-yellow-50 ring-2 ring-yellow-300"
+                  : "bg-white ring-1 ring-gray-200"
+              }`}
+              />
 
             {itemFilterInput && (
               <button
@@ -306,7 +317,11 @@ const rankedDepartments = departmentOptions
 
 
                 placeholder="Type Ministry Name..."
-                className="w-full border rounded-lg px-3 py-2 text-sm pr-8"
+                className={`w-full border rounded-lg px-3 py-2 text-sm pr-8 ${
+                ministryFilterInput.trim()
+                  ? "bg-yellow-50 ring-2 ring-yellow-300"
+                  : "bg-white ring-1 ring-gray-200"
+                }`}
               />
 
               {ministryFilterInput && (
@@ -420,7 +435,11 @@ const rankedDepartments = departmentOptions
                 }}
 
                 placeholder="Type Department Name..."
-                className="w-full border rounded-lg px-3 py-2 text-sm pr-8"
+                className={`w-full border rounded-lg px-3 py-2 text-sm pr-8 ${
+                departmentFilterInput.trim()
+                    ? "bg-yellow-50 ring-2 ring-yellow-300"
+                    : "bg-white ring-1 ring-gray-200"
+                }`}
               />
 
               {departmentFilterInput && (
@@ -531,7 +550,11 @@ const rankedDepartments = departmentOptions
                 }
             }}
             placeholder="Search Seller Name..."
-            className="w-full border rounded-lg px-3 py-2 text-sm pr-8"
+            className={`w-full border rounded-lg px-3 py-2 text-sm pr-8 ${
+            sellerFilterInput.trim()
+                ? "bg-yellow-50 ring-2 ring-yellow-300"
+                : "bg-white ring-1 ring-gray-200"
+            }`}
             />
 
             {/* Clear button */}
@@ -688,9 +711,10 @@ const rankedDepartments = departmentOptions
           />
 
           {/* Dropdown caret */}
-          <span className="absolute right-3 top-[34px] text-gray-400 pointer-events-none">
-            ▾
-          </span>
+            <span className="absolute right-3 top-1/2 -translate-y-1/20 text-gray-400 pointer-events-none">
+            <ChevronDown className="w-4 h-4" />
+            </span>
+
 
             {showCatalogueList && (
             <div
