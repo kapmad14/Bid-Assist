@@ -6,7 +6,14 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Calculator } from 'lucide-react';
+import {
+  Calculator,
+  Calendar,
+  Building2,
+  Database,
+  Trophy,
+} from "lucide-react";
+
 import { createClient } from '@/lib/supabase-client';
 
 
@@ -27,7 +34,6 @@ import { tenderClientStore as tenderStore } from '@/services/tenderStore.client'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
-const supabase = createClient();
 interface Tender {
   id: number;
   bid_number: string | null;
@@ -44,6 +50,11 @@ interface Tender {
   state: string | null;
   city: string | null;
   product_description?: string | null;
+  item_key?: string | null;
+  department_key?: string | null;
+  ministry_key?: string | null;
+  location_key?: string | null;
+
 
   // BoQ items from tenders table
   boq_items?: any | null;
@@ -67,6 +78,7 @@ interface ExtractedDocument {
 }
 
 export default function TenderDetailPage() {
+  const supabase = createClient();
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -75,6 +87,11 @@ export default function TenderDetailPage() {
   const tenderIdParam = params?.id;
   const tenderIdNum = tenderIdParam ? Number(tenderIdParam) : NaN;
   const backUrl = `/${fromSource}?page=${pageFromList}`;
+
+  // Similar Gem Results state
+  const [showSimilar, setShowSimilar] = useState(false);
+  const [similarLoading, setSimilarLoading] = useState(false);
+  const [similarResults, setSimilarResults] = useState<any[]>([]);
 
   // ✅ Back button label should match source page
   const backLabel =
@@ -107,6 +124,10 @@ export default function TenderDetailPage() {
   // Shortlist state (client-side, optimistic)
   const [isShortlisted, setIsShortlisted] = useState<boolean>(false);
   const shortlistPendingRef = useRef(false);
+
+  const [similarFetched, setSimilarFetched] = useState(false);
+
+  const similarSectionRef = useRef<HTMLDivElement | null>(null);
 
   // prevent setting state after unmount / race conditions
   const mountedRef = useRef(true);
@@ -185,6 +206,66 @@ export default function TenderDetailPage() {
     handlePreviewAdditionalDocs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tender?.id]);
+
+  // ✅ Reset similar state when tender changes
+  useEffect(() => {
+    setSimilarFetched(false);
+    setSimilarResults([]);
+  }, [tender?.id]);
+
+  const fetchSimilarResults = async () => {
+    if (!tender) return;
+    // ✅ Hard stop if key not available yet
+    if (!tender?.item_key) {
+      console.warn("Tender missing item_key — skipping similar search");
+      return;
+    }
+
+    setSimilarLoading(true);
+
+    try {
+      const res = await fetch("/api/similar-results", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              tender_item_key: tender.item_key ?? "",
+              tender_department_key: tender.department_key ?? "",
+              tender_location_key: tender.location_key ?? "",
+              tender_ministry_key: tender.ministry_key ?? "",
+            }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("API returned HTTP error:", res.status);
+        console.log("RAW API RESPONSE:", text);
+
+        // ✅ Clear old results on failure
+        setSimilarResults([]);
+
+        return;
+      }
+
+
+      const json = await res.json();
+
+      if (!json.success) {
+        console.error("Similar results API error:", json.error);
+        setSimilarResults([]);
+        return;
+      }
+
+      console.log("✅ SIMILAR RESULTS RECEIVED:", json.results);
+
+      setSimilarResults(json.results || []);
+
+    } catch (err) {
+      console.error("Fetch failed:", err);
+      setSimilarResults([]);
+    } finally {
+      setSimilarLoading(false);
+    }
+  };
 
 
   const formatDate = (dateString?: string | null, opts: "date" | "datetime" = "datetime") => {
@@ -571,6 +652,73 @@ const handlePreviewAdditionalDocs = async () => {
                   </div>
               </CardContent>
             </Card>
+
+            <Button
+              onClick={() => {
+                if (showSimilar) {
+                  setShowSimilar(false);
+                  return;
+                }
+
+                setShowSimilar(true);
+
+                if (!similarFetched) {
+                  fetchSimilarResults();
+                  setSimilarFetched(true);
+                }
+
+                setTimeout(() => {
+                  similarSectionRef.current?.scrollIntoView({
+                    behavior: "smooth",
+                    block: "start",
+                  });
+                }, 150);
+              }}
+              disabled={similarLoading}
+              className={`
+                relative w-full
+                h-[64px]
+                text-[19px]
+                font-extrabold
+                rounded-xl
+
+                border border-transparent
+                shadow-md
+                overflow-hidden
+
+                transition-all
+                active:scale-[0.99]
+
+                ${
+                  showSimilar
+                    ? "bg-black !text-white hover:bg-gray-900"
+                    : "bg-[#F7C846] text-black hover:bg-[#E6B93D]"
+                }
+              `}
+
+
+            >
+              {/* ✅ Moving glow ONLY on border */}
+              <span className="border-shine-ray" />
+
+              {/* ✅ Text */}
+              <span className="relative z-10 flex items-center justify-center gap-2">
+                {similarLoading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Loading Similar Results...
+                  </>
+                ) : showSimilar ? (
+                  "Hide Similar Results"
+                ) : (
+                  "Show Similar Results"
+                )}
+              </span>
+            </Button>
+
+
+
+
             {/* Bid Conditions */}
             <Card className="border-2 border-gray-200">
               <CardHeader>
@@ -858,7 +1006,229 @@ const handlePreviewAdditionalDocs = async () => {
             </Card>
           </div>
         </div>
+        </div>
+
+        {/* ✅ Similar Results Full Width Section */}
+        {showSimilar && (
+          <div
+            ref={similarSectionRef}
+            className="mt-10 space-y-4"
+          >
+            <Card className="border-2 border-gray-200">
+              <CardHeader>
+                <CardTitle className="text-base font-bold text-gray-900">
+                  Similar Past Bid Results
+                </CardTitle>
+              </CardHeader>
+
+              <CardContent className="space-y-4">
+
+                {/* Loading */}
+                {similarLoading && (
+                  <div className="py-10 text-center">
+                    <Loader2 className="w-8 h-8 text-gray-300 animate-spin mx-auto" />
+                    <p className="text-gray-500 mt-3 font-medium">
+                      Loading similar results...
+                    </p>
+                  </div>
+                )}
+
+                {/* No Results */}
+                {!similarLoading && similarResults.length === 0 && (
+                  <div className="p-12 text-center bg-white border border-dashed rounded-xl">
+                    <Database className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+
+                    <h3 className="text-lg font-bold">No similar bids found</h3>
+                    <p className="mt-2 text-sm text-gray-600">
+                      Try another tender item or department.
+                    </p>
+                  </div>
+                )}
+
+                {/* ✅ Results Cards — EXACT SAME AS /results */}
+                {!similarLoading &&
+                  similarResults.map((r: any) => (
+                    <div
+                      key={r.id ?? r.bid_number}
+                      className="bg-white border rounded-xl shadow-sm p-3 hover:shadow-md transition"
+                    >
+                      <div className="grid grid-cols-2 gap-6 items-start">
+
+                        {/* ========== LEFT COLUMN ========== */}
+                        <div className="space-y-4 min-w-0">
+
+                          {/* BID NUMBER + DATE */}
+                          <div className="mb-2 flex items-start justify-between">
+
+                            {/* BID NUMBER */}
+                            <div className="max-w-[85%] flex flex-col">
+                              <a
+                                href={r.bid_detail_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="
+                                  text-lg font-semibold text-blue-700 
+                                  hover:text-blue-900 hover:underline 
+                                  transition-colors duration-150
+                                  block leading-tight cursor-pointer
+                                "
+                              >
+                                {r.bid_number}
+                              </a>
+
+                              {/* Placeholder Row */}
+                              <div className="h-[20px]" />
+                            </div>
+
+                            {/* DATE */}
+                            <div className="flex items-center gap-2 text-xs text-gray-500 whitespace-nowrap">
+                              <Calendar className="w-3.5 h-3.5" />
+                              <span>
+                                {formatDate(r.start_datetime, "date")} → {formatDate(r.end_datetime, "date")}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* ITEM */}
+                          {r.l1_item && (
+                            <p
+                              className="text-sm text-gray-600 mt-4 line-clamp-1 uppercase truncate"
+                              title={r.l1_item}
+                            >
+                              {r.l1_item}
+                            </p>
+                          )}
+
+                          {/* MINISTRY + TECH STATS */}
+                          <div className="grid grid-cols-[minmax(0,3fr)_auto_auto] gap-4 text-sm mt-3 items-start">
+
+                            {/* MINISTRY + DEPT */}
+                            <div className="flex items-start gap-2 min-w-0">
+                              <Building2 className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+
+                              <div className="min-w-0">
+                                <p className="font-semibold truncate">
+                                  {r.ministry || "Ministry not specified"}
+                                </p>
+
+                                {r.department && (
+                                  <p className="text-sm text-gray-600 mt-0.5 truncate">
+                                    {r.department}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* PARTICIPATED */}
+                            <div className="
+                              w-[85px] h-[53px]
+                              rounded-2xl
+                              bg-[#F3F4F6] border border-gray-200
+                              flex flex-col items-center justify-center shrink-0
+                            ">
+                              <p className="text-xs text-gray-500">Participated</p>
+                              <p className="text-lg font-semibold text-gray-600">
+                                {r.tech_participated ?? "N/A"}
+                              </p>
+                            </div>
+
+                            {/* QUALIFIED */}
+                            <div className="
+                              w-[85px] h-[53px]
+                              rounded-2xl
+                              bg-green-50 border border-green-200
+                              flex flex-col items-center justify-center shrink-0
+                            ">
+                              <p className="text-xs text-green-700">Qualified</p>
+                              <p className="text-lg font-semibold text-green-600">
+                                {r.tech_qualified ?? "N/A"}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* ========== RIGHT COLUMN SELLER TABLE ========== */}
+                        <div className="overflow-x-auto">
+
+                          <div className="rounded-lg overflow-hidden text-xs bg-white">
+                            <table className="w-full border-collapse">
+                              <thead className="bg-gray-50 border-b border-gray-200">
+                                <tr>
+                                  <th className="px-2 py-1.5 text-left font-medium text-gray-700">
+                                    Rank
+                                  </th>
+                                  <th className="px-2 py-1.5 text-left font-medium text-gray-700">
+                                    Seller
+                                  </th>
+                                  <th className="px-2 py-1.5 text-right font-medium text-gray-700">
+                                    Price
+                                  </th>
+                                </tr>
+                              </thead>
+
+                              <tbody className="divide-y divide-gray-200">
+
+                                {/* L1 */}
+                                <tr>
+                                  <td className="px-2 py-2.5 font-semibold flex items-center gap-2">
+                                    <span>L1</span>
+                                    <Trophy className="w-5 h-5 text-[#FACC15]" />
+                                  </td>
+
+                                  <td className="px-2 py-2.5 uppercase truncate max-w-[220px]">
+                                    {r.l1_seller ?? "N/A"}
+                                  </td>
+
+                                  <td className="px-2 py-2.5 text-right font-bold">
+                                    ₹{r.l1_price?.toLocaleString("en-IN") ?? "N/A"}
+                                  </td>
+                                </tr>
+
+                                {/* L2 */}
+                                {r.l2_seller && (
+                                  <tr>
+                                    <td className="px-2 py-2.5 font-semibold">
+                                      L2
+                                    </td>
+                                    <td className="px-2 py-2.5 uppercase truncate max-w-[220px]">
+                                      {r.l2_seller}
+                                    </td>
+                                    <td className="px-2 py-2.5 text-right">
+                                      ₹{r.l2_price?.toLocaleString("en-IN")}
+                                    </td>
+                                  </tr>
+                                )}
+
+                                {/* L3 */}
+                                {r.l3_seller && (
+                                  <tr>
+                                    <td className="px-2 py-2.5 font-semibold">
+                                      L3
+                                    </td>
+                                    <td className="px-2 py-2.5 uppercase truncate max-w-[220px]">
+                                      {r.l3_seller}
+                                    </td>
+                                    <td className="px-2 py-2.5 text-right">
+                                      ₹{r.l3_price?.toLocaleString("en-IN")}
+                                    </td>
+                                  </tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+
+                      </div>
+                    </div>
+                  ))}
+
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+
       </div>
-    </div>
+
   );
 }

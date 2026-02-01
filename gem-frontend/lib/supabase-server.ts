@@ -10,8 +10,16 @@ export async function createServerSupabaseClient() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value ?? null;
+        // ✅ Required by Supabase SSR
+        getAll() {
+          return cookieStore.getAll();
+        },
+
+        // ✅ Required so Supabase can refresh session cookies
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            cookieStore.set(name, value, options);
+          });
         },
       },
     }
