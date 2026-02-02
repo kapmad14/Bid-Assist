@@ -16,6 +16,7 @@ from daily_gem_pdf_scraper import navigate_next, wait_for_page_change, find_bid_
 from urllib.parse import urljoin
 from datetime import datetime
 
+
 # ---------------- CONFIG ----------------
 ROOT = "https://bidplus.gem.gov.in"
 RESULTS_URL = ROOT + "/all-bids"
@@ -23,8 +24,18 @@ RESULTS_URL = ROOT + "/all-bids"
 RESULTS_DIR = "gem-scraper/results"
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
-DATA_FILE = os.path.join(RESULTS_DIR, "gem_results_manual_filtered.jsonl")
-CHECKPOINT_FILE = os.path.join(RESULTS_DIR, "gem_results_manual_filtered.chk")
+
+SCRAPE_DATE = datetime.now().strftime("%d-%m-%Y")
+
+DATA_FILE = os.path.join(
+    RESULTS_DIR,
+    f"results_{SCRAPE_DATE}.jsonl"
+)
+
+CHECKPOINT_FILE = os.path.join(
+    RESULTS_DIR,
+    f"results_{SCRAPE_DATE}.chk"
+)
 # ---------------------------------------
 
 
@@ -245,10 +256,22 @@ def main():
 
             print(f"Saved {len(page_records)} records from page {page_no}")
 
+            # ✅ STOP CONDITION: No Next page
+            if page.locator("a:has-text('Next')").count() == 0:
+                print("\n✅ No more pages left. Scraping finished.")
+                break
+
             prev = page.url
             navigate_next(page, None, page_no)
             wait_for_page_change(page, prev, None)
+
+            # ✅ Extra safety: stop if URL didn't change
+            if page.url == prev:
+                print("\n✅ Page did not change. Ending scrape.")
+                break
+
             page_no += 1
+
 
 
 if __name__ == "__main__":

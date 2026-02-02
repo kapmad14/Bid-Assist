@@ -22,9 +22,18 @@ supabase = create_client(SUPABASE_URL, SERVICE_ROLE_KEY)
 parser = argparse.ArgumentParser()
 parser.add_argument(
     "--date",
-    help="Date of results to load in DD-MM-YYYY format (default: yesterday)"
+    help="Date of results to load in DD-MM-YYYY format (default: yesterday). "
+        "File must exist as: results_DD-MM-YYYY.jsonl"
 )
 args = parser.parse_args()
+
+# ✅ Validate date format early
+if args.date:
+    try:
+        datetime.strptime(args.date, "%d-%m-%Y")
+    except ValueError:
+        print("Invalid --date format. Use DD-MM-YYYY (example: 31-01-2026)")
+        sys.exit(1)
 
 target_date = (
     args.date
@@ -33,178 +42,133 @@ target_date = (
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 json_path = os.path.join(
     BASE_DIR,
     "gem-scraper",
     "results",
-    f"gem_results_{target_date}.json"
+    f"results_{target_date}.jsonl"
 )
 
 failure_path = os.path.join(
     BASE_DIR,
     "gem-scraper",
     "results",
-    f"gem_results_{target_date}_failed.json"
+    f"results_{target_date}_failed.json"
 )
 
 if not os.path.exists(json_path):
     print(f"Results file not found: {json_path}")
     sys.exit(1)
 
-scraped_on = datetime.strptime(target_date, "%d-%m-%Y").strftime("%Y-%m-%d")
+# ✅ Proper date object (not string)
+scraped_on = datetime.strptime(target_date, "%d-%m-%Y").date()
 
-# ------------------ Load JSON ------------------
-
-with open(json_path, "r", encoding="utf-8") as f:
-    payload = json.load(f)
-
-if not isinstance(payload, list):
-    print("Invalid JSON format: expected list")
-    sys.exit(1)
-
-
-# ------------------ SQL ------------------
-
-SQL = """
-insert into public.gem_results (
-    bid_number,
-    bid_detail_url,
-    bid_hover_url,
-    has_reverse_auction,
-    ra_number,
-    ra_detail_url,
-    ra_hover_url,
-    item,
-    quantity,
-    ministry,
-    department,
-    organisation_address,
-    start_datetime,
-    end_datetime,
-    stage,
-    bid_ra_status,
-    technical_status,
-    raw_card_text,
-    scraped_on
-)
-select
-    bid_number,
-    bid_detail_url,
-    bid_hover_url,
-    coalesce(has_reverse_auction, false),
-    ra_number,
-    ra_detail_url,
-    ra_hover_url,
-    item,
-    quantity,
-    ministry,
-    department,
-    organisation_address,
-    start_datetime::timestamptz,
-    end_datetime::timestamptz,
-    stage,
-    bid_ra_status,
-    technical_status,
-    raw_card_text,
-    $2::date
-from jsonb_to_recordset($1::jsonb) as t(
-    bid_number text,
-    bid_detail_url text,
-    bid_hover_url text,
-    has_reverse_auction boolean,
-    ra_number text,
-    ra_detail_url text,
-    ra_hover_url text,
-    item text,
-    quantity integer,
-    ministry text,
-    department text,
-    organisation_address text,
-    start_datetime text,
-    end_datetime text,
-    stage text,
-    bid_ra_status text,
-    technical_status text,
-    raw_card_text text
-)
-on conflict (bid_number) do nothing;
-"""
+scraped_on = scraped_on.isoformat()
 
 # ------------------ Processing ------------------
 
-BATCH_SIZE = 100
+BATCH_SIZE = 800
 batch = []
 
-failed = 0
+failed = {"count": 0}
+first_failure = {"flag": True}
 
-failure_fp = open(failure_path, "w", encoding="utf-8")
-failure_fp.write("[\n")
-first_failure = True
+# ✅ Failure log file stays open safely for entire run
+with open(failure_path, "w", encoding="utf-8") as failure_fp:
+    failure_fp.write("[\n")
 
-def write_failure(row, reason):
-    global first_failure, failed
-    failed += 1
+    # ------------------ Failure Writer ------------------
 
-    record = dict(row)
-    record["failure_reason"] = reason
+    def write_failure(row, reason):
+        failed["count"] += 1
 
-    if not first_failure:
-        failure_fp.write(",\n")
-    json.dump(record, failure_fp, ensure_ascii=False)
-    first_failure = False
+        record = dict(row)
+        record["failure_reason"] = reason
 
-def flush_batch(batch_rows):
-    if not batch_rows:
-        return
-    try:
-        supabase.postgrest.rpc(
-            "execute_sql",
-            {
-                "sql": SQL,
-                "payload": batch_rows,
-                "scraped_on": scraped_on,
-            }
-        ).execute()
-    except Exception as e:
-        for r in batch_rows:
-            write_failure(r, f"DB insert error: {str(e)}")
+        if not first_failure["flag"]:
+            failure_fp.write(",\n")
 
-# ------------------ Main loop ------------------
+        json.dump(record, failure_fp, ensure_ascii=False)
+        first_failure["flag"] = False
 
-with tqdm(total=len(payload), desc="Processing", unit="row") as pbar:
-    for row in payload:
-        pbar.update(1)
+    # ------------------ Batch Flush ------------------
 
-        bid_number = row.get("bid_number")
-        if not bid_number:
-            write_failure(row, "Missing bid_number")
-            continue
+    def flush_batch(batch_rows):
+        if not batch_rows:
+            return
 
-        # minimal structural validation
         try:
-            int(row.get("quantity", 0))
+            supabase.rpc(
+                "apply_gem_results_payload",
+                {
+                    "payload": batch_rows,
+                    "scraped_on": scraped_on,
+                }
+            ).execute()
+
         except Exception:
-            write_failure(row, "Invalid quantity")
-            pbar.set_postfix(failed=failed)
-            continue
+            for r in batch_rows:
+                try:
+                    supabase.rpc(
+                        "apply_gem_results_payload",
+                        {
+                            "payload": [r],
+                            "scraped_on": scraped_on,
+                        }
+                    ).execute()
+                except Exception as row_err:
+                    write_failure(r, f"Row error: {row_err}")
 
-        batch.append(row)
+    # ------------------ Streaming Processing ------------------
 
-        if len(batch) >= BATCH_SIZE:
-            flush_batch(batch)
-            batch.clear()
+    total_rows = sum(1 for _ in open(json_path, "r", encoding="utf-8"))
 
-        pbar.set_postfix(failed=failed)
+    with tqdm(total=total_rows, desc="Processing", unit="row") as pbar:
+        with open(json_path, "r", encoding="utf-8") as f:
 
-# flush remaining
-flush_batch(batch)
+            for line in f:
+                pbar.update(1)
 
-# close failure file
-failure_fp.write("\n]")
-failure_fp.close()
+                line = line.strip()
+                if not line:
+                    continue
+
+                try:
+                    row = json.loads(line)
+                except Exception as e:
+                    write_failure({"raw_line": line}, f"Invalid JSON: {e}")
+                    continue
+
+                bid_number = row.get("bid_number")
+                if not bid_number:
+                    write_failure(row, "Missing bid_number")
+                    continue
+
+                try:
+                    int(row.get("quantity", 0))
+                except Exception:
+                    write_failure(row, "Invalid quantity")
+                    continue
+
+                batch.append(row)
+
+                if len(batch) >= BATCH_SIZE:
+                    flush_batch(batch)
+                    batch.clear()
+
+                if pbar.n % 50 == 0:
+                    pbar.set_postfix(failed=failed["count"])
+
+    # Flush remaining rows
+    flush_batch(batch)
+
+    # ✅ Close failure JSON array cleanly
+    failure_fp.write("\n]")
 
 # ------------------ Summary ------------------
 
 print("\n✅ Done")
-print(f"Failed   : {failed}")
+print(f"Inserted rows: {total_rows - failed['count']}")
+print(f"Failed rows : {failed['count']}")
 print(f"Failure file: {failure_path}")

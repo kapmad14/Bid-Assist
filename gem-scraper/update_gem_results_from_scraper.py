@@ -336,7 +336,7 @@ def main():
                     update_row(
                         row_id,
                         {"extraction_error": str(e)},
-                        "error"
+                        "failed"
                     )
 
                 last_id = row_id
