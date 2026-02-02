@@ -2,13 +2,11 @@ import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 
 export async function POST(req: Request) {
-  console.log("✅ /api/similar-results HIT");
 
   // ✅ Create Supabase client
   let supabase;
   try {
     supabase = await createServerSupabaseClient();
-    console.log("✅ Supabase client created");
   } catch (err) {
     console.log("❌ Supabase client creation failed:", err);
     return NextResponse.json(
@@ -23,8 +21,6 @@ export async function POST(req: Request) {
       data: { user },
       error: userError,
     } = await supabase.auth.getUser();
-
-    console.log("✅ AUTH CHECK:", user?.id ?? "NO USER");
 
     if (userError || !user) {
       console.log("❌ Unauthorized:", userError?.message);
@@ -42,7 +38,6 @@ export async function POST(req: Request) {
   let body: any = null;
   try {
     body = await req.json();
-    console.log("✅ BODY RECEIVED:", body);
   } catch (err) {
     console.log("❌ Failed to parse JSON body:", err);
     return NextResponse.json(
@@ -57,14 +52,6 @@ export async function POST(req: Request) {
   const tender_department_key = body?.tender_department_key ?? "";
   const tender_location_key = body?.tender_location_key ?? "";
   const tender_ministry_key = body?.tender_ministry_key ?? "";
-
-
-  console.log("✅ INPUT KEYS:", {
-    tender_item_key,
-    tender_department_key,
-    tender_location_key,
-    tender_ministry_key,
-  });
 
   // ✅ Hard stop if item_key is missing
   if (tender_item_key.trim().length < 3) {
@@ -90,8 +77,6 @@ export async function POST(req: Request) {
 
     data = result.data;
     error = result.error;
-
-    console.log("✅ RPC ERROR:", error);
   } catch (err) {
     console.log("❌ RPC HARD CRASH:", err);
 

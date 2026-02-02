@@ -1080,6 +1080,37 @@ const handlePreviewAdditionalDocs = async () => {
                               <div className="h-[20px]" />
                             </div>
 
+                            {/* ✅ MATCH SCORE PILL (color-coded) */}
+                            {typeof r.total_score === "number" && (() => {
+                              const percent = Math.round(r.total_score * 100);
+
+                              // ✅ Color rules
+                              const pillStyle =
+                                percent >= 60
+                                  ? "bg-green-50 text-green-700 border-green-200"
+                                  : percent >= 45
+                                  ? "bg-amber-50 text-amber-700 border-amber-200"
+                                  : "bg-gray-100 text-gray-600 border-gray-200";
+
+                              return (
+                                <span
+                                  className={`
+                                    ml-3 mt-1
+                                    px-3 py-1
+                                    rounded-full
+                                    border
+                                    text-[12px]
+                                    font-bold
+                                    whitespace-nowrap
+                                    shrink-0
+                                    ${pillStyle}
+                                  `}
+                                >
+                                  Match {percent}%
+                                </span>
+                              );
+                            })()}
+
                             {/* DATE */}
                             <div className="flex items-center gap-2 text-xs text-gray-500 whitespace-nowrap">
                               <Calendar className="w-3.5 h-3.5" />
