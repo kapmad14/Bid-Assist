@@ -48,7 +48,10 @@ export async function POST(req: Request) {
 
   // ✅ Extract values (never allow undefined/null)
   // ✅ These are already normalized KEY fields coming from client
-  const tender_item_key = body?.tender_item_key ?? "";
+  const tender_item_key =
+    (body?.tender_item_key ?? "")
+        .trim()
+        .replace(/-+$/, ""); // ✅ remove trailing hyphens
   const tender_department_key = body?.tender_department_key ?? "";
   const tender_location_key = body?.tender_location_key ?? "";
   const tender_ministry_key = body?.tender_ministry_key ?? "";
@@ -67,12 +70,25 @@ export async function POST(req: Request) {
   let error = null;
 
   try {
+    console.log("🟢 Similar Results API Input:", {
+    tender_item_key,
+    tender_department_key,
+    tender_location_key,
+    tender_ministry_key,
+    });
+
     const result = await supabase.rpc("search_similar_gem_results", {
     tender_item_key,
     tender_department_key,
     tender_location_key,
     tender_ministry_key,
     });
+
+    console.log("🟣 Similar Results RPC Output:", {
+    rows: result.data?.length,
+    error: result.error,
+    });
+
 
 
     data = result.data;

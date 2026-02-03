@@ -215,13 +215,25 @@ export default function TenderDetailPage() {
 
   const fetchSimilarResults = async () => {
     if (!tender) return;
+
+    // ✅ STEP 1 DEBUG: Log tender keys before calling API
+    console.log("🟡 Similar Results Debug — Tender Keys:", {
+      id: tender.id,
+      item: tender.item,
+      item_key: tender.item_key,
+      department_key: tender.department_key,
+      ministry_key: tender.ministry_key,
+      location_key: tender.location_key,
+    });
+
     // ✅ Hard stop if key not available yet
-    if (!tender?.item_key) {
-      console.warn("Tender missing item_key — skipping similar search");
+    if (!tender?.item_key || tender.item_key.trim().length < 3) {
+      console.warn("❌ Tender missing item_key — skipping similar search");
       return;
     }
 
     setSimilarLoading(true);
+
 
     try {
       const res = await fetch("/api/similar-results", {
@@ -248,6 +260,8 @@ export default function TenderDetailPage() {
 
 
       const json = await res.json();
+      console.log("🧾 FULL Similar Results JSON Response:", json);
+
 
       if (!json.success) {
         console.error("Similar results API error:", json.error);
