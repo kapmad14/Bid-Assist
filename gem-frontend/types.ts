@@ -1,3 +1,5 @@
+// ✅ Tender Sources (used for unified explorer)
+export type TenderSource = "all" | "gem" | "cpwd";
 
 export enum TenderStatus {
   OPEN = 'Open',

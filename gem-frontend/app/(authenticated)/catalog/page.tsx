@@ -21,6 +21,11 @@ interface CatalogItem {
   user_id: string;
 }
 
+type CategoryIndexRow = {
+  raw: string;
+  lower: string;
+};
+
 type ActionMode = 'none' | 'modify' | 'bulk-pause' | 'bulk-resume' | 'bulk-delete';
 const TOOLBAR_BTN_WIDTH = 'w-[140px]';
 
@@ -60,11 +65,27 @@ export default function CatalogPage() {
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
   const [selectedRadioId, setSelectedRadioId] = useState<string | null>(null);
 
+  const [allCategories, setAllCategories] = useState<string[]>([]);
+  const [categoryIndex, setCategoryIndex] = useState<CategoryIndexRow[]>([]);
+
+  const [categorySuggestions, setCategorySuggestions] = useState<string[]>([]);
+  const [showCategorySuggestions, setShowCategorySuggestions] = useState(false);
+
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState<number>(-1);
+
+
   // Page Loading
   const [loading, setLoading] = useState(false);
   const TOOLBAR_BTN_BASE =
   'h-10 px-4 rounded-lg text-sm font-medium transition border border-gray-300 bg-white hover:bg-gray-50 shadow-sm';
   const mountedRef = useRef(false);
+  const categoryTimerRef = useRef<any>(null);
+
+  const addSuggestBoxRef = useRef<HTMLDivElement | null>(null);
+  const editSuggestBoxRef = useRef<HTMLDivElement | null>(null);
+
+  const suggestionItemRefs = useRef<(HTMLDivElement | null)[]>([]);
+
 
   // -------------------------------------
   // Initialize component + Supabase client
@@ -81,6 +102,234 @@ export default function CatalogPage() {
       mountedRef.current = false;
     };
   }, []);
+
+  // -------------------------------------
+  // Load category master list
+  // -------------------------------------
+  useEffect(() => {
+    async function loadCategories() {
+      try {
+        const res = await fetch('/api/category-list');
+        const data = await res.json();
+        setAllCategories(data.categories || []);
+        console.log('Loaded categories:', data.categories?.length);
+      } catch (e) {
+        console.error('Failed to load categories', e);
+      }
+    }
+
+    loadCategories();
+  }, []);
+
+  // -------------------------------------
+  // Build normalized category index
+  // -------------------------------------
+  useEffect(() => {
+    if (!allCategories.length) return;
+
+    const idx: CategoryIndexRow[] = allCategories.map(c => ({
+      raw: c,
+      lower: c.toLowerCase(),
+    }));
+
+
+    setCategoryIndex(idx);
+    console.log('Category index built:', idx.length);
+
+  }, [allCategories]);
+
+  // -------------------------------------
+  // Lightweight fuzzy token match
+  // -------------------------------------
+  function fuzzyTokenMatch(q: string, target: string) {
+    const qTokens = q.split(/\s+/);
+    const t = target;
+
+    let score = 0;
+
+    for (const token of qTokens) {
+      if (t.includes(token)) {
+        score += 2;
+        continue;
+      }
+
+      // prefix match
+      if (t.startsWith(token)) {
+        score += 1.5;
+        continue;
+      }
+
+      // loose partial (first 3 chars)
+      if (token.length >= 4 && t.includes(token.slice(0, 3))) {
+        score += 1;
+      }
+    }
+
+    return score;
+  }
+
+
+  // -------------------------------------
+  // Category suggestion matcher (3+ chars)
+  // -------------------------------------
+  function computeCategorySuggestions(input: string) {
+    const q = input.trim().toLowerCase();
+
+    if (q.length < 3) {
+      setCategorySuggestions([]);
+      setShowCategorySuggestions(false);
+      setActiveSuggestionIndex(-1);
+      return;
+    }
+
+    const qTokens = q.split(/\s+/);
+
+    const bucketStartsWithFull: string[] = [];
+    const bucketStartsWithToken: string[] = [];
+    const bucketContainsFull: string[] = [];
+    const bucketContainsToken: string[] = [];
+    const bucketFuzzy: { raw: string; score: number }[] = [];
+
+
+    for (let i = 0; i < categoryIndex.length; i++) {
+      const raw = categoryIndex[i].raw;
+      const t = categoryIndex[i].lower;
+
+      // Tier 1 — startsWith full query
+      if (t.startsWith(q)) {
+        bucketStartsWithFull.push(raw);
+        continue;
+      }
+
+      // Tier 2 — startsWith any token
+      if (qTokens.some(tok => t.startsWith(tok))) {
+        bucketStartsWithToken.push(raw);
+        continue;
+      }
+
+      // Tier 3 — contains full query
+      if (t.includes(q)) {
+        bucketContainsFull.push(raw);
+        continue;
+      }
+
+      // Tier 4 — contains any token
+      if (qTokens.some(tok => t.includes(tok))) {
+        bucketContainsToken.push(raw);
+        continue;
+      }
+
+      // Tier 5 — fuzzy fallback
+      const fuzzyScore = fuzzyTokenMatch(q, t);
+      if (fuzzyScore > 0) {
+        bucketFuzzy.push({ raw, score: fuzzyScore });
+      }
+    }
+
+    // fuzzy bucket sort only (keep deterministic order above it)
+    bucketFuzzy.sort((a, b) => b.score - a.score);
+
+    // merge buckets in strict priority order
+    const merged = [
+      ...bucketStartsWithFull,
+      ...bucketStartsWithToken,
+      ...bucketContainsFull,
+      ...bucketContainsToken,
+      ...bucketFuzzy.map(x => x.raw),
+    ];
+
+    // remove duplicates while preserving order
+    const seen = new Set<string>();
+    const deduped: string[] = [];
+
+    for (const v of merged) {
+      if (!seen.has(v)) {
+        seen.add(v);
+        deduped.push(v);
+      }
+    }
+
+    // final top 10
+    const out = deduped.slice(0, 10);
+
+    setCategorySuggestions(out);
+    setShowCategorySuggestions(true);
+    setActiveSuggestionIndex(-1);
+    suggestionItemRefs.current = [];
+  }
+
+  // -------------------------------------
+  // Highlight match helper
+  // -------------------------------------
+  function highlightMatch(text: string, query: string) {
+    if (!query || query.length < 3) return text;
+
+    const q = query.trim().toLowerCase();
+    const idx = text.toLowerCase().indexOf(q);
+
+    if (idx === -1) return text;
+
+    return (
+      <>
+        {text.slice(0, idx)}
+        <span className="font-semibold text-blue-700">
+          {text.slice(idx, idx + q.length)}
+        </span>
+        {text.slice(idx + q.length)}
+      </>
+    );
+  }
+
+  // -------------------------------------
+  // Close suggestions on outside click
+  // -------------------------------------
+  useEffect(() => {
+    function handleDocClick(e: MouseEvent) {
+      const target = e.target as Node;
+
+      if (
+        addSuggestBoxRef.current &&
+        addSuggestBoxRef.current.contains(target)
+      ) return;
+
+      if (
+        editSuggestBoxRef.current &&
+        editSuggestBoxRef.current.contains(target)
+      ) return;
+
+      setShowCategorySuggestions(false);
+      setActiveSuggestionIndex(-1);
+    }
+
+    document.addEventListener('mousedown', handleDocClick);
+    return () => document.removeEventListener('mousedown', handleDocClick);
+  }, []);
+
+
+  // -------------------------------------
+  // Auto scroll active suggestion into view
+  // -------------------------------------
+  useEffect(() => {
+    if (activeSuggestionIndex < 0) return;
+
+    const el = suggestionItemRefs.current[activeSuggestionIndex];
+    if (el) {
+      el.scrollIntoView({
+        block: 'nearest',
+      });
+    }
+  }, [activeSuggestionIndex]);
+
+  // -------------------------------------
+  // Clamp active index when suggestions change
+  // -------------------------------------
+  useEffect(() => {
+    if (activeSuggestionIndex >= categorySuggestions.length) {
+      setActiveSuggestionIndex(
+        categorySuggestions.length ? categorySuggestions.length - 1 : -1
+      );
+    }
+  }, [categorySuggestions, activeSuggestionIndex]);
 
   // -------------------------------------
   // Helper: Get authenticated user safely
@@ -191,12 +440,78 @@ export default function CatalogPage() {
     }
   }
 
+  function handleAddCategoryInput(val: string) {
+    setNewCategory(val);
+
+    clearTimeout(categoryTimerRef.current);
+
+    categoryTimerRef.current = setTimeout(() => {
+      computeCategorySuggestions(val);
+    }, 200);
+  }
+
+  function handleEditCategoryInput(val: string) {
+    setEditCategory(val);
+
+    clearTimeout(categoryTimerRef.current);
+
+    categoryTimerRef.current = setTimeout(() => {
+      computeCategorySuggestions(val);
+    }, 200);
+  }
+
+  function handleSuggestionKeyDown(
+    e: React.KeyboardEvent<HTMLInputElement>,
+    mode: 'add' | 'edit'
+  ) {
+    if (!showCategorySuggestions || categorySuggestions.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveSuggestionIndex(i =>
+        i < categorySuggestions.length - 1 ? i + 1 : i
+      );
+    }
+
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveSuggestionIndex(i => (i > 0 ? i - 1 : 0));
+    }
+
+    if (e.key === 'Enter') {
+      if (activeSuggestionIndex >= 0) {
+        e.preventDefault();
+        const value = categorySuggestions[activeSuggestionIndex];
+
+        if (mode === 'add') setNewCategory(value);
+        else setEditCategory(value);
+
+        setShowCategorySuggestions(false);
+        setActiveSuggestionIndex(-1);
+        suggestionItemRefs.current = [];
+      }
+    }
+
+    if (e.key === 'Escape') {
+      setShowCategorySuggestions(false);
+      setActiveSuggestionIndex(-1);
+      suggestionItemRefs.current = [];
+    }
+  }
+
+
   // -------------------------------------
   // Add Product
   // -------------------------------------
   async function handleAddProduct(e: any) {
     e.preventDefault();
-    if (!newTitle.trim() || !newCategory.trim()) return;
+
+    if (!newCategory.trim()) {
+      toast.error('Category is required');
+      return;
+    }
+
+
 
     setAdding(true);
 
@@ -210,7 +525,7 @@ export default function CatalogPage() {
       const { data, error } = await supabaseClient
         .from('catalog_items')
         .insert({
-          title: newTitle.trim(),
+          title: newTitle.trim() || null,
           category: newCategory.trim(),
           status: 'active',
           user_id: user.id,
@@ -224,7 +539,7 @@ export default function CatalogPage() {
         return;
       }
 
-      toast.success('Product added! TenderMatch will start scanning tenders within a few minutes.');
+      toast.success('Product / Service added! TenderBot will start scanning tenders within a few minutes.');
 
       const newItem = data?.[0];
       if (newItem?.id) enqueueMatch('create', [newItem.id]);
@@ -246,6 +561,11 @@ export default function CatalogPage() {
     e.preventDefault();
     if (!editId) return;
 
+    if (!editCategory.trim()) {
+      toast.error('Category is required');
+      return;
+    }
+
     setEditing(true);
 
     try {
@@ -258,7 +578,7 @@ export default function CatalogPage() {
       const { error } = await supabaseClient
         .from('catalog_items')
         .update({
-          title: editTitle.trim(),
+          title: editTitle.trim() || null,
           category: editCategory.trim(),
           updated_at: new Date().toISOString(),
         })
@@ -377,15 +697,15 @@ export default function CatalogPage() {
   function getToolbarHint(actionMode: ActionMode) {
     switch (actionMode) {
       case 'modify':
-        return 'Select a product using the radio button to edit its details.';
+        return 'Select a product / service using the radio button to edit its details.';
       case 'bulk-pause':
-        return 'Select one or more products to pause recommendations for them.';
+        return 'Select one or more products / services to pause recommendations for them.';
       case 'bulk-resume':
-        return 'Select one or more paused products to resume recommendations.';
+        return 'Select one or more paused products / services to resume recommendations.';
       case 'bulk-delete':
-        return 'Select products you want to permanently remove from your catalogue.';
+        return 'Select products / services you want to permanently remove from your catalogue.';
       default:
-        return 'Use the tools above to manage which products are used for tender recommendations.';
+        return 'Use the tools above to manage which products / services are used for tender recommendations.';
     }
   }
 
@@ -402,7 +722,7 @@ export default function CatalogPage() {
       {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold">My Product Catalogue</h1>
+          <h1 className="text-3xl font-bold">My Catalogue</h1>
           <p className="text-sm text-gray-500 mt-1">
             {products.length} products actively monitored
           </p>
@@ -413,7 +733,7 @@ export default function CatalogPage() {
           className="h-11 px-6 rounded-xl bg-yellow-400 text-gray-900 font-semibold shadow-sm
                     hover:bg-yellow-500 hover:shadow-md transition active:scale-[0.98]"
         >
-          + Add Product
+          + Add Product / Service
         </button>
       </div>
 
@@ -562,12 +882,12 @@ export default function CatalogPage() {
           <div className="mt-8 bg-white rounded-2xl p-12 shadow-lg ring-1 ring-gray-200 max-w-2xl mx-auto text-center">
 
             <h2 className="text-2xl font-semibold tracking-tight text-gray-800">
-              Your product catalogue is empty
+              Your catalogue is empty
             </h2>
 
             <p className="mt-3 text-gray-600">
-              Add your products to start receiving relevant tender matches automatically.
-              This is the foundation of how TenderMatch works.
+              Add your products or services to start receiving relevant tender matches automatically.
+              This is the foundation of how TenderBot works.
             </p>
 
             <div className="mt-10 grid grid-cols-3 gap-10 max-w-xl mx-auto text-gray-700">
@@ -627,7 +947,7 @@ export default function CatalogPage() {
                     />
                   )}
                 </th>
-                <th className="p-3 border border-gray-300 text-center">Product Name</th>
+                <th className="p-3 border border-gray-300 text-center">Product / Service Name</th>
                 <th className="p-3 border border-gray-300 text-center">Category</th>
                 <th className="p-3 border border-gray-300 text-center w-[305px]">
                   <div className="flex flex-col items-center leading-tight">
@@ -719,16 +1039,58 @@ export default function CatalogPage() {
 
       {/* Add Modal */}
       {showAddModal && (
-        <Modal title="Add Product" onClose={() => setShowAddModal(false)}>
+        <Modal title="Add Product / Service" onClose={() => setShowAddModal(false)}>
           <form onSubmit={handleAddProduct}>
-              <Input value={newTitle} onChange={setNewTitle} placeholder="Product Name" required />
+              <Input value={newTitle} onChange={setNewTitle} placeholder="Product / Service Name (Optional)" />
               <p className="text-xs text-gray-500 mb-3">
-                Mention the name of your product
+                Example: "Crocin", "Asian Paints", "Dell"
               </p>
 
-              <Input value={newCategory} onChange={setNewCategory} placeholder="Product Category" required />
+              <div className="relative">
+                <Input
+                  value={newCategory}
+                  onChange={handleAddCategoryInput}
+                  onKeyDown={(e) => handleSuggestionKeyDown(e, 'add')}
+                  placeholder="Category (Required)"
+                  required
+                  onFocus={() => {
+                    if (newCategory.trim().length >= 3) setShowCategorySuggestions(true);
+                  }}
+                  onBlur={() => setTimeout(() => setShowCategorySuggestions(false), 150)}
+                />
+
+                {showCategorySuggestions && categorySuggestions.length > 0 && (
+                  <div
+                    ref={addSuggestBoxRef}
+                    className="absolute z-50 w-full bg-white border rounded-lg shadow max-h-60 overflow-auto"
+                  >
+                    {categorySuggestions.map((s, index) => (
+                      <div
+                        key={s}
+                        ref={(el) => {
+                          suggestionItemRefs.current[index] = el;
+                        }}
+                        className={`px-3 py-2 cursor-pointer text-sm
+                          ${index === activeSuggestionIndex
+                            ? 'bg-blue-100'
+                            : 'hover:bg-gray-100'}
+                        `}
+                        onMouseDown={() => {
+                          setNewCategory(s);
+                          setShowCategorySuggestions(false);
+                          setActiveSuggestionIndex(-1);
+                          suggestionItemRefs.current = [];
+                        }}
+                      >
+                        {highlightMatch(s, newCategory)}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <p className="text-xs text-gray-500 mb-3">
-                Example: “Hospital Bed”, “Blood Gas Analyzer”, “Electrical Cable 4sqmm”
+                Example: “Hospital Bed”, “Facility Management Service”, “Manpower Outsourcing Services”
               </p>
 
 
@@ -743,10 +1105,52 @@ export default function CatalogPage() {
 
       {/* Edit Modal */}
       {showEditModal && (
-        <Modal title="Edit Product" onClose={() => setShowEditModal(false)}>
+        <Modal title="Edit Product / Service" onClose={() => setShowEditModal(false)}>
           <form onSubmit={handleSaveEdit}>
-            <Input value={editTitle} onChange={setEditTitle} placeholder="Product Name" required />
-            <Input value={editCategory} onChange={setEditCategory} placeholder="Product Category" required />
+            <Input value={editTitle} onChange={setEditTitle} placeholder="Product / Service Name (Optional)" />
+            <div className="relative">
+              <Input
+                value={editCategory}
+                onChange={handleEditCategoryInput}
+                onKeyDown={(e) => handleSuggestionKeyDown(e, 'edit')}
+                placeholder="Product / Service Category"
+                required
+                onFocus={() => {
+                  if (editCategory.trim().length >= 3) setShowCategorySuggestions(true);
+                }}
+                onBlur={() => setTimeout(() => setShowCategorySuggestions(false), 150)}
+              />
+
+              {showCategorySuggestions && categorySuggestions.length > 0 && (
+                <div
+                  ref={editSuggestBoxRef}
+                  className="absolute z-50 w-full bg-white border rounded-lg shadow max-h-60 overflow-auto"
+                >
+                  {categorySuggestions.map((s, index) => (
+                    <div
+                      key={s}
+                      ref={(el) => {
+                        suggestionItemRefs.current[index] = el;
+                      }}
+                      className={`px-3 py-2 cursor-pointer text-sm
+                        ${index === activeSuggestionIndex
+                          ? 'bg-blue-100'
+                          : 'hover:bg-gray-100'}
+                      `}
+                      onMouseDown={() => {
+                        setEditCategory(s);
+                        setShowCategorySuggestions(false);
+                        setActiveSuggestionIndex(-1);
+                        suggestionItemRefs.current = [];
+                      }}
+                    >
+                      {highlightMatch(s, editCategory)}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
 
             <ModalActions
               loading={editing}
@@ -799,7 +1203,13 @@ function Modal({ title, children, onClose }: any) {
   );
 }
 
-function Input({ value, onChange, ...props }: any) {
+type InputProps =
+  Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value'> & {
+    value: string;
+    onChange: (v: string) => void;
+  };
+
+function Input({ value, onChange, ...props }: InputProps) {
   return (
     <input
       className="w-full border border-gray-300 rounded-lg p-3 mb-4"
@@ -809,6 +1219,7 @@ function Input({ value, onChange, ...props }: any) {
     />
   );
 }
+
 
 function ModalActions({ loading, onCancel, submitLabel }: any) {
   return (
