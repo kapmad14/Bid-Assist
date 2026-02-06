@@ -37,6 +37,8 @@ load_dotenv()
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY")
 TENDERS_TABLE = os.environ.get("TENDERS_TABLE", "tenders")
+SUPABASE_BUCKET = os.environ.get("SUPABASE_BUCKET", "gem-pdfs")
+
 
 # timeouts / retries
 STORAGE_HEAD_TIMEOUT = int(os.environ.get("BACKFILL_HEAD_TIMEOUT", 15))
@@ -94,13 +96,45 @@ def run_meta_filename(date: datetime.date) -> str:
     return f"gem_bids_{date.strftime('%Y-%m-%d')}_no_ra_meta.json"
 
 
+def load_from_supabase_storage(bucket: str, path: str) -> Optional[dict]:
+    """
+    Download JSON file from Supabase Storage bucket via authenticated request.
+    """
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        root_logger.warning("Supabase env not set — cannot fetch from storage")
+        return None
+
+    url = f"{SUPABASE_URL.rstrip('/')}/storage/v1/object/{bucket}/{path}"
+
+    try:
+        resp = SESSION.get(url, headers=AUTH_HEADERS, timeout=STORAGE_HEAD_TIMEOUT)
+        if resp.status_code == 200:
+            root_logger.info("Loaded run JSON from Supabase storage: %s/%s", bucket, path)
+            return resp.json()
+
+        root_logger.warning(
+            "Storage fetch failed %s/%s → %s",
+            bucket, path, resp.status_code
+        )
+        return None
+
+    except Exception as e:
+        root_logger.warning("Storage fetch error: %s", e)
+        return None
+
+
 # ------------------------- Load run JSON -------------------------
 
 def load_run_json(target_date: datetime.date) -> dict:
     filename = run_meta_filename(target_date)
     storage_path = f"daily_meta/{filename}"
 
-    # 2) try local file
+    # ✅ 1 — Supabase storage first (cloud-friendly)
+    js = load_from_supabase_storage(SUPABASE_BUCKET, storage_path)
+    if js:
+        return js
+
+    # ✅ 2 — local fallback (dev-friendly)
     local_path = os.path.join(LOCAL_META_DIR, filename)
     if os.path.exists(local_path):
         try:
@@ -111,7 +145,11 @@ def load_run_json(target_date: datetime.date) -> dict:
         except Exception as e:
             raise RuntimeError(f"Failed to parse local run JSON {local_path}: {e}")
 
-    raise RuntimeError(f"Run JSON not found in storage ({storage_path}) or locally ({local_path})")
+    raise RuntimeError(
+        f"Run JSON not found in storage ({SUPABASE_BUCKET}/{storage_path}) "
+        f"or locally ({local_path})"
+    )
+
 
 
 # ------------------------- gem_bid_id extraction -------------------------
@@ -347,6 +385,9 @@ def main():
         root_logger.setLevel(logging.DEBUG)
     else:
         root_logger.setLevel(logging.INFO)
+
+    root_logger.info("Using Supabase storage bucket: %s", SUPABASE_BUCKET)
+
 
     # allow overriding the table name via CLI flag
     global TENDERS_TABLE

@@ -38,7 +38,7 @@ if args.date:
 target_date = (
     args.date
     if args.date
-    else (datetime.now() - timedelta(days=1)).strftime("%d-%m-%Y")
+    else datetime.now().strftime("%d-%m-%Y")
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))

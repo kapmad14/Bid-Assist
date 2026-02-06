@@ -58,6 +58,8 @@ export interface Tender {
   mediationClause?: boolean | null;
   evaluationMethod?: string | null;
 
+  raw?: any;
+
 }
 
 

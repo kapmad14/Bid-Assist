@@ -338,38 +338,80 @@ def process_single_catalog_item(job: Dict[str, Any], dry_run: bool = True):
         )
         tdata = q.data if hasattr(q, "data") else (q.get("data") if isinstance(q, dict) else None)
         for r in tdata or []:
+            r["source"] = "gem"
             tender_ids_set.add(str(r["id"]))
 
-    if not tender_ids_set:
-        logger.info("No token-filtered tenders found, falling back to latest 200 tenders")
-        qall = (
-            supabase_admin.from_("tenders")
-            .select("id, item, bid_date, bid_end_datetime")
-            .order("id", desc=True)
-            .limit(200)
+
+        # --- CPWD token search ---
+        q2 = (
+            supabase_admin.from_("cpwd_tenders")
+            .select("id, name_of_work, publishing_datetime, closing_datetime")
+            .ilike("name_of_work", f"%{tok}%")
+            .limit(500)
             .execute()
         )
-        tdata = qall.data if hasattr(qall, "data") else (qall.get("data") if isinstance(qall, dict) else None)
-        for r in tdata or []:
+        tdata2 = q2.data if hasattr(q2, "data") else (q2.get("data") if isinstance(q2, dict) else None)
+        for r in tdata2 or []:
+            r["item"] = r.get("name_of_work")
+            r["bid_date"] = r.get("publishing_datetime")
+            r["bid_end_datetime"] = r.get("closing_datetime")
+            r["source"] = "cpwd"
             tender_ids_set.add(str(r["id"]))
 
-    # Fetch full tender rows
+
+        if not tender_ids_set:
+            logger.info("No token-filtered tenders found, falling back to latest 200 tenders")
+            qall = (
+                supabase_admin.from_("tenders")
+                .select("id, item, bid_date, bid_end_datetime")
+                .order("id", desc=True)
+                .limit(200)
+                .execute()
+            )
+            tdata = qall.data if hasattr(qall, "data") else (qall.get("data") if isinstance(qall, dict) else None)
+            for r in tdata or []:
+                tender_ids_set.add(str(r["id"]))
+
+    # Fetch full tender rows (GEM + CPWD separately)
     tender_list: List[Dict[str, Any]] = []
     tender_ids = list(tender_ids_set)
+
     if tender_ids:
         chunk_size = 200
+
         for i in range(0, len(tender_ids), chunk_size):
             chunk = tender_ids[i : i + chunk_size]
-            q = (
+
+            # -------- GEM --------
+            qg = (
                 supabase_admin.from_("tenders")
                 .select("id, item, bid_date, bid_end_datetime")
                 .in_("id", chunk)
                 .execute()
             )
-            if hasattr(q, "data"):
-                tender_list.extend(q.data or [])
-            elif isinstance(q, dict):
-                tender_list.extend(q.get("data") or [])
+
+            gdata = qg.data if hasattr(qg, "data") else (qg.get("data") if isinstance(qg, dict) else None)
+            for r in gdata or []:
+                r["source"] = "gem"
+                tender_list.append(r)
+
+            # -------- CPWD --------
+            qc = (
+                supabase_admin.from_("cpwd_tenders")
+                .select("id, name_of_work, publishing_datetime, closing_datetime")
+                .in_("id", chunk)
+                .execute()
+            )
+
+            cdata = qc.data if hasattr(qc, "data") else (qc.get("data") if isinstance(qc, dict) else None)
+            for r in cdata or []:
+                r["item"] = r.get("name_of_work")
+                r["bid_date"] = r.get("publishing_datetime")
+                r["bid_end_datetime"] = r.get("closing_datetime")
+                r["source"] = "cpwd"
+                tender_list.append(r)
+
+
 
     # Score each tender
     matches = []
@@ -388,6 +430,7 @@ def process_single_catalog_item(job: Dict[str, Any], dry_run: bool = True):
             "p_user_id": user_id,
             "p_catalog_item_id": cid,
             "p_tender_id": int(tender["id"]),
+            "p_tender_source": tender.get("source", "gem"),
             "p_score": int(score),
             "p_catalog_text": catalog_text,
             "p_tender_text": normalize_text_simple(
@@ -401,6 +444,7 @@ def process_single_catalog_item(job: Dict[str, Any], dry_run: bool = True):
             continue
 
         try:
+            logger.info("RPC CALL → %s", rec)
             resp = supabase_admin.rpc("usp_upsert_recommendation", rec).execute()
             err_text = _resp_error_text(resp)
             if err_text:

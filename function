@@ -1,115 +1,14 @@
-DROP FUNCTION IF EXISTS public.search_similar_gem_results(
-  text, text, text, text
-);
+change if necesary in services/tenderStore.client.ts
 
-CREATE FUNCTION public.search_similar_gem_results(
-    tender_item_key text,
-    tender_department_key text,
-    tender_location_key text,
-    tender_ministry_key text
-)
-RETURNS TABLE(
-    id bigint,
-    bid_number text,
-    bid_detail_url text,
-    ra_number text,
-    ra_detail_url text,
-    l1_item text,
-    ministry text,
-    department text,
-    organisation_address text,
-    l1_seller text,
-    l1_price bigint,
-    l2_seller text,
-    l2_price bigint,
-    l3_seller text,
-    l3_price bigint,
-    tech_participated integer,
-    tech_qualified integer,
-    start_datetime timestamptz,
-    end_datetime timestamptz,
-    total_score double precision
-)
-LANGUAGE sql
-AS $function$
+-import type { Tender } from '@/types';
++import type { Tender, TenderSource } from '@/types';
 
-SELECT set_limit(0.65);
+-  source?: 'gem' | 'all';
++  source?: TenderSource;
 
-WITH candidates AS (
 
-    SELECT *
-    FROM gem_results g
-    WHERE g.extraction_status = 'success'
 
-      -- ✅ FIX: similarity filter instead of trigram %
-      AND similarity(g.item_key, tender_item_key) > 0.30
+in worker_matcher.py
+added
 
-      AND (
-        tender_department_key = ''
-        OR similarity(g.department_key, tender_department_key) > 0.30
-      )
-
-      AND (
-        tender_ministry_key = ''
-        OR similarity(g.ministry_key, tender_ministry_key) > 0.30
-      )
-
-      AND (
-        tender_location_key = ''
-        OR similarity(g.location_key, tender_location_key) > 0.30
-      )
-
-    ORDER BY g.end_datetime DESC
-    LIMIT 200
-),
-
-scored AS (
-
-    SELECT
-        g.*,
-        (
-            0.70 * similarity(g.item_key, tender_item_key)
-
-          + CASE WHEN tender_department_key <> ''
-                THEN 0.15 * similarity(g.department_key, tender_department_key)
-                ELSE 0 END
-
-          + CASE WHEN tender_ministry_key <> ''
-                THEN 0.10 * similarity(g.ministry_key, tender_ministry_key)
-                ELSE 0 END
-
-          + CASE WHEN tender_location_key <> ''
-                THEN 0.05 * similarity(g.location_key, tender_location_key)
-                ELSE 0 END
-        ) AS total_score
-
-    FROM candidates g
-)
-
-SELECT
-    id,
-    bid_number,
-    bid_detail_url,
-    ra_number,
-    ra_detail_url,
-    l1_item,
-    ministry,
-    department,
-    organisation_address,
-    l1_seller,
-    l1_price,
-    l2_seller,
-    l2_price,
-    l3_seller,
-    l3_price,
-    tech_participated,
-    tech_qualified,
-    start_datetime,
-    end_datetime,
-    total_score
-FROM scored
-WHERE total_score > 0.45
-ORDER BY total_score DESC, end_datetime DESC
-LIMIT 10;
-
-$function$;
+"p_tender_source": "gem",
