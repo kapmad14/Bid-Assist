@@ -6,6 +6,16 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import {
+  Calculator,
+  Calendar,
+  Building2,
+  Database,
+  Trophy,
+} from "lucide-react";
+
+import { createClient } from '@/lib/supabase-client';
+
 
 import {
   ArrowLeft,
@@ -40,6 +50,11 @@ interface Tender {
   state: string | null;
   city: string | null;
   product_description?: string | null;
+  item_key?: string | null;
+  department_key?: string | null;
+  ministry_key?: string | null;
+  location_key?: string | null;
+
 
   // BoQ items from tenders table
   boq_items?: any | null;
@@ -63,21 +78,28 @@ interface ExtractedDocument {
 }
 
 export default function TenderDetailPage() {
+  const supabase = createClient();
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const pageFromList = searchParams.get('page') ?? '1';
+  const pageFromList = searchParams?.get('page') ?? '1';
+  const fromSource = searchParams?.get("from") ?? "tenders2";
   const tenderIdParam = params?.id;
   const tenderIdNum = tenderIdParam ? Number(tenderIdParam) : NaN;
+  const backUrl = `/${fromSource}?page=${pageFromList}`;
 
-  // ✅ Supabase client (dynamic import to avoid Turbopack SSR evaluation issues)
-  const [supabase, setSupabase] = useState<any>(null);
+  // Similar Gem Results state
+  const [showSimilar, setShowSimilar] = useState(false);
+  const [similarLoading, setSimilarLoading] = useState(false);
+  const [similarResults, setSimilarResults] = useState<any[]>([]);
 
-  useEffect(() => {
-    import('@/lib/supabase-client').then(({ createClient }) => {
-      setSupabase(createClient());
-    });
-  }, []);
+  // ✅ Back button label should match source page
+  const backLabel =
+    fromSource === "shortlisted"
+      ? "Back to Shortlisted Tenders"
+      : fromSource === "recommended"
+      ? "Back to Recommended Tenders"
+      : "Back to All Tenders";
 
   // Sync shortlist from DB so detail page always shows correct state
   useEffect(() => {
@@ -103,6 +125,10 @@ export default function TenderDetailPage() {
   const [isShortlisted, setIsShortlisted] = useState<boolean>(false);
   const shortlistPendingRef = useRef(false);
 
+  const [similarFetched, setSimilarFetched] = useState(false);
+
+  const similarSectionRef = useRef<HTMLDivElement | null>(null);
+
   // prevent setting state after unmount / race conditions
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -113,41 +139,17 @@ export default function TenderDetailPage() {
   }, []);
 
   const initPreviewUrlFromTender = (row: Tender | null) => {
-    if (!row) {
+    if (!row?.pdf_public_url) {
       setSelectedDocUrl(null);
       return;
     }
 
-    // 1️⃣ Prefer pdf_public_url if present
-    if (row.pdf_public_url) {
-      const url = String(row.pdf_public_url);
-      if (/^https?:\/\//i.test(url)) {
-        setSelectedDocUrl(encodeURI(url));
-        return;
-      }
+    const url = String(row.pdf_public_url);
+    if (/^https?:\/\//i.test(url)) {
+      setSelectedDocUrl(encodeURI(url));
+    } else {
+      setSelectedDocUrl(null);
     }
-
-    // 2️⃣ Fallback: derive from pdf_storage_path via supabase.storage.getPublicUrl
-    if (row.pdf_storage_path) {
-      try {
-        if (supabase) {
-          const { data } = supabase.storage
-            .from('gem-pdfs')
-            .getPublicUrl(String(row.pdf_storage_path));
-
-          if (data?.publicUrl && /^https?:\/\//i.test(data.publicUrl)) {
-            setSelectedDocUrl(encodeURI(data.publicUrl));
-            return;
-          }
-        }
-
-      } catch (e) {
-        console.warn('Failed to derive public URL from pdf_storage_path', e);
-      }
-    }
-
-    // 3️⃣ If nothing works, clear URL
-    setSelectedDocUrl(null);
   };
 
   useEffect(() => {
@@ -162,7 +164,6 @@ export default function TenderDetailPage() {
       }
 
       try {
-        if (!supabase) return;  // ⬅️ REQUIRED: prevents calling supabase=null
 
         const { data, error } = await supabase
           .from('tenders')
@@ -202,13 +203,84 @@ export default function TenderDetailPage() {
   // Auto-load additional documents on page load
   useEffect(() => {
     if (!tender?.id) return;
-
-    // Prevent duplicate fetches
-    if (urlsExtracted || isExtracting) return;
-
     handlePreviewAdditionalDocs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tender?.id]);
+
+  // ✅ Reset similar state when tender changes
+  useEffect(() => {
+    setSimilarFetched(false);
+    setSimilarResults([]);
+  }, [tender?.id]);
+
+  const fetchSimilarResults = async () => {
+    if (!tender) return;
+
+    // ✅ STEP 1 DEBUG: Log tender keys before calling API
+    console.log("🟡 Similar Results Debug — Tender Keys:", {
+      id: tender.id,
+      item: tender.item,
+      item_key: tender.item_key,
+      department_key: tender.department_key,
+      ministry_key: tender.ministry_key,
+      location_key: tender.location_key,
+    });
+
+    // ✅ Hard stop if key not available yet
+    if (!tender?.item_key || tender.item_key.trim().length < 3) {
+      console.warn("❌ Tender missing item_key — skipping similar search");
+      return;
+    }
+
+    setSimilarLoading(true);
+
+
+    try {
+      const res = await fetch("/api/similar-results", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              tender_item_key: tender.item_key ?? "",
+              tender_department_key: tender.department_key ?? "",
+              tender_location_key: tender.location_key ?? "",
+              tender_ministry_key: tender.ministry_key ?? "",
+            }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("API returned HTTP error:", res.status);
+        console.log("RAW API RESPONSE:", text);
+
+        // ✅ Clear old results on failure
+        setSimilarResults([]);
+
+        return;
+      }
+
+
+      const json = await res.json();
+      console.log("🧾 FULL Similar Results JSON Response:", json);
+
+
+      if (!json.success) {
+        console.error("Similar results API error:", json.error);
+        setSimilarResults([]);
+        return;
+      }
+
+      console.log("✅ SIMILAR RESULTS RECEIVED:", json.results);
+
+      setSimilarResults(json.results || []);
+
+    } catch (err) {
+      console.error("Fetch failed:", err);
+      setSimilarResults([]);
+    } finally {
+      setSimilarLoading(false);
+    }
+  };
+
 
   const formatDate = (dateString?: string | null, opts: "date" | "datetime" = "datetime") => {
     if (!dateString) return "N/A";
@@ -440,12 +512,12 @@ const handlePreviewAdditionalDocs = async () => {
         </p>
         <div className="text-center mt-4">
           <Button
-            onClick={() => router.push(`/tenders?page=${pageFromList}`)}
+            onClick={() => router.push(backUrl)}
             variant="outline"
             className="border-2 border-gray-300 font-bold text-gray-900 hover:bg-gray-50"
           >
             <ArrowLeft className="h-5 w-5 mr-2" aria-hidden />
-            Back to All Tenders
+            {backLabel}
           </Button>
         </div>
       </div>
@@ -460,12 +532,12 @@ const handlePreviewAdditionalDocs = async () => {
       <div className="bg-white border-b-2 border-gray-200 px-4 py-4 shadow-sm">
         <div className="container mx-auto">
           <Button
-            onClick={() => router.push(`/tenders?page=${pageFromList}`)}
+            onClick={() => router.push(backUrl)}
             variant="outline"
             className="border-2 border-gray-300 font-bold text-gray-900 hover:bg-gray-50"
           >
             <ArrowLeft className="h-5 w-5 mr-2" aria-hidden />
-            Back to All Tenders
+            {backLabel}
           </Button>
         </div>
       </div>
@@ -520,7 +592,7 @@ const handlePreviewAdditionalDocs = async () => {
                   <p className="text-xs text-gray-600 font-semibold">
                     Item
                   </p>
-                  <p className="font-bold text-sm text-gray-900 line-clamp-5">
+                  <p className="font-bold text-sm text-gray-900 line-clamp-2">
                     {tender.item || 'N/A'}
                   </p>
                 </div>
@@ -594,12 +666,167 @@ const handlePreviewAdditionalDocs = async () => {
                   </div>
               </CardContent>
             </Card>
+
+            <Button
+              onClick={() => {
+                if (showSimilar) {
+                  setShowSimilar(false);
+                  return;
+                }
+
+                setShowSimilar(true);
+
+                if (!similarFetched) {
+                  fetchSimilarResults();
+                  setSimilarFetched(true);
+                }
+
+                setTimeout(() => {
+                  similarSectionRef.current?.scrollIntoView({
+                    behavior: "smooth",
+                    block: "start",
+                  });
+                }, 150);
+              }}
+              disabled={similarLoading}
+              className={`
+                relative w-full
+                h-[64px]
+                text-[19px]
+                font-extrabold
+                rounded-xl
+
+                border border-transparent
+                shadow-md
+                overflow-hidden
+
+                transition-all
+                active:scale-[0.99]
+
+                ${
+                  showSimilar
+                    ? "bg-black !text-white hover:bg-gray-900"
+                    : "bg-[#F7C846] text-black hover:bg-[#E6B93D]"
+                }
+              `}
+
+
+            >
+              {/* ✅ Moving glow ONLY on border */}
+              <span className="border-shine-ray" />
+
+              {/* ✅ Text */}
+              <span className="relative z-10 flex items-center justify-center gap-2">
+                {similarLoading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Loading Similar Results...
+                  </>
+                ) : showSimilar ? (
+                  "Hide Similar Results"
+                ) : (
+                  "Show Similar Results"
+                )}
+              </span>
+            </Button>
+
+
+
+
+            {/* Bid Conditions */}
+            <Card className="border-2 border-gray-200">
+              <CardHeader>
+                <CardTitle className="text-base font-bold text-gray-900">
+                  Bid Conditions
+                </CardTitle>
+              </CardHeader>
+
+                <CardContent className="space-y-5 text-sm">
+
+                  {/* Clause Status Grid */}
+                  <div className="rounded-lg bg-gray-50 border border-gray-200 divide-y">
+                    <div className="grid grid-cols-2 px-4 py-2.5 items-center">
+                      <span className="text-gray-600 font-medium">Arbitration Clause</span>
+                      <span className={`text-right font-bold ${tender.arbitration_clause ? 'text-green-700 tracking-wide' : 'text-gray-500 italic'}`}>
+                        {tender.arbitration_clause ? 'YES' : 'NO'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 px-4 py-2.5 items-center">
+                      <span className="text-gray-600 font-medium">Mediation Clause</span>
+                      <span className={`text-right font-bold ${tender.mediation_clause ? 'text-green-700 tracking-wide' : 'text-gray-500 italic'}`}>
+                        {tender.mediation_clause ? 'YES' : 'NO'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Evaluation Method */}
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Evaluation Method</p>
+                    <p className="text-base font-bold text-gray-900 flex items-center gap-2">
+                      <Calculator className="w-4 h-4 text-gray-500" />
+                      <span>{tender.evaluation_method || 'Not specified'}</span>
+                    </p>
+                  </div>
+
+                  {/* Compliance Load */}
+                  {Array.isArray(tender.documents_required) && (
+                    <p className="text-sm text-gray-600 font-medium">
+                      Compliance Load:&nbsp;
+                      <span className="font-semibold text-gray-700">
+                        {tender.documents_required.length <= 2 && 'Low'}
+                        {tender.documents_required.length >= 3 && tender.documents_required.length <= 5 && 'Medium'}
+                        {tender.documents_required.length >= 6 && 'High'}
+                      </span>
+                      &nbsp;({tender.documents_required.length} documents)
+                    </p>
+                  )}
+
+                  {/* Documents Required */}
+                  <div className="flex flex-wrap gap-2">
+                    {Array.isArray(tender.documents_required) && tender.documents_required.length > 0 ? (
+                      <>
+                        {tender.documents_required.slice(0, 4).map((doc: string, idx: number) => (
+                          <span
+                            key={idx}
+                            title={doc}
+                              className="
+                                bg-white
+                                border border-gray-500/40
+                                text-gray-700
+                                px-3 py-1
+                                rounded-full
+                                text-[11px] font-medium
+                                max-w-[220px] truncate
+                                shadow-[0_1px_1px_rgba(0,0,0,0.04)]
+                                hover:bg-gray-50 hover:border-gray-500/60
+                                transition
+                              "
+                          >
+                            {doc}
+                          </span>
+
+                        ))}
+
+                        {tender.documents_required.length > 4 && (
+                          <span className="text-[11px] text-gray-500 self-center">
+                            +{tender.documents_required.length - 4} more
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-sm text-gray-500">No mandatory documents specified</p>
+                    )}
+                  </div>
+
+                </CardContent>
+
+            </Card>
           </div>
 
           {/* Right Column - Documents + Preview */}
           <div className="lg:col-span-2 space-y-4">
             {/* Additional Documents List */}
-            {extractedDocs.length > 0 && (
               <Card id="documents-section" className="border-2 border-gray-200">
                 <CardHeader
                   role="button"
@@ -628,8 +855,9 @@ const handlePreviewAdditionalDocs = async () => {
                         Additional Documents
                       </CardTitle>
                       <Badge variant="success" className="text-xs font-semibold">
-                        {extractedDocs.length} document
-                        {extractedDocs.length !== 1 ? 's' : ''}
+                        {isExtracting
+                          ? 'Loading…'
+                          : `${extractedDocs.length} document${extractedDocs.length !== 1 ? 's' : ''}`}
                       </Badge>
                     </div>
 
@@ -641,6 +869,17 @@ const handlePreviewAdditionalDocs = async () => {
 
                 {!docsCollapsed && (
                 <CardContent className="p-4 space-y-3">
+                  {isExtracting && extractedDocs.length === 0 && (
+                    <p className="text-sm text-gray-500 text-center py-6">
+                      Fetching additional documents…
+                    </p>
+                  )}
+
+                  {!isExtracting && extractedDocs.length === 0 && (
+                    <p className="text-sm text-gray-500 text-center py-6">
+                      No additional documents found.
+                    </p>
+                  )}                  
                   {extractedDocs.map(doc => (
                     <div
                       key={doc.id}
@@ -695,7 +934,6 @@ const handlePreviewAdditionalDocs = async () => {
                 </CardContent>
                 )}
               </Card>
-            )}
 
             {/* Bid Document Preview */}
             <Card className="border-2 border-gray-200">
@@ -730,7 +968,7 @@ const handlePreviewAdditionalDocs = async () => {
                         const link = document.createElement('a');
                         link.href = selectedDocUrl;
                         link.download =
-                          tender.pdf_storage_path?.split('/').pop() ||
+                          tender.pdf_public_url?.split('/').pop() ||
                           'document.pdf';
                         link.target = '_blank';
                         link.rel = 'noopener noreferrer';
@@ -782,7 +1020,260 @@ const handlePreviewAdditionalDocs = async () => {
             </Card>
           </div>
         </div>
+        </div>
+
+        {/* ✅ Similar Results Full Width Section */}
+        {showSimilar && (
+          <div
+            ref={similarSectionRef}
+            className="mt-10 space-y-4"
+          >
+            <Card className="border-2 border-gray-200">
+              <CardHeader>
+                <CardTitle className="text-base font-bold text-gray-900">
+                  Similar Past Bid Results
+                </CardTitle>
+              </CardHeader>
+
+              <CardContent className="space-y-4">
+
+                {/* Loading */}
+                {similarLoading && (
+                  <div className="py-10 text-center">
+                    <Loader2 className="w-8 h-8 text-gray-300 animate-spin mx-auto" />
+                    <p className="text-gray-500 mt-3 font-medium">
+                      Loading similar results...
+                    </p>
+                  </div>
+                )}
+
+                {/* No Results */}
+                {!similarLoading && similarResults.length === 0 && (
+                  <div className="p-12 text-center bg-white border border-dashed rounded-xl">
+                    <Database className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+
+                    <h3 className="text-lg font-bold">No similar bids found</h3>
+                    <p className="mt-2 text-sm text-gray-600">
+                      Try another tender item or department.
+                    </p>
+                  </div>
+                )}
+
+                {/* ✅ Results Cards — EXACT SAME AS /results */}
+                {!similarLoading &&
+                  similarResults.map((r: any) => (
+                    <div
+                      key={r.id ?? r.bid_number}
+                      className="bg-white border rounded-xl shadow-sm p-3 hover:shadow-md transition"
+                    >
+                      <div className="grid grid-cols-2 gap-6 items-start">
+
+                        {/* ========== LEFT COLUMN ========== */}
+                        <div className="space-y-4 min-w-0">
+
+                          {/* BID NUMBER + DATE */}
+                          <div className="mb-2 flex items-start justify-between">
+
+                            {/* BID NUMBER */}
+                            <div className="max-w-[85%] flex flex-col">
+                              <a
+                                href={r.bid_detail_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="
+                                  text-lg font-semibold text-blue-700 
+                                  hover:text-blue-900 hover:underline 
+                                  transition-colors duration-150
+                                  block leading-tight cursor-pointer
+                                "
+                              >
+                                {r.bid_number}
+                              </a>
+
+                              {/* Placeholder Row */}
+                              <div className="h-[20px]" />
+                            </div>
+
+                            {/* ✅ MATCH SCORE PILL (color-coded) */}
+                            {typeof r.total_score === "number" && (() => {
+                              const percent = Math.round(r.total_score * 100);
+
+                              // ✅ Color rules
+                              const pillStyle =
+                                percent >= 60
+                                  ? "bg-green-50 text-green-700 border-green-200"
+                                  : percent >= 45
+                                  ? "bg-amber-50 text-amber-700 border-amber-200"
+                                  : "bg-gray-100 text-gray-600 border-gray-200";
+
+                              return (
+                                <span
+                                  className={`
+                                    ml-3 mt-1
+                                    px-3 py-1
+                                    rounded-full
+                                    border
+                                    text-[12px]
+                                    font-bold
+                                    whitespace-nowrap
+                                    shrink-0
+                                    ${pillStyle}
+                                  `}
+                                >
+                                  Match {percent}%
+                                </span>
+                              );
+                            })()}
+
+                            {/* DATE */}
+                            <div className="flex items-center gap-2 text-xs text-gray-500 whitespace-nowrap">
+                              <Calendar className="w-3.5 h-3.5" />
+                              <span>
+                                {formatDate(r.start_datetime, "date")} → {formatDate(r.end_datetime, "date")}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* ITEM */}
+                          {r.l1_item && (
+                            <p
+                              className="text-sm text-gray-600 mt-4 line-clamp-1 uppercase truncate"
+                              title={r.l1_item}
+                            >
+                              {r.l1_item}
+                            </p>
+                          )}
+
+                          {/* MINISTRY + TECH STATS */}
+                          <div className="grid grid-cols-[minmax(0,3fr)_auto_auto] gap-4 text-sm mt-3 items-start">
+
+                            {/* MINISTRY + DEPT */}
+                            <div className="flex items-start gap-2 min-w-0">
+                              <Building2 className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+
+                              <div className="min-w-0">
+                                <p className="font-semibold truncate">
+                                  {r.ministry || "Ministry not specified"}
+                                </p>
+
+                                {r.department && (
+                                  <p className="text-sm text-gray-600 mt-0.5 truncate">
+                                    {r.department}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* PARTICIPATED */}
+                            <div className="
+                              w-[85px] h-[53px]
+                              rounded-2xl
+                              bg-[#F3F4F6] border border-gray-200
+                              flex flex-col items-center justify-center shrink-0
+                            ">
+                              <p className="text-xs text-gray-500">Participated</p>
+                              <p className="text-lg font-semibold text-gray-600">
+                                {r.tech_participated ?? "N/A"}
+                              </p>
+                            </div>
+
+                            {/* QUALIFIED */}
+                            <div className="
+                              w-[85px] h-[53px]
+                              rounded-2xl
+                              bg-green-50 border border-green-200
+                              flex flex-col items-center justify-center shrink-0
+                            ">
+                              <p className="text-xs text-green-700">Qualified</p>
+                              <p className="text-lg font-semibold text-green-600">
+                                {r.tech_qualified ?? "N/A"}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* ========== RIGHT COLUMN SELLER TABLE ========== */}
+                        <div className="overflow-x-auto">
+
+                          <div className="rounded-lg overflow-hidden text-xs bg-white">
+                            <table className="w-full border-collapse">
+                              <thead className="bg-gray-50 border-b border-gray-200">
+                                <tr>
+                                  <th className="px-2 py-1.5 text-left font-medium text-gray-700">
+                                    Rank
+                                  </th>
+                                  <th className="px-2 py-1.5 text-left font-medium text-gray-700">
+                                    Seller
+                                  </th>
+                                  <th className="px-2 py-1.5 text-right font-medium text-gray-700">
+                                    Price
+                                  </th>
+                                </tr>
+                              </thead>
+
+                              <tbody className="divide-y divide-gray-200">
+
+                                {/* L1 */}
+                                <tr>
+                                  <td className="px-2 py-2.5 font-semibold flex items-center gap-2">
+                                    <span>L1</span>
+                                    <Trophy className="w-5 h-5 text-[#FACC15]" />
+                                  </td>
+
+                                  <td className="px-2 py-2.5 uppercase truncate max-w-[220px]">
+                                    {r.l1_seller ?? "N/A"}
+                                  </td>
+
+                                  <td className="px-2 py-2.5 text-right font-bold">
+                                    ₹{r.l1_price?.toLocaleString("en-IN") ?? "N/A"}
+                                  </td>
+                                </tr>
+
+                                {/* L2 */}
+                                {r.l2_seller && (
+                                  <tr>
+                                    <td className="px-2 py-2.5 font-semibold">
+                                      L2
+                                    </td>
+                                    <td className="px-2 py-2.5 uppercase truncate max-w-[220px]">
+                                      {r.l2_seller}
+                                    </td>
+                                    <td className="px-2 py-2.5 text-right">
+                                      ₹{r.l2_price?.toLocaleString("en-IN")}
+                                    </td>
+                                  </tr>
+                                )}
+
+                                {/* L3 */}
+                                {r.l3_seller && (
+                                  <tr>
+                                    <td className="px-2 py-2.5 font-semibold">
+                                      L3
+                                    </td>
+                                    <td className="px-2 py-2.5 uppercase truncate max-w-[220px]">
+                                      {r.l3_seller}
+                                    </td>
+                                    <td className="px-2 py-2.5 text-right">
+                                      ₹{r.l3_price?.toLocaleString("en-IN")}
+                                    </td>
+                                  </tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+
+                      </div>
+                    </div>
+                  ))}
+
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+
       </div>
-    </div>
+
   );
 }

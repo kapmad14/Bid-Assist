@@ -29,9 +29,14 @@ type GetTendersParams = {
   emdFilter?: 'all' | 'yes' | 'no';
   reverseAuction?: 'all' | 'yes' | 'no';
   bidType?: 'all' | 'single' | 'two';
+  evaluationType?: 'all' | 'item' | 'total';
   sortBy?: 'newest' | 'oldest' | 'closing-soon' | 'closing-latest';
   recommendationsOnly?: boolean;
   source?: 'gem' | 'all';
+  ministry?: string;
+  department?: string;
+  itemSearch?: string;
+  location?: string;
 };
 
 class TenderClientStore {
@@ -39,6 +44,11 @@ class TenderClientStore {
   private storageKey = 'tenderflow_shortlist';
   private _isSyncingShortlist = false;
 
+  // ✅ Recommended tender IDs cache (scoped per user)
+  private recommendedIdsCache: {
+    userId: string;
+    ids: number[];
+  } | null = null;
 
   public isShortlistCooldown = false;
 
@@ -156,15 +166,114 @@ class TenderClientStore {
         .select('tender_id');
 
         if (!error && data) {
-        this.shortlistedIds = new Set(
-            data.map((r: any) => String(r.tender_id))
+        // ✅ Step 1: Raw shortlist IDs
+        const rawIds = data.map((r: any) => Number(r.tender_id));
+
+        // ✅ Step 2: Check which tenders still exist + active
+        const { data: validRows } = await supabase
+          .from("tenders")
+          .select("id")
+          .in("id", rawIds)
+          .gte("end_datetime", new Date().toISOString());
+
+        // ✅ Force correct Set<string> typing
+        const validIds: Set<string> = new Set(
+          (validRows || []).map((r: any) => String(r.id))
         );
+
+        // ✅ Step 3: Remove stale shortlist entries from server
+        const staleIds = rawIds.filter(
+          (id: number) => !validIds.has(String(id))
+        );
+
+        if (staleIds.length > 0) {
+          console.warn("🧹 Cleaning stale shortlist IDs:", staleIds);
+
+          await supabase
+            .from("user_shortlists")
+            .delete()
+            .in("tender_id", staleIds);
+        }
+
+        // ✅ Step 4: Save only clean shortlist locally
+        this.shortlistedIds = validIds;
         this.saveLocal();
         }
     } catch (e) {
         console.error("Failed to load server shortlist:", e);
     }
     }
+
+    // ---------------------------------------------------------
+    // ✅ AUTOSUGGEST (Step 4A)
+    // Ministry + Department ranked suggestions
+    // Triggered only when user types ≥4 characters (UI handles that)
+    // ---------------------------------------------------------
+
+    async getMinistrySuggestions(prefix: string): Promise<string[]> {
+      const supabase = await getSupabase();
+      const q = prefix.trim();
+
+      if (q.length < 4) return [];
+
+      const { data, error } = await supabase
+        .from("tenders")
+        .select("ministry")
+        .ilike("ministry", `%${q}%`)
+        .not("ministry", "is", null)
+        .limit(200); // pull small pool, rank client-side
+
+      if (error || !data) return [];
+
+      // frequency rank
+      const freq = new Map<string, number>();
+      for (const row of data) {
+        const name = row.ministry?.trim();
+        if (!name) continue;
+        freq.set(name, (freq.get(name) ?? 0) + 1);
+      }
+
+      return [...freq.entries()]
+        .sort((a, b) => b[1] - a[1]) // highest frequency first
+        .slice(0, 10)
+        .map(([name]) => name);
+    }
+
+    async getDepartmentSuggestions(prefix: string): Promise<string[]> {
+      const supabase = await getSupabase();
+      const q = prefix.trim();
+
+      // ✅ Department triggers after 4 chars
+      if (q.length < 4) return [];
+
+      const { data, error } = await supabase
+        .from("tenders")
+        .select("department")
+        .ilike("department", `%${q}%`)
+        .not("department", "is", null)
+        .limit(400); // department has higher variety
+
+      if (error || !data) return [];
+
+      // ✅ Frequency rank + normalization
+      const freq = new Map<string, number>();
+
+      for (const row of data) {
+        const raw = row.department;
+        if (!raw) continue;
+
+        const name = raw.trim();
+        if (!name) continue;
+
+        freq.set(name, (freq.get(name) ?? 0) + 1);
+      }
+
+      return [...freq.entries()]
+        .sort((a, b) => b[1] - a[1]) // highest frequency first
+        .slice(0, 10)
+        .map(([name]) => name);
+    }
+
 
   async getTenders(params: GetTendersParams): Promise<{ data: Tender[]; total: number }> {
     const supabase = await getSupabase();
@@ -174,48 +283,132 @@ class TenderClientStore {
     // RECOMMENDATIONS (RPC)
     // ------------------------------------------
     if (params.recommendationsOnly) {
+
       const { data: auth } = await supabase.auth.getUser();
       const user = auth?.user;
       if (!user?.id) return { data: [], total: 0 };
 
-      const from = (params.page - 1) * params.limit;
+      // ✅ Always load recommended IDs per user
+      if (
+        !this.recommendedIdsCache ||
+        this.recommendedIdsCache.userId !== user.id
+      ) {
+        const { data: recRows, error: recErr } = await supabase
+          .from("recommendations")
+          .select("tender_id")
+          .eq("user_id", user.id);
 
-      const { data: rpcRows, error } = await supabase.rpc(
-        'get_recommended_tenders_with_count',
-        {
-          p_user: user.id,
-          p_limit: params.limit,
-          p_offset: from
+        if (recErr || !recRows?.length) {
+          console.warn("No recommendations found", recErr);
+          return { data: [], total: 0 };
         }
-      );
 
-      if (error || !rpcRows) return { data: [], total: 0 };
+        // ✅ Store cache scoped to this user
+        this.recommendedIdsCache = {
+          userId: user.id,
+          ids: recRows
+            .map((r: any): number => Number(r.tender_id))
+            .filter((n: number) => Number.isInteger(n) && n > 0),
+        };
+      }
 
-      const first = rpcRows[0];
-      const total = first ? Number(first.total_count) || 0 : 0;
+      const ids = this.recommendedIdsCache.ids;
+      if (!ids || ids.length === 0) return { data: [], total: 0 };
+
+      // ✅ Main query: tenders filtered to recommended set
+      let query = supabase
+        .from("tenders")
+        .select("*", { count: "exact" })
+        .in("id", ids)
+        .eq("simple_extraction", "success");
+
+      // ✅ Apply filters normally
+      if (params.search?.trim()) {
+        query = query.ilike("item", `%${params.search.trim()}%`);
+      }
+      // ✅ Item Search (item column only)
+      if (params.itemSearch?.trim()) {
+        query = query.ilike(
+          "item",
+          `%${params.itemSearch.trim()}%`
+        );
+      }
+
+      if (params.ministry?.trim()) {
+        query = query.ilike("ministry", `%${params.ministry.trim()}%`);
+      }
+
+      if (params.department?.trim()) {
+        query = query.ilike("department", `%${params.department.trim()}%`);
+      }
+
+      if (params.location?.trim()) {
+        const loc = params.location.trim();
+        query = query.or(
+          `organization_address.ilike.%${loc}%,pincode.ilike.${loc}%`
+        );
+      }
+
+      if (params.emdFilter === "yes") query = query.gt("emd_amount", 0);
+      if (params.emdFilter === "no") {
+        query = query.or("emd_amount.is.null,emd_amount.eq.0");
+      }
+
+      if (params.reverseAuction === "yes") {
+        query = query.eq("reverse_auction_enabled", true);
+      }
+
+      if (params.reverseAuction === "no") {
+        query = query.eq("reverse_auction_enabled", false);
+      }
+
+      if (params.bidType === "single") {
+        query = query.ilike("bid_type", "%single%");
+      }
+
+      if (params.bidType === "two") {
+        query = query.ilike("bid_type", "%two%");
+      }
+
+      if (params.evaluationType === "item") {
+        query = query.ilike("evaluation_method", "%item%");
+      }
+
+      if (params.evaluationType === "total") {
+        query = query.ilike("evaluation_method", "%total%");
+      }
+
+      // ✅ Always newest tenders first
+      query = query.order("bid_date", { ascending: false });
+
+      // ✅ Pagination
+      const from = (params.page - 1) * params.limit;
+      const to = from + params.limit - 1;
+
+      const { data: rows, count, error } = await query.range(from, to);
+      if (error || !rows) return { data: [], total: 0 };
 
       return {
-        data: rpcRows.map((r: any) => {
-          const { total_count, ...rest } = r;
-          return this.mapRowToTender(rest);
-        }),
-        total
+        data: rows.map((r: any) => this.mapRowToTender(r)),
+        total: count || 0,
       };
     }
-
+    
     // ------------------------------------------
     // STANDARD QUERY (no archive filtering)
     // ------------------------------------------
     let query = supabase.from('tenders').select('*', { count: 'exact' });
+    // 🚨 CRITICAL FILTER — ONLY SHOW SUCCESSFULLY EXTRACTED TENDERS
+    query = query.eq('simple_extraction', 'success');    
 
     // -------------------------
     // SEARCH (single OR block)
     // -------------------------
     if (params.search?.trim()) {
-      const term = params.search.trim();
-      const like = `%${term}%`;
+    const term = params.search.trim();
+    const like = `%${term}%`;
 
-      const cols = [
+    const cols = [
         'gem_bid_id',
         'detail_url',
         'pdf_storage_path',
@@ -242,10 +435,34 @@ class TenderClientStore {
         'payment_terms',
         'delivery_terms',
         'simple_extraction'
-      ];
+    ];
 
-      const clauses = cols.map(c => `${c}.ilike.${like}`);
-        query = query.or(clauses.join(','));
+    const clauses = cols.map(c => `${c}.ilike.${like}`);
+    query = query.or(clauses.join(','));
+    }
+
+    // ✅ Item Search Filter (item column only)
+    if (params.itemSearch?.trim()) {
+      query = query.ilike(
+        "item",
+        `%${params.itemSearch.trim()}%`
+      );
+    }
+
+    if (params.ministry?.trim()) {
+      query = query.ilike("ministry", `%${params.ministry.trim()}%`);
+    }
+
+    if (params.department?.trim()) {
+      query = query.ilike("department", `%${params.department.trim()}%`);
+    }
+
+    // ✅ ADD HERE
+    if (params.location?.trim()) {
+      const loc = params.location.trim();
+      query = query.or(
+        `organization_address.ilike.%${loc}%,pincode.ilike.${loc}%`
+      );
     }
 
     // ------------------------------------------
@@ -256,8 +473,11 @@ class TenderClientStore {
     }
 
     else if (params.statusFilter === 'open') {
-      query = query.or(`end_datetime.gte.${nowIso},end_datetime.is.null`);
+    query = query.or(
+        `end_datetime.gte.${nowIso},end_datetime.is.null`
+    );
     }
+
 
     else if (params.statusFilter === 'urgent' || params.statusFilter === 'closing-soon') {
       const nextWeek = new Date();
@@ -284,50 +504,124 @@ class TenderClientStore {
             return { data: [], total: 0 };
         }
 
-        // Total shortlist count for pagination UI
-        const totalShortlisted = allIds.length;
+        // ✅ NEW: shortlist must behave like recommendations
+        // Apply filters BEFORE pagination
 
-        // Slice client-side for the current page
-        const startIdx = (params.page - 1) * params.limit;
-        const pageIds = allIds.slice(startIdx, startIdx + params.limit);
+        let shortlistQuery = supabase
+          .from("tenders")
+          .select("*", { count: "exact" })
+          .in("id", allIds)
+          .eq("simple_extraction", "success");
 
-        if (pageIds.length === 0) {
-            // Requested page out of range
-            return { data: [], total: totalShortlisted };
+        // ✅ Keyword Search
+        if (params.search?.trim()) {
+          shortlistQuery = shortlistQuery.ilike(
+            "item",
+            `%${params.search.trim()}%`
+          );
         }
 
-        // Fetch only this page's records
-        const { data: rows, error } = await supabase
-            .from('tenders')
-            .select('*')
-            .in('id', pageIds);
+        // ✅ Item Search (item column only)
+        if (params.itemSearch?.trim()) {
+          shortlistQuery = shortlistQuery.ilike(
+            "item",
+            `%${params.itemSearch.trim()}%`
+          );
+        }
+
+        // ✅ Ministry Filter
+        if (params.ministry?.trim()) {
+          shortlistQuery = shortlistQuery.ilike(
+            "ministry",
+            `%${params.ministry.trim()}%`
+          );
+        }
+
+        // ✅ Department Filter
+        if (params.department?.trim()) {
+          shortlistQuery = shortlistQuery.ilike(
+            "department",
+            `%${params.department.trim()}%`
+          );
+        }
+
+        // ✅ Location Search (organization_address OR pincode)
+        if (params.location?.trim()) {
+          const loc = params.location.trim();
+          shortlistQuery = shortlistQuery.or(
+            `organization_address.ilike.%${loc}%,pincode.ilike.${loc}%`
+          );
+        }
+
+        // ✅ EMD Filter
+        if (params.emdFilter === "yes") {
+          shortlistQuery = shortlistQuery.gt("emd_amount", 0);
+        }
+
+        if (params.emdFilter === "no") {
+          shortlistQuery = shortlistQuery.or(
+            "emd_amount.is.null,emd_amount.eq.0"
+          );
+        }
+
+        // ✅ Reverse Auction Filter
+        if (params.reverseAuction === "yes") {
+          shortlistQuery = shortlistQuery.eq("reverse_auction_enabled", true);
+        }
+
+        if (params.reverseAuction === "no") {
+          shortlistQuery = shortlistQuery.eq("reverse_auction_enabled", false);
+        }
+
+        // ✅ Bid Type Filter
+        if (params.bidType === "single") {
+          shortlistQuery = shortlistQuery.ilike("bid_type", "%single%");
+        }
+
+        if (params.bidType === "two") {
+          shortlistQuery = shortlistQuery.ilike("bid_type", "%two%");
+        }
+
+        // ✅ Evaluation Method Filter
+        if (params.evaluationType === "item") {
+          shortlistQuery = shortlistQuery.ilike("evaluation_method", "%item%");
+        }
+
+        if (params.evaluationType === "total") {
+          shortlistQuery = shortlistQuery.ilike("evaluation_method", "%total%");
+        }
+
+        // ✅ Always newest first (like recommendations)
+        shortlistQuery = shortlistQuery.order("bid_date", {
+          ascending: false,
+        });
+
+        // ✅ Pagination AFTER filtering
+        const from = (params.page - 1) * params.limit;
+        const to = from + params.limit - 1;
+
+        const { data: rows, count, error } = await shortlistQuery.range(from, to);
 
         if (error || !Array.isArray(rows)) {
-            console.error("❌ Shortlist fetch error", {
-                error,
-                pageIds,
-                totalShortlisted
-            });
-            return { data: [], total: totalShortlisted };
+          console.error("❌ Shortlist fetch error", error);
+          return { data: [], total: 0 };
         }
 
-        // EARLY RETURN — DO NOT CONTINUE TO query.range()
         return {
-            data: rows.map(r => this.mapRowToTender(r)),
-            total: totalShortlisted
+          data: rows.map((r) => this.mapRowToTender(r)),
+          total: count || 0,
         };
     }
-
-
-
-
-
 
     // ------------------------------------------
     // EMD FILTER
     // ------------------------------------------
     if (params.emdFilter === 'yes') query = query.gt('emd_amount', 0);
-    else if (params.emdFilter === 'no') query = query.or('emd_amount.is.null,emd_amount.eq.0');
+    else if (params.emdFilter === 'no') {
+    query = query.or('emd_amount.is.null,emd_amount.eq.0');
+    }
+
+
 
     // ------------------------------------------
     // Reverse Auction
@@ -343,6 +637,16 @@ class TenderClientStore {
     }
     else if (params.bidType === 'two') {
     query = query.filter('bid_type', 'ilike', '%two%');
+    }
+
+    // ------------------------------------------
+    // EVALUATION TYPE
+    // ------------------------------------------
+    if (params.evaluationType === 'item') {
+    query = query.ilike('evaluation_method', '%item%');
+    }
+    else if (params.evaluationType === 'total') {
+    query = query.ilike('evaluation_method', '%total%');
     }
 
     // ------------------------------------------
@@ -381,6 +685,15 @@ class TenderClientStore {
 
     try {
     const res = await query.range(from, to);
+    if (res.error) {
+    console.error("🧨 SUPABASE RAW ERROR", {
+        message: res.error.message,
+        details: res.error.details,
+        hint: res.error.hint,
+        code: res.error.code,
+    });
+    }
+
     data = res.data ?? null;
     qErr = res.error ?? null;
     count = res.count ?? null;
@@ -394,42 +707,28 @@ class TenderClientStore {
     return { data: [], total: 0 };
     }
 
-    if (qErr || !Array.isArray(data)) {
-    // qErr may be empty object — make logging resilient
-    let qErrStr: string;
-    try {
-        qErrStr = JSON.stringify(qErr);
-    } catch {
-        qErrStr = String(qErr);
-    }
-
-    console.error("❌ SUPABASE QUERY ERROR", {
-        err: qErr,
-        raw: qErrStr,
-        details: qErr?.details,
-        hint: qErr?.hint,
-        status: qErr?.status,
-        context: {
-        page: params.page,
-        filter: params.statusFilter,
-        search: params.search,
-        shortlistSample: this.getAllLocalShortlist().slice(0, 12),
-        numericShortlistCount: (() => {
-            try { return this.getAllLocalShortlist().map(id => Number(id)).filter(n => Number.isInteger(n) && n > 0).length; } catch { return null; }
-        })()
-        }
-    });
+    if (qErr) {
+    console.error("❌ REAL SUPABASE ERROR", qErr);
     return { data: [], total: 0 };
     }
 
 
 
-    return {
-      data: (data || []).map((r: any) => this.mapRowToTender(r)),
-      total: count || 0
-    };
-  }
+    const safeRows: Tender[] = [];
 
+    for (const r of data || []) {
+    try {
+        safeRows.push(this.mapRowToTender(r));
+    } catch (e) {
+        console.error("🔥 ROW MAPPING CRASH", r, e);
+    }
+    }
+
+    return {
+    data: safeRows,
+    total: count || 0
+    };
+}
   // ---------------------------------------------------------
   // ROBUST MAPPER (restored from earlier working logic)
   // ---------------------------------------------------------
@@ -532,11 +831,13 @@ class TenderClientStore {
         ministry: row.ministry ?? row.buyer_ministry ?? null,
         department: row.department ?? row.buyer_department ?? null,
         organizationName: row.organization_name ?? null,
+        organizationAddress: row.organization_address ?? null,
+        pincode: row.pincode ?? null,
 
         status,
         deadline: deadlineDate,  // IMPORTANT: keep real Date for UI logic
 
-        // formatted for UI
+        // formatted for UIX
         startDate,
         endDate,
         publishedDate: startDate,
@@ -552,6 +853,11 @@ class TenderClientStore {
 
         bidType: row.bid_type ?? null, 
         isShortlisted: this.shortlistedIds.has(String(row.id)),
+
+        documentsRequired: row.documents_required ?? [],
+        arbitrationClause: row.arbitration_clause ?? null,
+        mediationClause: row.mediation_clause ?? null,
+        evaluationMethod: row.evaluation_method ?? null,
 
         raw: row
         };

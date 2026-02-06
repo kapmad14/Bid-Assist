@@ -1,48 +1,11 @@
 services:
-  bid_parser:
-    build: .
-    command: ["/app/docker/run_parser_loop.sh"]
-    volumes:
-      - ./:/app
-      - ./logs:/app/logs
-    env_file: .env
-    restart: on-failure
 
   matcher_worker:
     build: .
-    command: ["/app/docker/run_matcher_loop.sh"]
+    command: ["bash", "/app/docker/run_matcher_loop.sh"]
     volumes:
       - ./:/app
       - ./logs:/app/logs
     env_file: .env
     restart: unless-stopped
-
-  # ✅ new unified daily scraper service
-  gem_daily_scraper:
-    build: .
-    command: ["/app/docker/run_daily_gem_scraper.sh"]
-    volumes:
-      - ./:/app
-      - ./logs:/app/logs
-    env_file: .env
-    restart: unless-stopped
-
-  extractor_service:
-    build:
-      context: ./extractor-service
-    ports:
-      - "5001:5001"
-    environment:
-      SUPABASE_URL: ${SUPABASE_URL}
-      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
-    restart: unless-stopped
-
-  daily_backfill:
-    build: .
-    command: ["/app/docker/run_daily_backfill.sh"]
-    volumes:
-      - ./:/app
-      - ./logs:/app/logs
-    env_file: .env
-    restart: unless-stopped
-
+    mem_limit: 2g

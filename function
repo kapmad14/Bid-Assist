@@ -1,0 +1,14 @@
+change if necesary in services/tenderStore.client.ts
+
+-import type { Tender } from '@/types';
++import type { Tender, TenderSource } from '@/types';
+
+-  source?: 'gem' | 'all';
++  source?: TenderSource;
+
+
+
+in worker_matcher.py
+added
+
+"p_tender_source": "gem",

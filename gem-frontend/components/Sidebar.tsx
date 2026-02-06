@@ -12,7 +12,13 @@ import {
   Menu,
   X,
   LifeBuoy,
+  LayoutList,
+  SlidersHorizontal,
+  Star,
+  Bookmark,
 } from 'lucide-react';
+import Image from 'next/image';
+
 
 type SidebarMenuItem = {
   label: string;
@@ -35,9 +41,13 @@ type SidebarMenuItem = {
 
 const menuItems = [
   { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
-  { label: 'Tenders', icon: FileText, path: '/tenders' },
+  { label: 'Tenders', icon: FileText, path: '/tenders2' },
   // changed to Box to visually differentiate Catalog
   { label: 'Catalogue', icon: Box, path: '/catalog' },
+  { label: 'Recommended', icon: Bookmark, path: '/recommended' },
+  { label: 'Shortlisted', icon: Star, path: '/shortlisted' },
+
+  { label: 'Results', icon: LayoutList, path: '/results' },
   { label: 'Help & Support', icon: LifeBuoy, path: '/help' },
 ];
 
@@ -140,14 +150,37 @@ export default function Sidebar() {
           ${isCollapsed ? 'w-20' : 'w-64'}`}
       >
         {/* Header with Toggle */}
-        <div className="p-6 border-b border-gray-800 flex items-center justify-between">
+        <div className="p-4 border-b border-gray-800 flex items-center justify-between">
           {!isCollapsed ? (
-            <h1 className="text-2xl font-bold text-white select-none">
-              Tender<span className="text-[#F7C846]">Match</span>
-            </h1>
+            <Link
+              href="/dashboard"
+              title="Dashboard"
+              className="flex items-center select-none pointer-events-auto hover:scale-[1.02] transition-transform"
+            >
+              <Image
+                src="/logo/tenderbot-header.png"
+                alt="tenderbot"
+                height={40}
+                width={200}
+                priority
+                className="transition-opacity hover:opacity-90"
+              />
+            </Link>
           ) : (
-            // provide a small visually-hidden label when collapsed for screen-readers
-            <span className="sr-only">TenderMatch</span>
+            <Link
+              href="/dashboard"
+              title="Dashboard"
+              className="flex items-center justify-center select-none pointer-events-auto"
+            >
+              <Image
+                src="/logo/tenderbot-header.png"
+                alt="tenderbot"
+                height={64}
+                width={64}
+                priority
+                className="transition-opacity hover:opacity-90"
+              />
+            </Link>
           )}
 
           <button

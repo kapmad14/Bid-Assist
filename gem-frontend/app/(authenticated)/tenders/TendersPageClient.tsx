@@ -17,7 +17,8 @@ import {
   Building2, 
   FileText, 
   Filter,
-  Star
+  Star,
+  X
 } from 'lucide-react';
 
 import { tenderClientStore } from '@/services/tenderStore.client';
@@ -67,7 +68,9 @@ const FilterSection: React.FC<{
 
 function TendersContentInner() {
   const searchParams = useSearchParams();
-  const initialPage = Number(searchParams.get("page") ?? 1);
+  const qpTab = searchParams?.get('tab');
+  const qpRecommended = searchParams?.get('recommended') === 'true';
+  const initialPage = Number(searchParams?.get("page") ?? 1);
   const fromDashboard = searchParams?.get('from') === 'dashboard'; // detect CTA entry
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const router = useRouter();
@@ -105,7 +108,7 @@ function TendersContentInner() {
   const [currentPage, setCurrentPage] = useState(initialPage);
   // Sync URL ?page=X → currentPage state
   useEffect(() => {
-    const p = Number(searchParams.get("page") ?? 1);
+    const p = Number(searchParams?.get("page") ?? 1);
 
     // IMPORTANT: Only update state if the value is different.
     if (p !== currentPage) {
@@ -119,15 +122,53 @@ function TendersContentInner() {
   const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('newest');
-  const [activeTab, setActiveTab] = useState<TabOption>('Active');
+  const [activeTab, setActiveTab] = useState<TabOption>(() => {
+    if (qpTab === 'Closing Soon') return 'Closing Soon';
+    if (qpTab === 'Shortlisted') return 'Shortlisted';
+    return 'Active';
+    });
   const [emdNeeded, setEmdNeeded] = useState<'all' | 'yes' | 'no'>('all');
   const [reverseAuction, setReverseAuction] = useState<'all' | 'yes' | 'no'>('all');
   const [bidTypeFilter, setBidTypeFilter] = useState<'all' | 'single' | 'two'>('all');
+  const [evaluationType, setEvaluationType] =
+    useState<'all' | 'item' | 'total'>('all');
+  // ✅ Autosuggest typing vs applied filter
+  const [ministryInput, setMinistryInput] = useState<string>('');
+  const [ministryFilter, setMinistryFilter] = useState<string>(''); // applied only after debounce/select
+  // ✅ Department Autosuggest
+  const [departmentInput, setDepartmentInput] = useState<string>("");
+  const [departmentFilter, setDepartmentFilter] = useState<string>("");
 
+  const [departmentSuggestions, setDepartmentSuggestions] = useState<string[]>([]);
+  const [showDepartmentDropdown, setShowDepartmentDropdown] = useState(false);
+
+  const [departmentSelected, setDepartmentSelected] = useState(false);
+  const [activeDepartmentIndex, setActiveDepartmentIndex] = useState(-1);
+
+  // ✅ Refs
+  const departmentDropdownRef = useRef<HTMLDivElement | null>(null);
+  const departmentWrapperRef = useRef<HTMLDivElement | null>(null);
+
+
+  const [ministrySuggestions, setMinistrySuggestions] = useState<string[]>([]);
+  const [showMinistryDropdown, setShowMinistryDropdown] = useState(false);
+  const [ministrySelected, setMinistrySelected] = useState(false);
+
+  const [activeMinistryIndex, setActiveMinistryIndex] = useState(-1);
+  // ✅ Ref for dropdown scrolling
+  const ministryDropdownRef = useRef<HTMLDivElement | null>(null);
+  const ministryWrapperRef = useRef<HTMLDivElement | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
   const [debugError, setDebugError] = useState<string | null>(null);
-  const [recommendedOnly, setRecommendedOnly] = useState(false);
+  const [recommendedOnly, setRecommendedOnly] = useState(qpRecommended);
+
+  useEffect(() => {
+    if (qpRecommended) {
+        setRecommendedOnly(true);
+    }
+    }, [qpRecommended]);
+
 
   // UI-only prompt state for unauthenticated recommended attempts
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
@@ -143,6 +184,165 @@ function TendersContentInner() {
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [searchInput]);
+
+  // ✅ Reset keyboard selection whenever suggestions refresh
+  useEffect(() => {
+    setActiveMinistryIndex(-1);
+  }, [ministrySuggestions]);
+
+  useEffect(() => {
+    setActiveDepartmentIndex(-1);
+  }, [departmentSuggestions]);
+
+
+  // ✅ Step 4D: Auto-scroll highlighted option into view
+  useEffect(() => {
+    if (activeMinistryIndex < 0) return;
+
+    const dropdown = ministryDropdownRef.current;
+    if (!dropdown) return;
+
+    const activeEl = dropdown.querySelector(
+      `[data-ministry-index="${activeMinistryIndex}"]`
+    ) as HTMLElement | null;
+
+    activeEl?.scrollIntoView({
+      block: "nearest",
+    });
+  }, [activeMinistryIndex]);
+
+  useEffect(() => {
+    if (activeDepartmentIndex < 0) return;
+
+    const dropdown = departmentDropdownRef.current;
+    if (!dropdown) return;
+
+    const activeEl = dropdown.querySelector(
+      `[data-department-index="${activeDepartmentIndex}"]`
+    ) as HTMLElement | null;
+
+    activeEl?.scrollIntoView({
+      block: "nearest",
+    });
+  }, [activeDepartmentIndex]);
+
+
+  // ✅ Step 4E: Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        ministryWrapperRef.current &&
+        !ministryWrapperRef.current.contains(event.target as Node)
+      ) {
+        setShowMinistryDropdown(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        departmentWrapperRef.current &&
+        !departmentWrapperRef.current.contains(event.target as Node)
+      ) {
+        setShowDepartmentDropdown(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+
+  // ✅ Step 4B: Ministry autosuggest (trigger after 4 chars)
+  useEffect(() => {
+    const q = ministryInput.trim();
+
+    // ✅ If user already selected something, do NOT reopen dropdown
+    if (ministrySelected) return;
+
+    if (q.length < 4) {
+      setMinistrySuggestions([]);
+      setShowMinistryDropdown(false);
+      return;
+    }
+
+    const t = setTimeout(async () => {
+      const results = await tenderClientStore.getMinistrySuggestions(q);
+
+      setMinistrySuggestions(results);
+
+      // ✅ Only show dropdown if results exist
+      if (results.length > 0) {
+        setShowMinistryDropdown(true);
+      }
+    }, 250);
+
+    return () => clearTimeout(t);
+  }, [ministryInput, ministrySelected]);
+
+
+  useEffect(() => {
+    const q = departmentInput.trim();
+
+    // ✅ If already selected → do not reopen dropdown
+    if (departmentSelected) return;
+
+    if (q.length < 3) {
+      setDepartmentSuggestions([]);
+      setShowDepartmentDropdown(false);
+      return;
+    }
+
+    const t = setTimeout(async () => {
+      const results = await tenderClientStore.getDepartmentSuggestions(q);
+
+      setDepartmentSuggestions(results);
+
+      if (results.length > 0) {
+        setShowDepartmentDropdown(true);
+      }
+    }, 250);
+
+    return () => clearTimeout(t);
+  }, [departmentInput, departmentSelected]);
+
+  // ✅ STEP 4B.1D: Apply ministry filter only after user pauses typing
+  useEffect(() => {
+    const q = ministryInput.trim();
+
+    // Only apply filter after 4 chars OR empty (clear)
+    if (q.length > 0 && q.length < 4) return;
+
+    const t = setTimeout(() => {
+      setMinistryFilter(q);
+      setCurrentPage(1);
+    }, 500); // wait for typing stop
+
+    return () => clearTimeout(t);
+  }, [ministryInput]);
+
+  useEffect(() => {
+    const q = departmentInput.trim();
+
+    if (q.length > 0 && q.length < 3) return;
+
+    const t = setTimeout(() => {
+      setDepartmentFilter(q);
+      setCurrentPage(1);
+    }, 500);
+
+    return () => clearTimeout(t);
+  }, [departmentInput]);
 
     const logUserEvent = useCallback(
       async (eventType: string, eventValue?: any) => {
@@ -168,18 +368,37 @@ function TendersContentInner() {
 
 
   // Reset page to 1 for filter changes
-  const handleSetSortBy = (val: SortOption) => { setSortBy(val); router.push(`/tenders?page=1`); };
-  const handleSetActiveTab = (val: TabOption) => { setActiveTab(val); router.push(`/tenders?page=1`); };
-  const handleSetEmd = (val: 'all'|'yes'|'no') => { setEmdNeeded(val); router.push(`/tenders?page=1`); };
-  const handleSetReverseAuction = (val: 'all' | 'yes' | 'no') => {
-    setReverseAuction(val);
-    router.push(`/tenders?page=1`);
-    };
-  const handleSetBidType = (val: 'all' | 'single' | 'two') => {
-    setBidTypeFilter(val);
-    setCurrentPage(1);
-    };
 
+  const resetToFirstPage = () => {
+  setCurrentPage(1);
+  router.replace('/tenders?page=1', { scroll: false });
+};
+
+    const handleSetSortBy = (val: SortOption) => { setSortBy(val); resetToFirstPage(); };
+    const handleSetActiveTab = (val: TabOption) => { setActiveTab(val); resetToFirstPage(); };
+    const handleSetEmd = (val: 'all'|'yes'|'no') => { setEmdNeeded(val); resetToFirstPage(); };
+    const handleSetReverseAuction = (val: 'all' | 'yes' | 'no') => { setReverseAuction(val); resetToFirstPage(); };
+    const handleSetBidType = (val: 'all' | 'single' | 'two') => { setBidTypeFilter(val); resetToFirstPage(); };
+    const handleSetEvaluationType = (val: 'all' | 'item' | 'total') => { setEvaluationType(val); resetToFirstPage(); };
+
+    const handleClearAllFilters = () => {
+    setSearchInput('');
+    setSearchTerm('');
+    setSortBy('newest');
+    setActiveTab('Active');
+    setEmdNeeded('all');
+    setReverseAuction('all');
+    setBidTypeFilter('all');
+    setEvaluationType('all');
+    setRecommendedOnly(false);
+    setMinistryFilter('');
+    setMinistryInput('');
+    setMinistrySelected(false);
+    setDepartmentFilter('');
+    setDepartmentInput('');
+    setDepartmentSelected(false);
+    resetToFirstPage();
+    };
 
 
   // Fetch tenders (uses tenderClientStore)
@@ -204,8 +423,11 @@ function TendersContentInner() {
         emdFilter: emdNeeded,
         reverseAuction, // ← NEW
         bidType: bidTypeFilter,
+        evaluationType,
         source: initialSource === 'gem' ? 'gem' : 'all',
         recommendationsOnly: recommendedOnly,
+        ministry: ministryFilter,
+        department: departmentFilter,
       });
 
 
@@ -217,6 +439,7 @@ function TendersContentInner() {
         statusFilter,
         sortBy,
         emdNeeded,
+        evaluationType,
         recommendedOnly,
         source: initialSource === 'gem' ? 'gem' : 'all',
         page: currentPage,
@@ -230,11 +453,27 @@ function TendersContentInner() {
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, searchTerm, sortBy, activeTab, emdNeeded, reverseAuction, initialSource, bidTypeFilter, recommendedOnly, logUserEvent, supabase]);
+   }, [
+   currentPage,
+   searchTerm,
+   sortBy,
+   activeTab,
+   emdNeeded,
+   reverseAuction,
+   initialSource,
+   bidTypeFilter,
+   evaluationType,
+   recommendedOnly,
+   ministryFilter,
+   departmentFilter,
+   logUserEvent,
+   supabase
+ ]);
+
 
   useEffect(() => {
     fetchTenders();
-  }, [currentPage, searchTerm, activeTab, sortBy, emdNeeded, reverseAuction, bidTypeFilter, recommendedOnly]);
+  }, [currentPage, searchTerm, activeTab, sortBy, emdNeeded, reverseAuction, bidTypeFilter, evaluationType, recommendedOnly, ministryFilter, departmentFilter]);
 
 
   // Shortlist toggle with optimistic update and rollback
@@ -329,6 +568,16 @@ function TendersContentInner() {
     if (diffDays <= 7) return 'Closing Soon';
     return 'Active';
   };
+
+  const formatCamelCase = (val?: string | null) => {
+  if (!val) return null;
+
+  return val
+    .toLowerCase()
+    .split(/[\s_]+/)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+    };
 
   const getBidTypePill = (bidType?: unknown) => {
     // Defensive existence + type check
@@ -449,15 +698,24 @@ function TendersContentInner() {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row gap-8 pb-12">
-      
+    <div className="flex flex-col lg:flex-row gap-8 pb-12">      
       {/* --- LEFT SIDEBAR FILTERS --- */}
       <div className="w-full lg:w-72 flex-shrink-0 space-y-6">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4" aria-hidden={isLoading}>
-          <div className="flex items-center gap-2 mb-4">
-            <Filter className="w-5 h-5 text-[#0E121A]" aria-hidden />
-            <h2 className="text-lg font-bold text-[#0E121A]">Filters</h2>
-          </div>
+            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+                <Filter className="w-5 h-5 text-[#0E121A]" />
+                <h2 className="text-lg font-bold text-[#0E121A]">Filters</h2>
+            </div>
+
+            <button
+                onClick={handleClearAllFilters}
+                className="text-xs font-semibold text-blue-600 hover:underline"
+            >
+                Clear all
+            </button>
+            </div>
+
 
           {/* Keyword Search */}
           <div className="mb-4">
@@ -504,11 +762,299 @@ function TendersContentInner() {
               </button>
             </div>
           </div>
+        {/* ✅ NEW: Ministry + Department Filters (Step 3A - Simple Inputs) */}
+        <div className="mb-4 space-y-3">
+
+        {/* Ministry Filter */}
+        <div ref={ministryWrapperRef} className="relative">
+          <label
+            htmlFor="ministry-filter"
+            className="text-xs font-bold text-gray-700 uppercase mb-1 block"
+          >
+            Ministry
+          </label>
+
+          {/* ✅ Ministry Input */}
+            <input
+              id="ministry-filter"
+              type="text"
+              placeholder="Type 4+ letters..."
+              value={ministryInput}
+              onChange={(e) => {
+                const val = e.target.value;
+
+                setMinistryInput(val);
+
+                // ✅ User typing again → unlock dropdown mode
+                if (ministrySelected) {
+                  setMinistrySelected(false);
+                }
+              }}
+
+              onKeyDown={(e) => {
+                if (!showMinistryDropdown) return;
+
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setActiveMinistryIndex((prev) =>
+                    Math.min(prev + 1, ministrySuggestions.length - 1)
+                  );
+                }
+
+                if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setActiveMinistryIndex((prev) => Math.max(prev - 1, 0));
+                }
+
+                if (e.key === "Enter") {
+                  e.preventDefault();
+
+                  const selected = ministrySuggestions[activeMinistryIndex];
+                  if (!selected) return;
+
+                  setMinistryInput(selected);
+                  setMinistryFilter(selected);
+                  setMinistrySelected(true);
+
+                  setShowMinistryDropdown(false);
+                  setMinistrySuggestions([]);
+                  setActiveMinistryIndex(-1);
+                  setCurrentPage(1);
+                }
+
+                if (e.key === "Escape") {
+                  setShowMinistryDropdown(false);
+                }
+              }}
+
+              onFocus={() => {
+                // ✅ Do not reopen if locked
+                if (ministrySelected) return;
+
+                if (ministrySuggestions.length > 0) {
+                  setShowMinistryDropdown(true);
+                }
+              }}
+
+              // ✅ Add padding-right so X button does not overlap
+              className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm font-medium focus:border-[#F7C846] focus:ring-1 focus:ring-[#F7C846] outline-none"
+            />
+
+            {/* ✅ Clear (X) Button */}
+            {ministryInput.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  // ✅ Clear everything
+                  setMinistryInput("");
+                  setMinistryFilter("");
+
+                  // ✅ Unlock selection mode
+                  setMinistrySelected(false);
+
+                  // ✅ Close dropdown cleanly
+                  setShowMinistryDropdown(false);
+                  setMinistrySuggestions([]);
+                  setActiveMinistryIndex(-1);
+
+                  // ✅ Reset pagination
+                  setCurrentPage(1);
+
+                  // ✅ Refocus input
+                  setTimeout(() => {
+                    document.getElementById("ministry-filter")?.focus();
+                  }, 50);
+                }}
+                className="absolute right-3 top-[55%] -translate-y-1/4
+                  w-7 h-7 flex items-center justify-center
+                  rounded-full hover:bg-gray-100 text-gray-500 hover:text-gray-800"
+                aria-label="Clear ministry"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+
+
+          {/* ✅ Dropdown */}
+          {showMinistryDropdown &&
+            !ministrySelected &&
+            ministrySuggestions.length > 0 && (
+            <div
+              ref={ministryDropdownRef}
+              className="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-auto"
+            >
+              {ministrySuggestions.map((name, idx) => (
+                <button
+                  key={name}
+                  type="button"
+                  data-ministry-index={idx}
+                  onClick={() => {
+                    setMinistryInput(name);
+                    setMinistryFilter(name);
+                    setMinistrySelected(true);
+                    setShowMinistryDropdown(false);
+                    setMinistrySuggestions([]);
+                    setActiveMinistryIndex(-1);
+                    setCurrentPage(1);
+                  }}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 ${
+                    idx === activeMinistryIndex ? "bg-gray-100 font-semibold" : ""
+                  }`}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+
+        {/* Department Filter */}
+        <div ref={departmentWrapperRef} className="relative">
+          <label
+            htmlFor="department-filter"
+            className="text-xs font-bold text-gray-700 uppercase mb-1 block"
+          >
+            Department
+          </label>
+              <input
+                id="department-filter"
+                type="text"
+                placeholder="Type 4+ letters..."
+                value={departmentInput}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setDepartmentInput(val);
+
+                  // ✅ Unlock if user types again
+                  if (departmentSelected) {
+                    setDepartmentSelected(false);
+                  }
+                }}
+
+                onKeyDown={(e) => {
+                  if (!showDepartmentDropdown) return;
+
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setActiveDepartmentIndex((prev) =>
+                      Math.min(prev + 1, departmentSuggestions.length - 1)
+                    );
+                  }
+
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setActiveDepartmentIndex((prev) => Math.max(prev - 1, 0));
+                  }
+
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    const selected = departmentSuggestions[activeDepartmentIndex];
+                    if (!selected) return;
+
+                    setDepartmentInput(selected);
+                    setDepartmentFilter(selected);
+
+                    // ✅ Lock selection
+                    setDepartmentSelected(true);
+
+                    setShowDepartmentDropdown(false);
+                    setDepartmentSuggestions([]);
+                    setActiveDepartmentIndex(-1);
+
+                    setCurrentPage(1);
+                  }
+
+                  if (e.key === "Escape") {
+                    setShowDepartmentDropdown(false);
+                  }
+                }}
+
+                onFocus={() => {
+                  if (departmentSelected) return;
+                  if (departmentSuggestions.length > 0) {
+                    setShowDepartmentDropdown(true);
+                  }
+                }}
+
+                className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg
+                  text-sm font-medium focus:border-[#F7C846] focus:ring-1 focus:ring-[#F7C846] outline-none"
+              />
+
+              {/* ✅ Clear Button */}
+              {departmentInput.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDepartmentInput("");
+                    setDepartmentFilter("");
+
+                    setDepartmentSelected(false);
+
+                    setShowDepartmentDropdown(false);
+                    setDepartmentSuggestions([]);
+                    setActiveDepartmentIndex(-1);
+
+                    setCurrentPage(1);
+
+                    setTimeout(() => {
+                      document.getElementById("department-filter")?.focus();
+                    }, 50);
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/5
+                    w-7 h-7 flex items-center justify-center
+                    rounded-full hover:bg-gray-100 text-gray-500 hover:text-gray-800"
+                  aria-label="Clear department"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+
+              {/* ✅ Dropdown */}
+              {showDepartmentDropdown &&
+                !departmentSelected &&
+                departmentSuggestions.length > 0 && (
+                  <div
+                    ref={departmentDropdownRef}
+                    className="absolute z-30 mt-1 w-full bg-white border border-gray-200
+                      rounded-lg shadow-lg max-h-56 overflow-auto"
+                  >
+                    {departmentSuggestions.map((name, idx) => (
+                      <button
+                        key={name}
+                        type="button"
+                        data-department-index={idx}
+                        onClick={() => {
+                          setDepartmentInput(name);
+                          setDepartmentFilter(name);
+
+                          setDepartmentSelected(true);
+
+                          setShowDepartmentDropdown(false);
+                          setDepartmentSuggestions([]);
+                          setActiveDepartmentIndex(-1);
+
+                          setCurrentPage(1);
+                        }}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 ${
+                          idx === activeDepartmentIndex
+                            ? "bg-gray-100 font-semibold"
+                            : ""
+                        }`}
+                      >
+                        {name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+            </div>
+
+          </div>
 
           {/* Accordion Filters */}
           <div className="divide-y divide-gray-100">
              {/* EMD Needed - Radio Buttons */}
-             <FilterSection title="EMD Needed" isOpen>
+             <FilterSection title="EMD Needed" isOpen={false}>
                 <div className="space-y-2">
                    <label className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 cursor-pointer">
                       <input 
@@ -546,7 +1092,7 @@ function TendersContentInner() {
                 </div>
              </FilterSection>
              {/* Reverse Auction - Radio Buttons */}
-              <FilterSection title="Reverse Auction" isOpen>
+              <FilterSection title="Reverse Auction" isOpen={false}>
                 <div className="space-y-2">
                   <label className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 cursor-pointer">
                     <input
@@ -622,6 +1168,28 @@ function TendersContentInner() {
                     </label>
                 </div>
                 </FilterSection>
+                <FilterSection title="Evaluation Type">
+                <div className="space-y-2">
+                    {[
+                    ['all','Any'],
+                    ['item','Item Wise'],
+                    ['total','Total Value Wise'],
+                    ].map(([val,label]) => (
+
+                    <label key={val} className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 cursor-pointer">
+                        <input
+                        type="radio"
+                        name="evaluationType"
+                        checked={evaluationType === val}
+                        onChange={() => handleSetEvaluationType(val as any)}
+                        className="w-4 h-4 accent-[#F7C846]"
+                        />
+                        {label}
+                    </label>
+                    ))}
+                </div>
+                </FilterSection>
+
 
           </div>
           {/* --- Guidance Banner for New Users --- */}
@@ -646,14 +1214,11 @@ function TendersContentInner() {
               </Link>
             </div>
           </div>
-
         </div>
       </div>
-
       
-      {/* --- MAIN CONTENT AREA --- */}
-      <div className="flex-1 min-w-0" aria-busy={isLoading}>
-        
+        {/* --- MAIN CONTENT AREA --- */}
+      <div className="flex-1 min-w-0 flex flex-col" aria-busy={isLoading}>        
         {/* Top Controls */}
         <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
            {/* Tabs */}
@@ -759,14 +1324,15 @@ function TendersContentInner() {
           </div>
         </div>
 
-        {/* Tenders List */}
+        {/* Scrollable Tender Container */}
+        <div className="pr-2">
         {isLoading ? (
-           <div className="py-20 text-center">
-              <Loader2 className="w-10 h-10 text-gray-300 animate-spin mx-auto" aria-hidden />
-              <p className="text-gray-400 mt-3 font-medium">Loading opportunities...</p>
-           </div>
+            <div className="py-20 text-center">
+            <Loader2 className="w-10 h-10 text-gray-300 animate-spin mx-auto" aria-hidden />
+            <p className="text-gray-400 mt-3 font-medium">Loading opportunities...</p>
+            </div>
         ) : tenders.length === 0 ? (
-           <div className="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">
+            <div className="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">
               <Database className="w-12 h-12 text-gray-300 mx-auto mb-4" aria-hidden />
               <h3 className="text-lg font-bold text-gray-900">No tenders found</h3>
                 <p className="text-gray-500">
@@ -787,6 +1353,8 @@ function TendersContentInner() {
                       setSearchInput('');
                       setSearchTerm('');
                       setEmdNeeded('all');
+                      setBidTypeFilter('all');
+                      setEvaluationType('all');
                       setActiveTab('Active'); // reset to default
                       setRecommendedOnly(false);
                       setCurrentPage(1);
@@ -859,7 +1427,7 @@ function TendersContentInner() {
                     <div className="flex-1 pr-8">
                       {/* Title — show `item` first as requested */}
                       <h3
-                        className="text-lg font-bold text-[#0E121A] group-hover:text-blue-700 transition-colors line-clamp-2 mb-2"
+                        className="text-lg font-semibold text-[#0E121A] group-hover:text-blue-700 transition-colors line-clamp-2 mb-4"
                         title={(tender.item || tender.category || tender.title) ?? undefined}
                       >
                         {tender.item || tender.category || tender.title || 'Untitled tender'}
@@ -878,6 +1446,11 @@ function TendersContentInner() {
                             : 'Docs'}
                         </span>
 
+                        {Array.isArray(tender.documentsRequired) && tender.documentsRequired.length > 0 && (
+                        <span className="flex items-center gap-1 bg-gray-50 text-gray-600 text-[10px] font-bold px-2 py-1 rounded border border-gray-200">
+                            📄 Docs Required: {tender.documentsRequired.length}
+                        </span>
+                        )}
 
                         {urgent && (
                           <span className="flex items-center gap-1 bg-orange-50 text-orange-700 text-[10px] font-bold px-2 py-1 rounded border border-orange-100">
@@ -910,6 +1483,17 @@ function TendersContentInner() {
                             </span>
                             );
                         })()}
+
+                        {tender.evaluationMethod && (
+                        <span
+                            className="inline-flex items-center text-[11px] font-semibold px-3 py-1 rounded
+                            bg-slate-50 text-slate-700 border border-slate-200"
+                            title="Evaluation Method"
+                        >
+                            {formatCamelCase(tender.evaluationMethod)}
+                        </span>
+                        )}
+
                         </div>
                     </div>
 
@@ -965,10 +1549,34 @@ function TendersContentInner() {
                         <Building2 className="w-3 h-3 text-blue-600" aria-hidden />
                       </div>
                       <div>
-                        <p className="text-sm font-bold text-gray-900 line-clamp-1">{tender.ministry || 'Unknown'}</p>
+                        <p className="text-sm font-bold text-gray-900 line-clamp-1">
+                        {(() => {
+                            const addr = tender.organizationAddress?.trim();
+                            const pin = tender.pincode?.trim();
+
+                            if (addr && pin) return `${addr} - ${pin}`;
+                            if (addr) return addr;
+                            if (pin) return pin;
+
+                            return tender.organizationName || 'Unknown Organisation';
+                        })()}
+                        </p>
                         <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5">
-                          {/* show department first, fallback to location */}
-                          {tender.department || 'Location not specified'}
+                        {tender.department ? (
+                            <span>{tender.department}</span>
+                        ) : tender.organizationAddress || tender.pincode ? (
+                            <>
+                            <MapPin className="w-3 h-3" aria-hidden />
+                            <span>
+                                {tender.organizationAddress ?? ''}
+                                {tender.pincode ? ` - ${tender.pincode}` : ''}
+                            </span>
+                            </>
+                        ) : tender.organizationName ? (
+                            <span>{tender.organizationName}</span>
+                        ) : (
+                            'Location not specified'
+                        )}
                         </div>
                       </div>
                     </div>
@@ -1003,92 +1611,85 @@ function TendersContentInner() {
               </div>
             );
           })}
-
            </div>
         )}
-
-        {/* Pagination (Numbered + Ellipses) */}
-        {totalRecords > 0 && (
-          <div className="mt-8 flex justify-center">
-            <div className="flex items-center gap-2">
-
-              {/* Prev Button */}
-              <button
-                onClick={() => router.push(`/tenders?page=${currentPage - 1}`)}
-                disabled={currentPage === 1}
-                className={`px-3 py-1.5 rounded-md border text-sm font-medium transition-all
-                  ${
-                    currentPage === 1
-                      ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
-                      : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
-                  }
-                `}
-              >
-                Prev
-              </button>
-
-              {/* Page Numbers */}
-              {(() => {
-                const pages: (number | string)[] = [];
-                const total = lastPage;
-
-                const add = (p: number | string) => pages.push(p);
-
-                add(1);
-
-                if (currentPage > 4) add("...");
-
-                const start = Math.max(2, currentPage - 2);
-                const end = Math.min(total - 1, currentPage + 2);
-
-                for (let i = start; i <= end; i++) add(i);
-
-                if (currentPage < total - 3) add("...");
-
-                if (total > 1) add(total);
-
-                return pages.map((p, idx) =>
-                  p === "..." ? (
-                    <span key={`ellipsis-${idx}`} className="px-2 text-gray-500">…</span>
-                  ) : (
+            {totalRecords > 0 && (
+                <div className="py-8 flex justify-center">
+                    <div className="flex items-center gap-2">
+                    {/* Prev Button */}
                     <button
-                      key={`page-${p}`}
-                      onClick={() => router.push(`/tenders?page=${p}`)}
-                      className={`px-3 py-1.5 rounded-md border text-sm font-medium transition-all
+                        onClick={() => router.push(`/tenders?page=${currentPage - 1}`)}
+                        disabled={currentPage === 1}
+                        className={`px-3 py-1.5 rounded-md border text-sm font-medium transition-all
                         ${
-                          p === currentPage
-                            ? "bg-blue-600 text-white border-blue-600 shadow"
+                            currentPage === 1
+                            ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
                             : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
                         }
-                      `}
+                        `}
                     >
-                      {p}
+                        Prev
                     </button>
-                  )
-                );
-              })()}
 
-              {/* Next Button */}
-              <button
-                onClick={() => router.push(`/tenders?page=${Math.min(lastPage, currentPage + 1)}`)}
-                disabled={currentPage === lastPage}
-                className={`px-3 py-1.5 rounded-md border text-sm font-medium transition-all
-                  ${
-                    currentPage === lastPage
-                      ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
-                      : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
-                  }
-                `}
-              >
-                Next
-              </button>
+                    {/* Page Numbers */}
+                    {(() => {
+                        const pages: (number | string)[] = [];
+                        const total = lastPage;
 
-            </div>
+                        const add = (p: number | string) => pages.push(p);
+
+                        add(1);
+
+                        if (currentPage > 4) add("...");
+
+                        const start = Math.max(2, currentPage - 2);
+                        const end = Math.min(total - 1, currentPage + 2);
+
+                        for (let i = start; i <= end; i++) add(i);
+
+                        if (currentPage < total - 3) add("...");
+
+                        if (total > 1) add(total);
+
+                        return pages.map((p, idx) =>
+                        p === "..." ? (
+                            <span key={`ellipsis-${idx}`} className="px-2 text-gray-500">…</span>
+                        ) : (
+                            <button
+                            key={`page-${p}`}
+                            onClick={() => router.push(`/tenders?page=${p}`)}
+                            className={`px-3 py-1.5 rounded-md border text-sm font-medium transition-all
+                                ${
+                                p === currentPage
+                                    ? "bg-blue-600 text-white border-blue-600 shadow"
+                                    : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
+                                }
+                            `}
+                            >
+                            {p}
+                            </button>
+                        )
+                        );
+                    })()}
+
+                    {/* Next Button */}
+                    <button
+                        onClick={() => router.push(`/tenders?page=${Math.min(lastPage, currentPage + 1)}`)}
+                        disabled={currentPage === lastPage}
+                        className={`px-3 py-1.5 rounded-md border text-sm font-medium transition-all
+                        ${
+                            currentPage === lastPage
+                            ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
+                            : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
+                        }
+                        `}
+                    >
+                        Next
+                    </button>
+                    </div>
+                </div>
+                )}
           </div>
-        )}
-
-
-
       </div>
     </div>
   );

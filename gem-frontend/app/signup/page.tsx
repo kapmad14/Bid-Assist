@@ -7,10 +7,15 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-client';
-import { Loader2, CheckCircle2, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Eye, EyeOff } from 'lucide-react';
+import Image from 'next/image';
 
 export default function SignupPage() {
   const router = useRouter();
+
+  // ✅ Always use production domain if available
+  const siteUrl =
+    process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
 
   // ✅ Prevent Supabase from initializing on server
   const supabase = useMemo(() => {
@@ -26,6 +31,8 @@ export default function SignupPage() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
 
   const handleEmailSignup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,15 +40,16 @@ export default function SignupPage() {
 
     setLoading(true);
     setError(null);
+    setSuccess(false);
 
     if (password !== confirmPassword) {
-      setError('Passwords do not match');
+      setError("Passwords do not match");
       setLoading(false);
       return;
     }
 
     if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+      setError("Password must be at least 6 characters");
       setLoading(false);
       return;
     }
@@ -50,7 +58,7 @@ export default function SignupPage() {
       email,
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: `${siteUrl}/auth/callback`,
       },
     });
 
@@ -60,7 +68,9 @@ export default function SignupPage() {
       return;
     }
 
-    // ✅ DO NOTHING ELSE — callback handles navigation
+    // ✅ Email confirmation ON → show success message
+    setSuccess(true);
+    setLoading(false);
   };
 
 
@@ -68,16 +78,16 @@ export default function SignupPage() {
     if (!supabase) return;
 
     const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
+      provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${siteUrl}/auth/callback`,
+        skipBrowserRedirect: false,
       },
     });
 
-    if (error) {
-      setError(error.message);
-    }
+    if (error) setError(error.message);
   };
+
 
   return (
     <div className="fixed inset-0 bg-[#0E121A] flex items-center justify-center p-4 z-50 overflow-y-auto">
@@ -85,19 +95,20 @@ export default function SignupPage() {
         <div className="bg-white rounded-[32px] p-8 shadow-2xl">
 
           {/* Header */}
-          <div className="mb-8 flex items-center gap-4">
-            <div className="flex items-center justify-center w-16 h-16 bg-[#F7C846] rounded-2xl shrink-0">
-              <span className="text-2xl font-bold text-[#0E121A]">TM</span>
+          <div className="mb-8 flex flex-col items-center text-center gap-4">
+            <div className="rounded-2xl overflow-hidden">
+              <Image
+                src="/logo/tenderbot-header.png"
+                alt="tenderbot"
+                height={48}
+                width={220}
+                priority
+              />
             </div>
 
-            <div className="flex flex-col">
-              <h1 className="text-2xl font-bold text-[#0E121A] leading-tight">
-                Create Account
-              </h1>
-              <p className="text-gray-600 text-sm">
-                Join TenderMatch to get started
-              </p>
-            </div>
+            <p className="text-gray-600 text-sm">
+              Create your account to get started
+            </p>
           </div>
 
 
@@ -107,6 +118,20 @@ export default function SignupPage() {
               <p className="text-sm text-[#FC574E]">{error}</p>
             </div>
           )}
+
+          {/* Success Message */}
+          {success && (
+            <div className="mb-6 p-4 bg-green-100 border-2 border-green-200 rounded-2xl">
+              <p className="text-sm font-semibold text-green-700">
+                ✅ Account created successfully!
+              </p>
+              <p className="text-sm text-green-700 mt-1">
+                Please check your email and click the confirmation link to activate your
+                account.
+              </p>
+            </div>
+          )}
+
 
           {/* Signup Form */}
           <form onSubmit={handleEmailSignup} className="space-y-5">
@@ -168,7 +193,7 @@ export default function SignupPage() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || success}
               className="w-full py-4 px-6 bg-[#F7C846] text-[#0E121A] font-bold rounded-2xl hover:bg-[#F7C846]/90 transform hover:scale-[1.02] transition-all shadow-[0_4px_12px_rgba(247,200,70,0.4)] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
             >
               {loading ? (
@@ -176,11 +201,24 @@ export default function SignupPage() {
                   <Loader2 className="h-5 w-5 animate-spin mr-2" />
                   Creating account...
                 </span>
+              ) : success ? (
+                "Check your email ✅"
               ) : (
-                'Create Account'
+                "Create Account"
               )}
+
             </button>
           </form>
+          {success && (
+            <p className="text-center text-sm mt-4">
+              <Link
+                href="/login"
+                className="font-bold text-[#0E121A] hover:text-[#F7C846]"
+              >
+                Proceed to Sign In →
+              </Link>
+            </p>
+          )}
 
           {/* Divider */}
           <div className="relative my-8">
@@ -195,6 +233,7 @@ export default function SignupPage() {
           {/* Google Signup */}
           <button
             onClick={handleGoogleSignup}
+            disabled={loading || success}
             className="w-full flex items-center justify-center gap-3 px-6 py-3.5 bg-[#F0F0F0] rounded-2xl hover:bg-gray-200 transition-all shadow-[0_2px_8px_rgba(0,0,0,0.08)]"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24">

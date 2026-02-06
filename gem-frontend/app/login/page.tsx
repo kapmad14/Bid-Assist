@@ -2,21 +2,21 @@
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
 
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-client';
 import { Loader2, Eye, EyeOff } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/app/providers/AuthProvider';
+import Image from 'next/image';
 
 export default function LoginPage() {
 
+  const { user, loading: authLoading } = useAuth();
 
-  // ✅ Supabase client must only be created in the browser
-  const supabase = useMemo(() => {
-    if (typeof window !== 'undefined') {
-      return createClient();
-    }
-    return null; // during prerender this prevents the crash
-  }, []);
+  const router = useRouter();
+  const siteUrl =
+    process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -24,11 +24,19 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.replace('/dashboard');
+    }
+  }, [authLoading, user, router]);
+
   const handleEmailLogin = async () => {
-    if (!supabase || loading) return;
+    if (loading) return;
 
     setLoading(true);
     setError(null);
+
+    const supabase = createClient();
 
     const { error } = await supabase.auth.signInWithPassword({
       email,
@@ -38,20 +46,29 @@ export default function LoginPage() {
     if (error) {
       setError(error.message);
       setLoading(false);
+      return;
     }
+
+    router.replace('/dashboard');
   };
+
 
 
   const handleGoogleLogin = async () => {
-    if (!supabase) return; // SSR safety
+    const supabase = createClient();
+
     const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
+      provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${siteUrl}/auth/callback`,
+        skipBrowserRedirect: false,
       },
     });
+
+
     if (error) setError(error.message);
   };
+
 
   return (
     <div className="fixed inset-0 bg-[#0E121A] flex items-center justify-center p-4 z-50">
@@ -59,19 +76,20 @@ export default function LoginPage() {
         <div className="bg-white rounded-[32px] p-8 shadow-2xl">
 
           {/* Header */}
-          <div className="mb-8 flex items-center gap-4">
-            <div className="flex items-center justify-center w-16 h-16 bg-[#F7C846] rounded-2xl shrink-0">
-              <span className="text-2xl font-bold text-[#0E121A]">TM</span>
+          <div className="mb-8 flex flex-col items-center text-center gap-4">
+            <div className="rounded-2xl overflow-hidden">
+              <Image
+                src="/logo/tenderbot-header.png"
+                alt="tenderbot"
+                height={48}
+                width={220}
+                priority
+              />
             </div>
 
-            <div className="flex flex-col">
-              <h1 className="text-2xl font-bold text-[#0E121A] leading-tight">
-                TenderMatch
-              </h1>
-              <p className="text-gray-600 text-sm">
-                Welcome back! Sign in to continue
-              </p>
-            </div>
+            <p className="text-gray-600 text-sm">
+              Welcome back! Sign in to continue
+            </p>
           </div>
 
 
@@ -132,7 +150,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={handleEmailLogin}
-                disabled={loading}
+                disabled={loading || authLoading}
                 className="w-full py-4 px-6 bg-[#F7C846] text-[#0E121A] font-bold rounded-2xl
                           hover:bg-[#F7C846]/90 transform hover:scale-[1.02] transition-all
                           shadow-[0_4px_12px_rgba(247,200,70,0.4)]
@@ -162,7 +180,7 @@ export default function LoginPage() {
 
             <button
               onClick={handleGoogleLogin}
-              disabled={loading}
+              disabled={loading || authLoading}
               className="w-full flex items-center justify-center gap-3 px-6 py-3.5 bg-[#F0F0F0] rounded-2xl
                         hover:bg-gray-200 transition-all shadow-[0_2px_8px_rgba(0,0,0,0.08)]"
             >

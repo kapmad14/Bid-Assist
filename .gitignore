@@ -44,4 +44,5 @@ git push
 data/
 logs/
 *.db
-*.log
+*.loggem-scraper/daily_data/
+gem-scraper/results/

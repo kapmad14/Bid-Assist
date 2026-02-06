@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase-client';
 import toast, { Toaster } from 'react-hot-toast';
+import { Search, Zap, Target, Info } from 'lucide-react';
 
 // ---------------------
 // Types
@@ -20,7 +21,14 @@ interface CatalogItem {
   user_id: string;
 }
 
+type CategoryIndexRow = {
+  raw: string;
+  lower: string;
+};
+
 type ActionMode = 'none' | 'modify' | 'bulk-pause' | 'bulk-resume' | 'bulk-delete';
+const TOOLBAR_BTN_WIDTH = 'w-[140px]';
+
 
 // ---------------------
 // Component
@@ -57,10 +65,27 @@ export default function CatalogPage() {
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
   const [selectedRadioId, setSelectedRadioId] = useState<string | null>(null);
 
+  const [allCategories, setAllCategories] = useState<string[]>([]);
+  const [categoryIndex, setCategoryIndex] = useState<CategoryIndexRow[]>([]);
+
+  const [categorySuggestions, setCategorySuggestions] = useState<string[]>([]);
+  const [showCategorySuggestions, setShowCategorySuggestions] = useState(false);
+
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState<number>(-1);
+
+
   // Page Loading
   const [loading, setLoading] = useState(false);
-
+  const TOOLBAR_BTN_BASE =
+  'h-10 px-4 rounded-lg text-sm font-medium transition border border-gray-300 bg-white hover:bg-gray-50 shadow-sm';
   const mountedRef = useRef(false);
+  const categoryTimerRef = useRef<any>(null);
+
+  const addSuggestBoxRef = useRef<HTMLDivElement | null>(null);
+  const editSuggestBoxRef = useRef<HTMLDivElement | null>(null);
+
+  const suggestionItemRefs = useRef<(HTMLDivElement | null)[]>([]);
+
 
   // -------------------------------------
   // Initialize component + Supabase client
@@ -77,6 +102,234 @@ export default function CatalogPage() {
       mountedRef.current = false;
     };
   }, []);
+
+  // -------------------------------------
+  // Load category master list
+  // -------------------------------------
+  useEffect(() => {
+    async function loadCategories() {
+      try {
+        const res = await fetch('/api/category-list');
+        const data = await res.json();
+        setAllCategories(data.categories || []);
+        console.log('Loaded categories:', data.categories?.length);
+      } catch (e) {
+        console.error('Failed to load categories', e);
+      }
+    }
+
+    loadCategories();
+  }, []);
+
+  // -------------------------------------
+  // Build normalized category index
+  // -------------------------------------
+  useEffect(() => {
+    if (!allCategories.length) return;
+
+    const idx: CategoryIndexRow[] = allCategories.map(c => ({
+      raw: c,
+      lower: c.toLowerCase(),
+    }));
+
+
+    setCategoryIndex(idx);
+    console.log('Category index built:', idx.length);
+
+  }, [allCategories]);
+
+  // -------------------------------------
+  // Lightweight fuzzy token match
+  // -------------------------------------
+  function fuzzyTokenMatch(q: string, target: string) {
+    const qTokens = q.split(/\s+/);
+    const t = target;
+
+    let score = 0;
+
+    for (const token of qTokens) {
+      if (t.includes(token)) {
+        score += 2;
+        continue;
+      }
+
+      // prefix match
+      if (t.startsWith(token)) {
+        score += 1.5;
+        continue;
+      }
+
+      // loose partial (first 3 chars)
+      if (token.length >= 4 && t.includes(token.slice(0, 3))) {
+        score += 1;
+      }
+    }
+
+    return score;
+  }
+
+
+  // -------------------------------------
+  // Category suggestion matcher (3+ chars)
+  // -------------------------------------
+  function computeCategorySuggestions(input: string) {
+    const q = input.trim().toLowerCase();
+
+    if (q.length < 3) {
+      setCategorySuggestions([]);
+      setShowCategorySuggestions(false);
+      setActiveSuggestionIndex(-1);
+      return;
+    }
+
+    const qTokens = q.split(/\s+/);
+
+    const bucketStartsWithFull: string[] = [];
+    const bucketStartsWithToken: string[] = [];
+    const bucketContainsFull: string[] = [];
+    const bucketContainsToken: string[] = [];
+    const bucketFuzzy: { raw: string; score: number }[] = [];
+
+
+    for (let i = 0; i < categoryIndex.length; i++) {
+      const raw = categoryIndex[i].raw;
+      const t = categoryIndex[i].lower;
+
+      // Tier 1 — startsWith full query
+      if (t.startsWith(q)) {
+        bucketStartsWithFull.push(raw);
+        continue;
+      }
+
+      // Tier 2 — startsWith any token
+      if (qTokens.some(tok => t.startsWith(tok))) {
+        bucketStartsWithToken.push(raw);
+        continue;
+      }
+
+      // Tier 3 — contains full query
+      if (t.includes(q)) {
+        bucketContainsFull.push(raw);
+        continue;
+      }
+
+      // Tier 4 — contains any token
+      if (qTokens.some(tok => t.includes(tok))) {
+        bucketContainsToken.push(raw);
+        continue;
+      }
+
+      // Tier 5 — fuzzy fallback
+      const fuzzyScore = fuzzyTokenMatch(q, t);
+      if (fuzzyScore > 0) {
+        bucketFuzzy.push({ raw, score: fuzzyScore });
+      }
+    }
+
+    // fuzzy bucket sort only (keep deterministic order above it)
+    bucketFuzzy.sort((a, b) => b.score - a.score);
+
+    // merge buckets in strict priority order
+    const merged = [
+      ...bucketStartsWithFull,
+      ...bucketStartsWithToken,
+      ...bucketContainsFull,
+      ...bucketContainsToken,
+      ...bucketFuzzy.map(x => x.raw),
+    ];
+
+    // remove duplicates while preserving order
+    const seen = new Set<string>();
+    const deduped: string[] = [];
+
+    for (const v of merged) {
+      if (!seen.has(v)) {
+        seen.add(v);
+        deduped.push(v);
+      }
+    }
+
+    // final top 10
+    const out = deduped.slice(0, 10);
+
+    setCategorySuggestions(out);
+    setShowCategorySuggestions(true);
+    setActiveSuggestionIndex(-1);
+    suggestionItemRefs.current = [];
+  }
+
+  // -------------------------------------
+  // Highlight match helper
+  // -------------------------------------
+  function highlightMatch(text: string, query: string) {
+    if (!query || query.length < 3) return text;
+
+    const q = query.trim().toLowerCase();
+    const idx = text.toLowerCase().indexOf(q);
+
+    if (idx === -1) return text;
+
+    return (
+      <>
+        {text.slice(0, idx)}
+        <span className="font-semibold text-blue-700">
+          {text.slice(idx, idx + q.length)}
+        </span>
+        {text.slice(idx + q.length)}
+      </>
+    );
+  }
+
+  // -------------------------------------
+  // Close suggestions on outside click
+  // -------------------------------------
+  useEffect(() => {
+    function handleDocClick(e: MouseEvent) {
+      const target = e.target as Node;
+
+      if (
+        addSuggestBoxRef.current &&
+        addSuggestBoxRef.current.contains(target)
+      ) return;
+
+      if (
+        editSuggestBoxRef.current &&
+        editSuggestBoxRef.current.contains(target)
+      ) return;
+
+      setShowCategorySuggestions(false);
+      setActiveSuggestionIndex(-1);
+    }
+
+    document.addEventListener('mousedown', handleDocClick);
+    return () => document.removeEventListener('mousedown', handleDocClick);
+  }, []);
+
+
+  // -------------------------------------
+  // Auto scroll active suggestion into view
+  // -------------------------------------
+  useEffect(() => {
+    if (activeSuggestionIndex < 0) return;
+
+    const el = suggestionItemRefs.current[activeSuggestionIndex];
+    if (el) {
+      el.scrollIntoView({
+        block: 'nearest',
+      });
+    }
+  }, [activeSuggestionIndex]);
+
+  // -------------------------------------
+  // Clamp active index when suggestions change
+  // -------------------------------------
+  useEffect(() => {
+    if (activeSuggestionIndex >= categorySuggestions.length) {
+      setActiveSuggestionIndex(
+        categorySuggestions.length ? categorySuggestions.length - 1 : -1
+      );
+    }
+  }, [categorySuggestions, activeSuggestionIndex]);
 
   // -------------------------------------
   // Helper: Get authenticated user safely
@@ -109,7 +362,11 @@ export default function CatalogPage() {
         .from('catalog_items')
         .select('id, title, category, status, updated_at, user_id')
         .eq('user_id', user.id)
+        // 1️⃣ Active first, paused later
+        .order('status', { ascending: true }) // active comes before paused alphabetically
+        // 2️⃣ Newest first inside each group
         .order('updated_at', { ascending: false });
+
 
       // Search filter
       if (searchTerm.trim()) {
@@ -183,12 +440,78 @@ export default function CatalogPage() {
     }
   }
 
+  function handleAddCategoryInput(val: string) {
+    setNewCategory(val);
+
+    clearTimeout(categoryTimerRef.current);
+
+    categoryTimerRef.current = setTimeout(() => {
+      computeCategorySuggestions(val);
+    }, 200);
+  }
+
+  function handleEditCategoryInput(val: string) {
+    setEditCategory(val);
+
+    clearTimeout(categoryTimerRef.current);
+
+    categoryTimerRef.current = setTimeout(() => {
+      computeCategorySuggestions(val);
+    }, 200);
+  }
+
+  function handleSuggestionKeyDown(
+    e: React.KeyboardEvent<HTMLInputElement>,
+    mode: 'add' | 'edit'
+  ) {
+    if (!showCategorySuggestions || categorySuggestions.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveSuggestionIndex(i =>
+        i < categorySuggestions.length - 1 ? i + 1 : i
+      );
+    }
+
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveSuggestionIndex(i => (i > 0 ? i - 1 : 0));
+    }
+
+    if (e.key === 'Enter') {
+      if (activeSuggestionIndex >= 0) {
+        e.preventDefault();
+        const value = categorySuggestions[activeSuggestionIndex];
+
+        if (mode === 'add') setNewCategory(value);
+        else setEditCategory(value);
+
+        setShowCategorySuggestions(false);
+        setActiveSuggestionIndex(-1);
+        suggestionItemRefs.current = [];
+      }
+    }
+
+    if (e.key === 'Escape') {
+      setShowCategorySuggestions(false);
+      setActiveSuggestionIndex(-1);
+      suggestionItemRefs.current = [];
+    }
+  }
+
+
   // -------------------------------------
   // Add Product
   // -------------------------------------
   async function handleAddProduct(e: any) {
     e.preventDefault();
-    if (!newTitle.trim() || !newCategory.trim()) return;
+
+    if (!newCategory.trim()) {
+      toast.error('Category is required');
+      return;
+    }
+
+
 
     setAdding(true);
 
@@ -202,7 +525,7 @@ export default function CatalogPage() {
       const { data, error } = await supabaseClient
         .from('catalog_items')
         .insert({
-          title: newTitle.trim(),
+          title: newTitle.trim() || null,
           category: newCategory.trim(),
           status: 'active',
           user_id: user.id,
@@ -216,7 +539,7 @@ export default function CatalogPage() {
         return;
       }
 
-      toast.success('Product added');
+      toast.success('Product / Service added! TenderBot will start scanning tenders within a few minutes.');
 
       const newItem = data?.[0];
       if (newItem?.id) enqueueMatch('create', [newItem.id]);
@@ -238,6 +561,11 @@ export default function CatalogPage() {
     e.preventDefault();
     if (!editId) return;
 
+    if (!editCategory.trim()) {
+      toast.error('Category is required');
+      return;
+    }
+
     setEditing(true);
 
     try {
@@ -250,7 +578,7 @@ export default function CatalogPage() {
       const { error } = await supabaseClient
         .from('catalog_items')
         .update({
-          title: editTitle.trim(),
+          title: editTitle.trim() || null,
           category: editCategory.trim(),
           updated_at: new Date().toISOString(),
         })
@@ -310,7 +638,12 @@ export default function CatalogPage() {
         return;
       }
 
-      toast.success(`Updated ${ids.length} item(s)`);
+      toast.success(
+        newStatus === 'paused'
+          ? 'Products paused. You will no longer receive tender matches for these items.'
+          : 'Products resumed. Tender matching is active again for these items.'
+      );
+
       enqueueMatch(newStatus === 'paused' ? 'pause' : 'resume', ids);
 
       fetchProducts(currentPage);
@@ -361,23 +694,49 @@ export default function CatalogPage() {
     }
   }
 
+  function getToolbarHint(actionMode: ActionMode) {
+    switch (actionMode) {
+      case 'modify':
+        return 'Select a product / service using the radio button to edit its details.';
+      case 'bulk-pause':
+        return 'Select one or more products / services to pause recommendations for them.';
+      case 'bulk-resume':
+        return 'Select one or more paused products / services to resume recommendations.';
+      case 'bulk-delete':
+        return 'Select products / services you want to permanently remove from your catalogue.';
+      default:
+        return 'Use the tools above to manage which products / services are used for tender recommendations.';
+    }
+  }
+
   // -------------------------------------
   // Render
   // -------------------------------------
+
+  const hasSelection = Object.values(selectedIds).some(Boolean);
+
   return (
     <div className="p-8 bg-white min-h-screen">
       <Toaster position="top-right" />
 
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold">My Product Catalogue</h1>
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h1 className="text-3xl font-bold">My Catalogue</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            {products.length} products actively monitored
+          </p>
+        </div>
+
         <button
           onClick={() => setShowAddModal(true)}
-          className="px-4 py-2 rounded-lg font-semibold bg-[#F7C846]"
+          className="h-11 px-6 rounded-xl bg-yellow-400 text-gray-900 font-semibold shadow-sm
+                    hover:bg-yellow-500 hover:shadow-md transition active:scale-[0.98]"
         >
-          + Add Product
+          + Add Product / Service
         </button>
       </div>
+
 
       {/* Search */}
       <form onSubmit={(e) => { e.preventDefault(); setCurrentPage(1); }}>
@@ -390,85 +749,128 @@ export default function CatalogPage() {
         />
       </form>
 
-      {/* Toolbar */}
-      <div className="flex gap-3 items-center mb-4">
-        <button
-          className={`px-3 py-2 rounded-lg border ${actionMode === 'modify' ? 'ring-2 ring-yellow-400' : ''}`}
-          onClick={() => setActionMode('modify')}
-        >
-          Modify (single)
-        </button>
-
-        <button
-          className={`px-3 py-2 rounded-lg border ${actionMode === 'bulk-pause' ? 'ring-2 ring-yellow-400' : ''}`}
-          onClick={() => setActionMode('bulk-pause')}
-        >
-          Pause Selected
-        </button>
-
-        <button
-          className={`px-3 py-2 rounded-lg border ${actionMode === 'bulk-resume' ? 'ring-2 ring-yellow-400' : ''}`}
-          onClick={() => setActionMode('bulk-resume')}
-        >
-          Resume Selected
-        </button>
-
-        <button
-          className={`px-3 py-2 rounded-lg border ${actionMode === 'bulk-delete' ? 'ring-2 ring-red-400' : ''}`}
-          onClick={() => setActionMode('bulk-delete')}
-        >
-          Delete Selected
-        </button>
-
-        <button
-          className="px-3 py-2 rounded-lg border bg-gray-100"
-          onClick={() => {
-            setActionMode('none');
-            setSelectedIds({});
-            setSelectedRadioId(null);
-          }}
-        >
-          Cancel Selection
-        </button>
-
-        {/* Right-Aligned Bulk Buttons */}
-        <div className="ml-auto flex gap-2">
-          {actionMode === 'bulk-pause' && (
+      {products.length > 0 && (
+        <>
+          {/* Toolbar */}
+          <div className="flex items-center gap-3 mb-4">
+            {/* Modify */}
             <button
-              onClick={() => applyBulkStatus('paused')}
-              disabled={!Object.values(selectedIds).some(Boolean)}
-              className="px-3 py-2 rounded-lg bg-yellow-400"
+              onClick={() => {
+                if (actionMode === 'modify') {
+                  setActionMode('none');
+                  setSelectedRadioId(null);
+                  return;
+                }
+                setActionMode('modify');
+              }}
+              className={`${TOOLBAR_BTN_WIDTH} px-3 py-1.5 rounded-lg text-sm font-medium text-center
+                ${actionMode === 'modify'
+                  ? 'bg-blue-100 text-blue-800'
+                  : 'border border-gray-300 hover:bg-gray-50'}
+              `}
             >
-              Apply Pause
+              {actionMode === 'modify' ? 'Cancel Modify' : 'Modify'}
             </button>
-          )}
-          {actionMode === 'bulk-resume' && (
+
+            {/* Pause */}
             <button
-              onClick={() => applyBulkStatus('active')}
-              disabled={!Object.values(selectedIds).some(Boolean)}
-              className="px-3 py-2 rounded-lg bg-green-300"
+              onClick={() => {
+                const hasSelection = Object.values(selectedIds).some(Boolean);
+
+                if (actionMode !== 'bulk-pause') {
+                  setActionMode('bulk-pause');
+                  return;
+                }
+
+                if (!hasSelection) {
+                  setActionMode('none');
+                  setSelectedIds({});
+                  return;
+                }
+
+                applyBulkStatus('paused');
+              }}
+              className={`${TOOLBAR_BTN_WIDTH} px-3 py-1.5 rounded-lg text-sm font-medium transition
+                ${actionMode !== 'bulk-pause'
+                  ? 'border border-gray-300 hover:bg-gray-50'
+                  : !Object.values(selectedIds).some(Boolean)
+                    ? 'bg-amber-100 text-amber-800'
+                    : 'bg-amber-500 text-white ring-2 ring-amber-300 hover:bg-amber-600'}
+              `}
             >
-              Apply Resume
+              {actionMode === 'bulk-pause' ? 'Apply Pause' : 'Pause'}
             </button>
-          )}
-          {actionMode === 'bulk-delete' && (
+
+            {/* Resume */}
+            <button
+              onClick={() => {
+                const hasSelection = Object.values(selectedIds).some(Boolean);
+
+                if (actionMode !== 'bulk-resume') {
+                  setActionMode('bulk-resume');
+                  return;
+                }
+
+                if (!hasSelection) {
+                  setActionMode('none');
+                  setSelectedIds({});
+                  return;
+                }
+
+                applyBulkStatus('active');
+              }}
+              className={`${TOOLBAR_BTN_WIDTH} px-3 py-1.5 rounded-lg text-sm font-medium transition
+                ${actionMode !== 'bulk-resume'
+                  ? 'border border-gray-300 hover:bg-gray-50'
+                  : !Object.values(selectedIds).some(Boolean)
+                    ? 'bg-green-100 text-green-800'
+                    : 'bg-green-500 text-white ring-2 ring-green-300 hover:bg-green-600'}
+              `}
+            >
+              {actionMode === 'bulk-resume' ? 'Apply Resume' : 'Resume'}
+            </button>
+
+            {/* Delete */}
             <button
               onClick={() => {
                 const ids = Object.keys(selectedIds).filter(id => selectedIds[id]);
-                if (ids.length) {
-                  setDeleteTargetIds(ids);
-                  setShowDeleteConfirm(true);
-                }
-              }}
-              disabled={!Object.values(selectedIds).some(Boolean)}
-              className="px-3 py-2 rounded-lg bg-red-500 text-white"
-            >
-              Confirm Delete
-            </button>
-          )}
-        </div>
-      </div>
 
+                if (actionMode !== 'bulk-delete') {
+                  setActionMode('bulk-delete');
+                  return;
+                }
+
+                if (!ids.length) {
+                  setActionMode('none');
+                  setSelectedIds({});
+                  return;
+                }
+
+                setDeleteTargetIds(ids);
+                setShowDeleteConfirm(true);
+              }}
+              className={`${TOOLBAR_BTN_WIDTH} px-3 py-1.5 rounded-lg text-sm font-medium transition
+                ${actionMode !== 'bulk-delete'
+                  ? 'border border-gray-300 hover:bg-gray-50'
+                  : !Object.values(selectedIds).some(Boolean)
+                    ? 'bg-red-100 text-red-800'
+                    : 'bg-red-500 text-white ring-2 ring-red-300 hover:bg-red-600'}
+              `}
+            >
+              {actionMode === 'bulk-delete' ? 'Confirm Delete' : 'Delete'}
+            </button>
+          </div>
+
+          {/* Info Tip */}
+          <div className="mt-3 mb-6 flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/70 px-4 py-2 text-sm text-blue-700">
+            <Info className="w-4 h-4 text-blue-500" />
+            <span className="font-medium">{getToolbarHint(actionMode)}</span>
+          </div>
+        </>
+      )}
+
+
+      
       {/* Table or loading */}
       {loading ? (
         <div className="animate-pulse space-y-2">
@@ -477,53 +879,133 @@ export default function CatalogPage() {
           ))}
         </div>
       ) : products.length === 0 ? (
-        <p className="mt-6 text-lg text-gray-700">No products found.</p>
+          <div className="mt-8 bg-white rounded-2xl p-12 shadow-lg ring-1 ring-gray-200 max-w-2xl mx-auto text-center">
+
+            <h2 className="text-2xl font-semibold tracking-tight text-gray-800">
+              Your catalogue is empty
+            </h2>
+
+            <p className="mt-3 text-gray-600">
+              Add your products or services to start receiving relevant tender matches automatically.
+              This is the foundation of how TenderBot works.
+            </p>
+
+            <div className="mt-10 grid grid-cols-3 gap-10 max-w-xl mx-auto text-gray-700">
+              <div className="flex flex-col items-center text-center">
+                <div className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-200/80 mb-2 ring-1 ring-gray-300">
+                  <Search className="w-5 h-5 text-gray-500" />
+                </div>
+
+                <span className="text-sm font-medium leading-tight">Better tender matches</span>
+              </div>
+
+              <div className="flex flex-col items-center text-center">
+                <div className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-200/80 mb-2 ring-1 ring-gray-300">
+                  <Zap className="w-5 h-5 text-gray-500" />
+                </div>
+                <span className="text-sm font-medium leading-tight">Faster discovery</span>
+              </div>
+
+              <div className="flex flex-col items-center text-center">
+                <div className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-200/80 mb-2 ring-1 ring-gray-300">
+                  <Target className="w-5 h-5 text-gray-500" />
+                </div>
+                <span className="text-sm font-medium leading-tight">Higher relevance</span>
+              </div>
+            </div>
+
+
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="mt-8 px-7 py-3.5 bg-yellow-400 rounded-xl font-semibold text-lg shadow-md hover:shadow-lg hover:bg-yellow-500 transition active:scale-95"
+            >
+              + Add Your First Product
+            </button>
+
+            <p className="mt-3 text-xs text-gray-500">
+              Tip: Add product categories exactly as they appear in tenders for best results.
+            </p>
+          </div>
+
+
       ) : (
         <>
-          <table className="w-full border border-gray-300 bg-white">
+          <table className="w-full border border-gray-50 rounded-xl overflow-hidden bg-white shadow-sm">
             <thead>
-              <tr className="bg-gray-100">
-                <th className="p-3 border text-left">#</th>
-                <th className="p-3 border text-left">Product Name</th>
-                <th className="p-3 border text-left">Category</th>
-                <th className="p-3 border text-left">Status</th>
-                <th className="p-3 border text-left">Updated At</th>
+              <tr className="bg-gray-50 text-gray-600 text-sm uppercase tracking-wide">
+                <th className="p-3 border border-gray-300 text-center w-[60px]">
+                  {actionMode.includes('bulk') && (
+                    <input
+                      type="checkbox"
+                      checked={products.every(p => selectedIds[p.id])}
+                      onChange={() => {
+                        const allSelected = products.every(p => selectedIds[p.id]);
+                        const next: any = {};
+                        products.forEach(p => (next[p.id] = !allSelected));
+                        setSelectedIds(next);
+                      }}
+                    />
+                  )}
+                </th>
+                <th className="p-3 border border-gray-300 text-center">Product / Service Name</th>
+                <th className="p-3 border border-gray-300 text-center">Category</th>
+                <th className="p-3 border border-gray-300 text-center w-[305px]">
+                  <div className="flex flex-col items-center leading-tight">
+                    <span>Status</span>
+                    <span className="text-xs text-gray-400 font-normal">
+                      (Active = Recommendations Enabled)
+                    </span>
+                  </div>
+                </th>
+                <th className="p-3 border border-gray-300 text-center">Updated At</th>
               </tr>
             </thead>
 
             <tbody>
               {products.map((p, idx) => (
-                <tr key={p.id} className="hover:bg-gray-50">
-                  <td className="p-3 border">
-                    {actionMode === 'modify' ? (
-                      <input
-                        type="radio"
-                        checked={selectedRadioId === p.id}
-                        onChange={() => {
-                          setSelectedRadioId(p.id);
-                          setEditId(p.id);
-                          setEditTitle(p.title);
-                          setEditCategory(p.category);
-                          setShowEditModal(true);
-                        }}
-                      />
-                    ) : actionMode.includes('bulk') ? (
-                      <input
-                        type="checkbox"
-                        checked={!!selectedIds[p.id]}
-                        onChange={() =>
-                          setSelectedIds(prev => ({ ...prev, [p.id]: !prev[p.id] }))
-                        }
-                      />
-                    ) : (
-                      <span>{(currentPage - 1) * PAGE_SIZE + idx + 1}</span>
-                    )}
+                <tr key={p.id} className="hover:bg-gray-50 transition">
+                  <td className="p-3 border border-gray-300 w-[60px]">
+                    <div className="flex items-center justify-center h-full">
+                      {actionMode === 'modify' ? (
+                        <input
+                          type="radio"
+                          checked={selectedRadioId === p.id}
+                          onChange={() => {
+                            setSelectedRadioId(p.id);
+                            setEditId(p.id);
+                            setEditTitle(p.title);
+                            setEditCategory(p.category);
+                            setShowEditModal(true);
+                          }}
+                        />
+                      ) : actionMode.includes('bulk') ? (
+                        <input
+                          type="checkbox"
+                          checked={!!selectedIds[p.id]}
+                          onChange={() =>
+                            setSelectedIds(prev => ({ ...prev, [p.id]: !prev[p.id] }))
+                          }
+                        />
+                      ) : (
+                        <span className="text-sm font-medium">
+                          {(currentPage - 1) * PAGE_SIZE + idx + 1}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="p-3 border border-gray-300 text-center">{p.title}</td>
+                  <td className="p-3 border border-gray-300 text-center">{p.category}</td>
+                  <td className="p-3 border border-gray-300 text-center w-[180px]">
+                    <span className={`inline-flex justify-center min-w-[70px] px-3 py-1 rounded-full text-xs font-medium
+                      ${p.status === 'active'
+                        ? 'bg-green-50 text-green-600'
+                        : 'bg-gray-200 text-gray-700'}
+                    `}>
+                      {p.status}
+                    </span>
                   </td>
 
-                  <td className="p-3 border">{p.title}</td>
-                  <td className="p-3 border">{p.category}</td>
-                  <td className="p-3 border capitalize">{p.status}</td>
-                  <td className="p-3 border">
+                  <td className="p-3 border border-gray-300 text-center">
                     {new Date(p.updated_at).toLocaleDateString()}
                   </td>
                 </tr>
@@ -532,11 +1014,11 @@ export default function CatalogPage() {
           </table>
 
           {/* Pagination */}
-          <div className="flex justify-between items-center mt-6">
+          <div className="flex justify-center items-center gap-6 mt-10 text-sm text-gray-600">
             <button
               onClick={() => currentPage > 1 && setCurrentPage(p => p - 1)}
               disabled={currentPage === 1}
-              className="px-4 py-2 bg-gray-200 rounded"
+              className="px-4 py-2 bg-gray-100 rounded-full hover:bg-gray-200 disabled:opacity-40"
             >
               Previous
             </button>
@@ -546,20 +1028,71 @@ export default function CatalogPage() {
             <button
               onClick={() => products.length === PAGE_SIZE && setCurrentPage(p => p + 1)}
               disabled={products.length < PAGE_SIZE}
-              className="px-4 py-2 bg-gray-200 rounded"
+              className="px-4 py-2 bg-gray-100 rounded-full hover:bg-gray-200 disabled:opacity-40"
             >
               Next
             </button>
           </div>
+
         </>
       )}
 
       {/* Add Modal */}
       {showAddModal && (
-        <Modal title="Add Product" onClose={() => setShowAddModal(false)}>
+        <Modal title="Add Product / Service" onClose={() => setShowAddModal(false)}>
           <form onSubmit={handleAddProduct}>
-            <Input value={newTitle} onChange={setNewTitle} placeholder="Product Name" required />
-            <Input value={newCategory} onChange={setNewCategory} placeholder="Product Category" required />
+              <Input value={newTitle} onChange={setNewTitle} placeholder="Product / Service Name (Optional)" />
+              <p className="text-xs text-gray-500 mb-3">
+                Example: "Crocin", "Asian Paints", "Dell"
+              </p>
+
+              <div className="relative">
+                <Input
+                  value={newCategory}
+                  onChange={handleAddCategoryInput}
+                  onKeyDown={(e) => handleSuggestionKeyDown(e, 'add')}
+                  placeholder="Category (Required)"
+                  required
+                  onFocus={() => {
+                    if (newCategory.trim().length >= 3) setShowCategorySuggestions(true);
+                  }}
+                  onBlur={() => setTimeout(() => setShowCategorySuggestions(false), 150)}
+                />
+
+                {showCategorySuggestions && categorySuggestions.length > 0 && (
+                  <div
+                    ref={addSuggestBoxRef}
+                    className="absolute z-50 w-full bg-white border rounded-lg shadow max-h-60 overflow-auto"
+                  >
+                    {categorySuggestions.map((s, index) => (
+                      <div
+                        key={s}
+                        ref={(el) => {
+                          suggestionItemRefs.current[index] = el;
+                        }}
+                        className={`px-3 py-2 cursor-pointer text-sm
+                          ${index === activeSuggestionIndex
+                            ? 'bg-blue-100'
+                            : 'hover:bg-gray-100'}
+                        `}
+                        onMouseDown={() => {
+                          setNewCategory(s);
+                          setShowCategorySuggestions(false);
+                          setActiveSuggestionIndex(-1);
+                          suggestionItemRefs.current = [];
+                        }}
+                      >
+                        {highlightMatch(s, newCategory)}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <p className="text-xs text-gray-500 mb-3">
+                Example: “Hospital Bed”, “Facility Management Service”, “Manpower Outsourcing Services”
+              </p>
+
 
             <ModalActions
               loading={adding}
@@ -572,10 +1105,52 @@ export default function CatalogPage() {
 
       {/* Edit Modal */}
       {showEditModal && (
-        <Modal title="Edit Product" onClose={() => setShowEditModal(false)}>
+        <Modal title="Edit Product / Service" onClose={() => setShowEditModal(false)}>
           <form onSubmit={handleSaveEdit}>
-            <Input value={editTitle} onChange={setEditTitle} placeholder="Product Name" required />
-            <Input value={editCategory} onChange={setEditCategory} placeholder="Product Category" required />
+            <Input value={editTitle} onChange={setEditTitle} placeholder="Product / Service Name (Optional)" />
+            <div className="relative">
+              <Input
+                value={editCategory}
+                onChange={handleEditCategoryInput}
+                onKeyDown={(e) => handleSuggestionKeyDown(e, 'edit')}
+                placeholder="Product / Service Category"
+                required
+                onFocus={() => {
+                  if (editCategory.trim().length >= 3) setShowCategorySuggestions(true);
+                }}
+                onBlur={() => setTimeout(() => setShowCategorySuggestions(false), 150)}
+              />
+
+              {showCategorySuggestions && categorySuggestions.length > 0 && (
+                <div
+                  ref={editSuggestBoxRef}
+                  className="absolute z-50 w-full bg-white border rounded-lg shadow max-h-60 overflow-auto"
+                >
+                  {categorySuggestions.map((s, index) => (
+                    <div
+                      key={s}
+                      ref={(el) => {
+                        suggestionItemRefs.current[index] = el;
+                      }}
+                      className={`px-3 py-2 cursor-pointer text-sm
+                        ${index === activeSuggestionIndex
+                          ? 'bg-blue-100'
+                          : 'hover:bg-gray-100'}
+                      `}
+                      onMouseDown={() => {
+                        setEditCategory(s);
+                        setShowCategorySuggestions(false);
+                        setActiveSuggestionIndex(-1);
+                        suggestionItemRefs.current = [];
+                      }}
+                    >
+                      {highlightMatch(s, editCategory)}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
 
             <ModalActions
               loading={editing}
@@ -628,7 +1203,13 @@ function Modal({ title, children, onClose }: any) {
   );
 }
 
-function Input({ value, onChange, ...props }: any) {
+type InputProps =
+  Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value'> & {
+    value: string;
+    onChange: (v: string) => void;
+  };
+
+function Input({ value, onChange, ...props }: InputProps) {
   return (
     <input
       className="w-full border border-gray-300 rounded-lg p-3 mb-4"
@@ -638,6 +1219,7 @@ function Input({ value, onChange, ...props }: any) {
     />
   );
 }
+
 
 function ModalActions({ loading, onCancel, submitLabel }: any) {
   return (

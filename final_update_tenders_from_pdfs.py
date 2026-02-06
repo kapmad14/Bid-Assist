@@ -16,15 +16,30 @@ import sys
 import tempfile
 import requests
 import re
+import json
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from pypdf import PdfReader
-from typing import Optional, List
+from pdf_url_extractor import extract_urls_from_pdf
+from extractor import parse_pdf
+import time
+
+# ensure unbuffered stdout for GitHub Actions / CI logs
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+except Exception:
+    pass
+
 
 # ---------------- env / rest ----------------
 load_dotenv()
+
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SERVICE_ROLE_KEY = os.getenv("SERVICE_ROLE_KEY")
+SERVICE_ROLE_KEY = (
+    os.getenv("SERVICE_ROLE_KEY")
+    or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+)
+
 
 if not SUPABASE_URL or not SERVICE_ROLE_KEY:
     print("Please set SUPABASE_URL and SERVICE_ROLE_KEY in .env", file=sys.stderr)
@@ -40,10 +55,8 @@ HEADERS = {
 }
 
 # ---------------- config ----------------
-PAGE_SIZE = 100  # how many rows to fetch per request
+PAGE_SIZE = 80  # how many rows to fetch per request
 SIMPLE_EXTRACTION_COL = "simple_extraction"
-ENABLE_PDF_EMBEDDED_URLS = os.getenv("ENABLE_PDF_EMBEDDED_URLS", "1") == "1"
-
 
 # -------- Text helpers & extraction (UNCHANGED) --------
 DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]+")
@@ -52,75 +65,11 @@ CONTROL_RE = re.compile(r"[\x00-\x1F\u007F]+")
 MULTI_WHITESPACE_RE = re.compile(r"\s+")
 ALLOWED_FINAL_RE = re.compile(r"[^A-Za-z0-9\s\-\.,:/\(\)%&\|]+")
 
-# --------------------------------------------------------------------
-# Embedded URL extraction from PDF text (VERBATIM from V3)
-# --------------------------------------------------------------------
+LOG_EVERY = 20
 
-URL_REGEX = re.compile(
-    r'(https?://[^\s\)\]\}<>"]+)',
-    flags=re.IGNORECASE
-)
-
-def extract_urls_from_pdf_text(text: str) -> List[str]:
-    if not text:
-        return []
-
-    matches = URL_REGEX.findall(text)
-    urls = set()
-
-    for url in matches:
-        cleaned = url.strip().rstrip('.,;:')
-        if len(cleaned) < 10:
-            continue
-        urls.add(cleaned)
-
-    return list(urls)
-
-
-def build_tender_document_row(
-    tender_id: Optional[int],
-    bid_number: Optional[str],
-    document_url: str
-) -> dict:
-    return {
-        "tender_id": tender_id,
-        "bid_number": bid_number,
-        "document_url": document_url,
-        "source": "pdf",
-    }
-
-
-def insert_tender_documents(
-    tender_id: Optional[int],
-    bid_number: Optional[str],
-    urls: List[str]
-):
-    if not urls:
-        return
-
-    endpoint = REST_BASE + "/tender_documents"
-
-    for url in urls:
-        row = build_tender_document_row(
-            tender_id=tender_id,
-            bid_number=bid_number,
-            document_url=url,
-        )
-
-        try:
-            r = requests.post(
-                endpoint,
-                headers=HEADERS,
-                json=row,
-                timeout=30,
-            )
-            r.raise_for_status()
-        except Exception as e:
-            print(
-                f"[TENDER_DOC_INSERT_FAIL] "
-                f"tender_id={tender_id} url={url} err={e}"
-            )
-
+def log_progress(done, total):
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"{ts} INFO Progress: {done} / {total} rows processed")
 
 def normalize_whitespace(s: str) -> str:
     return MULTI_WHITESPACE_RE.sub(" ", s).strip()
@@ -299,7 +248,10 @@ def extract_selected_fields_from_pdf(pdf_path: str) -> dict:
     )
     if emd is None:
         emd = extract_numeric_amount(ascii_text, ["EMD Amount", "EMD Amount:"])
-    emd_out = emd if isinstance(emd, int) else None
+    if isinstance(emd, int) and emd < 1000:
+        emd_out = None
+    else:
+        emd_out = emd if isinstance(emd, int) else None
 
     # pages_count
     try:
@@ -318,6 +270,40 @@ def extract_selected_fields_from_pdf(pdf_path: str) -> dict:
         "pages_count": pages_count_out,
     }
 
+def insert_tender_documents(tender_id: int, urls: list[dict], extraction_version: str):
+    """
+    Best-effort insert of document URLs.
+    - Uses tender_id (tenders.id)
+    - Ignores duplicates
+    - Never raises
+    """
+    if not urls:
+        return
+
+    for u in urls:
+        payload = {
+            "tender_id": tender_id,
+            "url": u.get("url"),
+            "filename": u.get("filename"),
+            "source": u.get("source"),
+            "order_index": u.get("order"),
+            "extraction_version": extraction_version,
+        }
+
+        try:
+            requests.post(
+                REST_BASE + "/tender_documents",
+                headers={
+                    **HEADERS,
+                    "Prefer": "resolution=ignore-duplicates"
+                },
+                json=payload,
+                timeout=30,
+            )
+        except Exception:
+            # Never fail tender parsing because of document URLs
+            pass
+
 
 # ---------------- download ----------------
 def download_pdf_public_url(url: str) -> str:
@@ -334,11 +320,6 @@ def download_pdf_public_url(url: str) -> str:
 
 # ---------------- supabase helpers ----------------
 def fetch_pending_rows(limit: int = PAGE_SIZE, last_id: int = 0):
-    """
-    Fetch rows where simple_extraction IS NULL and id > last_id.
-    Uses keyset pagination (id > last_id) so we always progress from lowest id to
-    highest id without skipping rows if earlier rows are updated while the script runs.
-    """
     params = {
         "select": "id,pdf_public_url,simple_extraction,updated_at",
         "order": "id.asc",
@@ -348,13 +329,19 @@ def fetch_pending_rows(limit: int = PAGE_SIZE, last_id: int = 0):
     }
 
     r = requests.get(TENDERS_ENDPOINT, headers=HEADERS, params=params, timeout=60)
-    try:
-        r.raise_for_status()
-    except requests.HTTPError:
-        body = r.text if r is not None else "<no response>"
-        print(f"[SUPABASE_FETCH_FAIL] status={getattr(r,'status_code',None)} body={body[:2000]}")
-        raise
+    r.raise_for_status()
     return r.json()
+
+
+def fetch_total_pending_count():
+    params = {
+        "select": "id",
+        "simple_extraction": "is.null",
+        "limit": "1"
+    }
+    r = requests.get(TENDERS_ENDPOINT, headers={**HEADERS, "Prefer": "count=exact"}, params=params, timeout=30)
+    r.raise_for_status()
+    return int(r.headers.get("Content-Range", "0/0").split("/")[-1])
 
 
 def fetch_tender_row(row_id: int):
@@ -405,25 +392,33 @@ def map_reverse_auction_to_json_bool(val: str):
 # ---------------- main ----------------
 def main():
     last_id = 0
-    total_processed = 0
+
+    total_pending = fetch_total_pending_count()
+    if total_pending == 0:
+        print("Nothing to process.")
+        return
+    processed = 0
+
 
     while True:
         rows = fetch_pending_rows(limit=PAGE_SIZE, last_id=last_id)
         if not rows:
             break
-        print(f"[BATCH] fetched {len(rows)} pending rows (starting after id={last_id})")
 
         max_id_in_batch = last_id
 
         for row in rows:
             row_id = row.get("id")
+
+            if row_id and row_id > max_id_in_batch:
+                max_id_in_batch = row_id
+
+            if row.get("simple_extraction") is not None:
+                continue
+
             pdf_url = row.get("pdf_public_url")
             if not row_id:
                 continue
-
-            # track highest id seen in batch
-            if row_id and row_id > max_id_in_batch:
-                max_id_in_batch = row_id
 
             # record the attempted time once per row and reuse it for all patches
             attempt_time = iso_now_utc()
@@ -431,7 +426,6 @@ def main():
             if not pdf_url:
                 # mark as failed with attempt_time and simple_extraction='error'
                 patch_tender_row(row_id, {"updated_at": attempt_time, SIMPLE_EXTRACTION_COL: "error"})
-                print(f"[SKIP] id={row_id} missing pdf_public_url -> marked error at {attempt_time}")
                 continue
 
             tmp = None
@@ -439,11 +433,28 @@ def main():
                 tmp = download_pdf_public_url(pdf_url)
             except Exception as e:
                 patch_tender_row(row_id, {"updated_at": attempt_time, SIMPLE_EXTRACTION_COL: "error"})
-                print(f"[DOWNLOAD_FAIL] id={row_id} url={pdf_url} err={e} marked at {attempt_time}")
                 continue
 
             try:
-                extracted = extract_selected_fields_from_pdf(tmp)
+                legacy = extract_selected_fields_from_pdf(tmp)
+                extra = parse_pdf(tmp)   # NEW
+
+                # Merge – extractor values take precedence if present
+                extracted = {**legacy, **{k:v for k,v in extra.items() if v not in (None,"",[],{})}}
+
+                # --- NEW: extract additional document URLs ---
+                try:
+                    doc_urls = extract_urls_from_pdf(tmp)
+                    insert_tender_documents(
+                        tender_id=row_id,
+                        urls=doc_urls,
+                        extraction_version="doc_urls_v1"
+                    )
+                except Exception:
+                    # absolutely no impact on tender extraction
+                    pass
+
+
                 # full payload using fixed mapping (organization_name spelled with 'z')
                 full_payload = {
                     "ministry": extracted.get("ministry_state_name") or "N/A",
@@ -452,65 +463,42 @@ def main():
                     "bid_type": extracted.get("type_of_bid") or "N/A",
                     "emd_amount": extracted.get("emd_amount"),   # int or None
                     "page_count": extracted.get("pages_count"),
+
+                    "item": extracted.get("item"),
+                    "documents_required": extracted.get("documents_required"),
+                    "arbitration_clause": extracted.get("arbitration_clause"),
+                    "mediation_clause": extracted.get("mediation_clause"),
+                    "show_documents_to_all": extracted.get("show_documents_to_all"),
+                    "evaluation_method": extracted.get("evaluation_method"),
+                    "past_performance_percentage": (
+                        float(extracted["past_performance_percentage"])
+                        if isinstance(extracted.get("past_performance_percentage"), (int, float))
+                        else None
+                    ),
+                    "pincode": extracted.get("pin_code"),
+                    "organization_address": extracted.get("district"),
+
                     # always write the attempted time into updated_at
                     "updated_at": attempt_time,
                     # mark success; if patch fails we'll overwrite this with error below
                     SIMPLE_EXTRACTION_COL: "success",
                 }
 
-                # fetch row to ensure we only send keys present in the DB (avoid PGRST204)
-                current_row = None
-                try:
-                    current_row = fetch_tender_row(row_id)
-                except Exception:
-                    current_row = None
+                payload_to_send = full_payload
 
-                if current_row:
-                    allowed_keys = set(current_row.keys())
-                    payload_to_send = {k: v for k, v in full_payload.items() if k in allowed_keys}
-                    dropped = [k for k in full_payload.keys() if k not in allowed_keys]
-                    if dropped:
-                        print(f"[INFO] id={row_id} dropping keys not present in table: {dropped}")
-                else:
-                    payload_to_send = full_payload
-
+                # Never overwrite real DB data with blanks
+                payload_to_send = {k:v for k,v in payload_to_send.items() if v not in (None,"",[],{})}
                 ok = patch_tender_row(row_id, payload_to_send)
                 if ok:
-                    total_processed += 1
-                    print(f"[OK] id={row_id} patched keys={list(payload_to_send.keys())} at {attempt_time}")
-                    # ------------------------------------------------------------
-                    # Embedded PDF URL extraction → tender_documents (VERBATIM)
-                    # ------------------------------------------------------------
-                    if ENABLE_PDF_EMBEDDED_URLS:
-                        try:
-                            # NOTE:
-                            # Field extraction parses the PDF internally.
-                            # We intentionally re-parse here for embedded URL extraction
-                            # to avoid refactoring extraction logic at this stage.
-                            pages = load_pdf_pages(tmp)
-                            full_text = "\n\n".join(pages)
-                            urls = extract_urls_from_pdf_text(full_text)
-                            
-                            print(f"[PDF_URLS] id={row_id} count={len(urls)}")
-
-                            if urls:
-                                insert_tender_documents(
-                                    tender_id=row_id,
-                                    bid_number=None,
-                                    urls=urls,
-                                )
-                        except Exception as e:
-                            print(
-                                f"[PDF_URL_WARN] id={row_id} err={e}"
-                            )
+                    processed += 1
+                    if processed % LOG_EVERY == 0 or processed == total_pending:
+                        log_progress(processed, total_pending)
                 else:
-                    # mark as failed for retry later (ensure updated_at has attempt_time too)
                     patch_tender_row(row_id, {"updated_at": attempt_time, SIMPLE_EXTRACTION_COL: "error"})
-                    print(f"[FAIL] id={row_id} patch failed; marked error at {attempt_time}")
+
 
             except Exception as e:
                 patch_tender_row(row_id, {"updated_at": attempt_time, SIMPLE_EXTRACTION_COL: "error"})
-                print(f"[EXTRACT_FAIL] id={row_id} err={e} marked at {attempt_time}")
 
             finally:
                 if tmp:
@@ -519,14 +507,12 @@ def main():
                     except Exception:
                         pass
 
-        # move forward using the maximum id we saw in this batch
         last_id = max_id_in_batch
-        # If we didn't advance (no ids > last_id) break to avoid infinite loop
-        if last_id == 0:
-            break
+        time.sleep(0.25)
 
-    print(f"Done. Total processed: {total_processed}")
 
+    if processed % LOG_EVERY != 0:
+        log_progress(processed, total_pending)
 
 if __name__ == "__main__":
     main()

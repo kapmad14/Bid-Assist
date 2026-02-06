@@ -1,0 +1,62 @@
+name: Run Backfill Script
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: "Target date YYYY-MM-DD (blank = yesterday)"
+        required: false
+      dry_run:
+        description: "Dry run only (true/false)"
+        required: false
+        default: "false"
+      max_candidates:
+        description: "Limit rows (0 = all)"
+        required: false
+        default: "0"
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_BUCKET: ${{ secrets.SUPABASE_BUCKET }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run backfill
+        run: |
+          DATE="${{ github.event.inputs.target_date }}"
+          DRY="${{ github.event.inputs.dry_run }}"
+          MAX="${{ github.event.inputs.max_candidates }}"
+
+          CMD="python -u backfill_tenders_from_storage.py"
+
+          if [ -n "$DATE" ]; then
+            CMD="$CMD $DATE"
+          fi
+
+          if [ "$DRY" = "true" ]; then
+            CMD="$CMD --dry-run"
+          fi
+
+          if [ "$MAX" != "0" ]; then
+            CMD="$CMD --max-candidates $MAX"
+          fi
+
+          echo "Running: $CMD"
+          $CMD
