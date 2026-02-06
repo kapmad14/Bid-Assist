@@ -37,7 +37,7 @@ RUN npm install --omit=dev
 COPY --from=builder /app/dist ./dist
 
 # Copy repo-root python scripts, scraper folder and the docker/ folder (loops + start script)
-COPY update_tenders_from_pdfs_fixed_v4.py ./update_tenders_from_pdfs_fixed_v4.py
+COPY final_update_tenders_from_pdfs.py ./final_update_tenders_from_pdfs.py
 COPY worker_matcher.py ./worker_matcher.py
 COPY gem-scraper ./gem-scraper
 COPY docker/ /app/docker/
