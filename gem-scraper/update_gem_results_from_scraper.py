@@ -22,7 +22,8 @@ from tqdm import tqdm
 
 # ---------- CONFIG ---------- #
 
-load_dotenv()
+# Load .env only if present (local runs)
+load_dotenv(override=False)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SERVICE_ROLE_KEY = os.getenv("SERVICE_ROLE_KEY")
@@ -269,6 +270,8 @@ def render_progress(done, total, errors, bar_width=40):
 # ---------- MAIN LOOP ---------- #
 
 def main():
+    print("🚀 GeM batch updater started")
+
     last_id = 0
     error_count = 0
 

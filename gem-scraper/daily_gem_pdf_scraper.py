@@ -20,6 +20,8 @@ import sys
 import argparse
 from zoneinfo import ZoneInfo
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -65,11 +67,18 @@ USER_AGENT = (
     "Chrome/114.0 Safari/537.36"
 )
 
+REQUESTS_SESSION = requests.Session()
+REQUESTS_SESSION.headers.update({"User-Agent": USER_AGENT})
+
+
 DAILY_DATA_DIR = os.path.join(os.path.dirname(__file__), "daily_data")
 os.makedirs(DAILY_DATA_DIR, exist_ok=True)
 
 LOCAL_MANIFEST_DIR = DAILY_DATA_DIR
 
+PDF_WORKERS = int(os.environ.get("PDF_WORKERS", 3))
+
+MANIFEST_BATCH_SIZE = int(os.environ.get("MANIFEST_BATCH_SIZE", 10))
 
 # runtime timeouts/delays
 PDF_UPLOAD_TIMEOUT = int(os.environ.get("PDF_UPLOAD_TIMEOUT", 60))
@@ -223,8 +232,20 @@ def _compute_sha256(data: bytes) -> str:
     return h.hexdigest()
 
 
+def process_pdf_job(detail_url: str, r2_object_key: str):
+    resp = REQUESTS_SESSION.get(detail_url, timeout=60)
+    resp.raise_for_status()
+    pdf_bytes = resp.content
 
+    sha = _compute_sha256(pdf_bytes)
+    public_url = upload_pdf_r2(r2_object_key, pdf_bytes)
 
+    return {
+        "pdf_storage_path": r2_object_key,
+        "pdf_sha256": sha,
+        "pdf_uploaded": True,
+        "pdf_public_url": public_url,
+    }
 
 
 def upload_json_to_supabase(json_bytes: bytes, object_name: str):
@@ -272,7 +293,9 @@ def save_and_upload_manifest(manifest: dict, target_date: datetime.date):
         json.dump(manifest, f, ensure_ascii=False, indent=2)
 
     object_name = _manifest_object_name(target_date)
-    upload_json_to_supabase(open(local_path, "rb").read(), object_name)
+    with open(local_path, "rb") as fh:
+        upload_json_to_supabase(fh.read(), object_name)
+
 
 
 def load_manifest(target_date: datetime.date) -> dict:
@@ -621,6 +644,10 @@ def scrape_and_stream(target_date: datetime.date, manifest: dict, existing: set)
     passed_target_date = False
 
     with sync_playwright() as p, open(ndjson_path, "a", encoding="utf-8") as ndjson_f:
+        pdf_executor = ThreadPoolExecutor(max_workers=PDF_WORKERS)
+        pending_pdf_futures = []
+        manifest_dirty_count = 0
+
         browser = p.chromium.launch(
             headless=True,
             args=[
@@ -771,7 +798,12 @@ def scrape_and_stream(target_date: datetime.date, manifest: dict, existing: set)
 
                 # 🔐 write bid to manifest BEFORE any PDF upload
                 manifest["bids"].append(bid_record)
-                save_and_upload_manifest(manifest, target_date)
+                manifest_dirty_count += 1
+
+                if manifest_dirty_count >= MANIFEST_BATCH_SIZE:
+                    save_and_upload_manifest(manifest, target_date)
+                    manifest_dirty_count = 0
+
 
                 # immediate PDF processing
                 parts = bid_num.split("/")
@@ -784,34 +816,30 @@ def scrape_and_stream(target_date: datetime.date, manifest: dict, existing: set)
                 pdf_filename = base_name + ".pdf"
                 r2_object_key = f"bids/{target_date.strftime('%Y-%m-%d')}/{pdf_filename}"
 
-                try:
-                    pdf_bytes = download_pdf(detail_url)
-                    pdf_public_url = upload_pdf_r2(r2_object_key, pdf_bytes)
-                    time.sleep(1.2)
-                    sha = _compute_sha256(pdf_bytes)
-                    uploaded = True
-                except Exception as e:
-                    logger.exception("PDF handling failed for %s: %s", bid_num, e)
-                    uploaded = False
-                    sha = None
-                    pdf_public_url = None
+                future = pdf_executor.submit(process_pdf_job, detail_url, r2_object_key)
+                pending_pdf_futures.append((bid_record, future))
 
+                # resolve any finished pdf jobs and write NDJSON when ready
+                still_pending = []
+                for rec, fut in pending_pdf_futures:
+                    if fut.done():
+                        try:
+                            rec.update(fut.result())
+                        except Exception as e:
+                            logger.exception("PDF job failed: %s", e)
+                            rec["pdf_uploaded"] = False
+                            rec.setdefault("pdf_public_url", None)
+                            rec.setdefault("pdf_sha256", None)
 
+                        try:
+                            ndjson_f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                            ndjson_f.flush()
+                        except Exception as e:
+                            logger.exception("NDJSON write failed: %s", e)
+                    else:
+                        still_pending.append((rec, fut))
 
-                bid_record["pdf_storage_path"] = r2_object_key
-                bid_record["pdf_sha256"] = sha
-                bid_record["pdf_uploaded"] = bool(uploaded)
-                try:
-                    bid_record["pdf_public_url"] = pdf_public_url
-                except Exception:
-                    bid_record["pdf_public_url"] = None
-
-                # write to NDJSON
-                try:
-                    ndjson_f.write(json.dumps(bid_record, ensure_ascii=False) + "\n")
-                    ndjson_f.flush()
-                except Exception as e:
-                    logger.exception("Failed to write NDJSON for %s: %s", bid_num, e)
+                pending_pdf_futures = still_pending
 
             # after iterating bids on page, check early-stop condition
             if passed_target_date and page_number >= MIN_PAGES:
@@ -855,6 +883,30 @@ def scrape_and_stream(target_date: datetime.date, manifest: dict, existing: set)
                 break
 
             page_number += 1
+
+        for rec, fut in pending_pdf_futures:
+            try:
+                result = fut.result()
+                rec.update(result)
+            except Exception as e:
+                logger.exception("PDF job failed: %s", e)
+                rec["pdf_uploaded"] = False
+                rec.setdefault("pdf_public_url", None)
+                rec.setdefault("pdf_sha256", None)
+
+            try:
+                ndjson_f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                ndjson_f.flush()
+            except Exception as e:
+                logger.exception("NDJSON write failed (final drain): %s", e)
+
+
+        pdf_executor.shutdown(wait=True)
+
+        # flush any remaining manifest updates
+        if manifest_dirty_count > 0:
+            save_and_upload_manifest(manifest, target_date)
+
 
         # end page loop
         browser.close()

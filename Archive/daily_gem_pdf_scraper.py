@@ -18,6 +18,11 @@ from urllib.parse import urljoin, quote as urlquote
 from dotenv import load_dotenv
 import sys
 import argparse
+from zoneinfo import ZoneInfo
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 import requests
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
@@ -29,6 +34,8 @@ except Exception:
     dateutil_parser = None
 
 load_dotenv()
+
+from r2_client import upload_pdf_r2
 
 # ---------------- Logging ----------------
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -60,6 +67,9 @@ USER_AGENT = (
 
 DAILY_DATA_DIR = os.path.join(os.path.dirname(__file__), "daily_data")
 os.makedirs(DAILY_DATA_DIR, exist_ok=True)
+
+LOCAL_MANIFEST_DIR = DAILY_DATA_DIR
+
 
 # runtime timeouts/delays
 PDF_UPLOAD_TIMEOUT = int(os.environ.get("PDF_UPLOAD_TIMEOUT", 60))
@@ -213,87 +223,8 @@ def _compute_sha256(data: bytes) -> str:
     return h.hexdigest()
 
 
-def _get_object_sha256_if_exists(object_name: str) -> Optional[str]:
-    ensure_supabase_env()
-    encoded = _encode_object_name(object_name)
-    storage_url = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{encoded}"
-    headers = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-    }
-    last_exc = None
-    for attempt in range(1, 4):
-        try:
-            resp = requests.head(storage_url, headers=headers, timeout=HEAD_TIMEOUT)
-        except Exception as e:
-            last_exc = e
-            logger.debug("HEAD failed for %s (attempt %d): %s", object_name, attempt, e)
-            time.sleep(2 ** attempt)
-            continue
-
-        if resp.status_code in (404, 400):
-            logger.debug("HEAD returned %s for %s (object likely not present)", resp.status_code, object_name)
-            return None
-        if resp.status_code == 429:
-            wait = int(resp.headers.get("Retry-After", "5"))
-            logger.debug("HEAD 429, sleeping %ds", wait)
-            time.sleep(wait)
-            last_exc = RuntimeError("429 on HEAD")
-            continue
-        if not resp.ok:
-            logger.debug("unexpected HEAD status %s for %s", resp.status_code, object_name)
-            return None
-
-        meta_sha = resp.headers.get("x-meta-sha256") or resp.headers.get("X-Meta-Sha256")
-        return meta_sha
-
-    logger.debug("HEAD exhausted for %s: %s", object_name, last_exc)
-    return None
 
 
-def upload_pdf_to_supabase(pdf_bytes: bytes, object_name: str) -> Tuple[bool, Optional[str]]:
-    ensure_supabase_env()
-    sha = _compute_sha256(pdf_bytes)
-
-    existing_sha = _get_object_sha256_if_exists(object_name)
-    if existing_sha:
-        try:
-            if existing_sha.strip().lower() == sha.lower():
-                logger.info("Skipping upload for %s; SHA matches existing object", object_name)
-                return False, sha
-        except Exception:
-            pass
-
-    encoded = _encode_object_name(object_name)
-    storage_url = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{encoded}"
-    headers = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/pdf",
-        "x-meta-sha256": sha,
-        "x-upsert": "true",
-    }
-    last_exc = None
-    for attempt in range(1, 4):
-        try:
-            resp = requests.post(storage_url, headers=headers, data=pdf_bytes, timeout=PDF_UPLOAD_TIMEOUT)
-            if resp.ok:
-                time.sleep(PER_UPLOAD_DELAY)
-                return True, sha
-            if resp.status_code == 429:
-                wait = int(resp.headers.get("Retry-After", "5"))
-                logger.debug("upload 429 sleeping %ds", wait)
-                time.sleep(wait)
-                last_exc = RuntimeError("429 on upload")
-            else:
-                last_exc = RuntimeError(f"Failed to upload PDF (status {resp.status_code}): {resp.text}")
-        except Exception as e:
-            last_exc = e
-        sleep_time = 2 ** attempt
-        logger.debug("upload attempt %d failed, retrying in %ds", attempt, sleep_time)
-        time.sleep(sleep_time)
-
-    raise RuntimeError(f"Failed to upload PDF after retries: {last_exc}")
 
 
 def upload_json_to_supabase(json_bytes: bytes, object_name: str):
@@ -328,9 +259,49 @@ def upload_json_to_supabase(json_bytes: bytes, object_name: str):
     raise RuntimeError(f"Failed to upload JSON after retries: {last_exc}")
 
 
-def make_public_pdf_url(object_name: str) -> str:
-    encoded = "/".join(urlquote(p, safe="") for p in object_name.split("/"))
-    return f"{SUPABASE_URL.rstrip('/')}/storage/v1/object/public/{SUPABASE_BUCKET}/{encoded}"
+def _manifest_object_name(target_date: datetime.date) -> str:
+    return f"daily_meta/gem_bids_{target_date}_no_ra_meta.json"
+
+def _local_manifest_path(target_date: datetime.date) -> str:
+    return os.path.join(LOCAL_MANIFEST_DIR, f"gem_bids_{target_date}_no_ra_meta.json")
+
+
+def save_and_upload_manifest(manifest: dict, target_date: datetime.date):
+    local_path = _local_manifest_path(target_date)
+    with open(local_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+
+    object_name = _manifest_object_name(target_date)
+    upload_json_to_supabase(open(local_path, "rb").read(), object_name)
+
+
+def load_manifest(target_date: datetime.date) -> dict:
+    object_name = _manifest_object_name(target_date)
+    public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{object_name}"
+
+    try:
+        r = requests.get(public_url, timeout=15)
+        if r.ok:
+            logger.info("Resuming existing manifest for %s", target_date)
+            return r.json()
+    except Exception:
+        pass
+
+    run_id = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    utc_now = datetime.utcnow()
+    manifest = {
+        "run_id": run_id,
+        "target_date": str(target_date),
+        "status": "started",
+        "started_at": utc_now.isoformat() + "Z",
+        "scraped_at_utc": None,
+        "completed_at": None,
+        "bids": [],
+    }
+
+    save_and_upload_manifest(manifest, target_date)
+    logger.info("Created new manifest for %s", target_date)
+    return manifest
 
 
 # ---------------- navigation helpers (restored robust versions) ----------------
@@ -634,7 +605,7 @@ def find_bid_block_container(link_locator):
     return last_good
 
 
-def scrape_and_stream(target_date: datetime.date):
+def scrape_and_stream(target_date: datetime.date, manifest: dict, existing: set):
     """
     Scrape pages and stream processed bid records to NDJSON.
     Returns stats including path to the NDJSON file and parse failure info.
@@ -644,16 +615,30 @@ def scrape_and_stream(target_date: datetime.date):
     failures_dir = os.path.join(DAILY_DATA_DIR, "failures")
     os.makedirs(failures_dir, exist_ok=True)
 
-    seen = set()
+    # seen = set()
     parse_failures = 0
     parse_failure_samples: List[str] = []
     passed_target_date = False
 
-    ensure_supabase_env()
-
     with sync_playwright() as p, open(ndjson_path, "a", encoding="utf-8") as ndjson_f:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+            ],
+        )
+
+        context = browser.new_context(
+            viewport={"width": 1280, "height": 800},
+            user_agent=USER_AGENT,
+            timezone_id="Asia/Kolkata",
+            locale="en-IN",
+        )
+
+        page = context.new_page()
+
         try:
             page.set_extra_http_headers({"User-Agent": USER_AGENT})
         except Exception:
@@ -759,10 +744,10 @@ def scrape_and_stream(target_date: datetime.date):
 
                 # dedupe by bid number
                 bid_num = bid_number_text
-                if bid_num in seen:
-                    logger.debug("duplicate skipped for %s (page %d)", bid_num, page_number)
+                if bid_num in existing:
+                    logger.debug("duplicate skipped for %s (already in manifest)", bid_num)
                     continue
-                seen.add(bid_num)
+                existing.add(bid_num)
 
                 # extract extra fields
                 try:
@@ -784,6 +769,10 @@ def scrape_and_stream(target_date: datetime.date):
                     **(extra or {}),
                 }
 
+                # 🔐 write bid to manifest BEFORE any PDF upload
+                manifest["bids"].append(bid_record)
+                save_and_upload_manifest(manifest, target_date)
+
                 # immediate PDF processing
                 parts = bid_num.split("/")
                 if len(parts) >= 2:
@@ -793,21 +782,27 @@ def scrape_and_stream(target_date: datetime.date):
                 date_token = target_date.strftime("%d%m%y")
                 base_name = f"GeM_{date_token}_{suffix}"
                 pdf_filename = base_name + ".pdf"
-                pdf_object_name = f"bids/{target_date.strftime('%Y-%m-%d')}/{pdf_filename}"
+                r2_object_key = f"bids/{target_date.strftime('%Y-%m-%d')}/{pdf_filename}"
 
                 try:
                     pdf_bytes = download_pdf(detail_url)
-                    uploaded, sha = upload_pdf_to_supabase(pdf_bytes, pdf_object_name)
+                    pdf_public_url = upload_pdf_r2(r2_object_key, pdf_bytes)
+                    time.sleep(1.2)
+                    sha = _compute_sha256(pdf_bytes)
+                    uploaded = True
                 except Exception as e:
                     logger.exception("PDF handling failed for %s: %s", bid_num, e)
                     uploaded = False
                     sha = None
+                    pdf_public_url = None
 
-                bid_record["pdf_storage_path"] = pdf_object_name
+
+
+                bid_record["pdf_storage_path"] = r2_object_key
                 bid_record["pdf_sha256"] = sha
                 bid_record["pdf_uploaded"] = bool(uploaded)
                 try:
-                    bid_record["pdf_public_url"] = make_public_pdf_url(pdf_object_name)
+                    bid_record["pdf_public_url"] = pdf_public_url
                 except Exception:
                     bid_record["pdf_public_url"] = None
 
@@ -889,7 +884,7 @@ def scrape_and_stream(target_date: datetime.date):
 
     return {
         "ndjson_path": ndjson_path,
-        "seen_count": len(seen),
+        "seen_count": len(existing),
         "parse_failures": parse_failures,
         "parse_failure_samples": parse_failure_samples,
     }
@@ -920,33 +915,52 @@ def dedupe_and_write_final_json(ndjson_path: str, target_date: datetime.date) ->
                     continue
                 total += 1
                 bn = rec.get("bid_number")
-                if bn:
-                    if bn not in unique_map:
-                        unique_map[bn] = rec
+                if bn and bn not in unique_map:
+                    unique_map[bn] = rec
 
         final_bids = list(unique_map.values())
-        scraped_at = datetime.utcnow().isoformat() + "Z"
-        payload = {"scraped_at": scraped_at, "record_count": len(final_bids), "bids": final_bids}
+
+        # ---- NEW: store both UTC and IST timestamps ----
+        utc_now = datetime.now(tz=ZoneInfo("UTC"))
+        ist_now = utc_now.astimezone(ZoneInfo("Asia/Kolkata"))
+
+        payload = {
+            "scraped_at_utc": utc_now.isoformat().replace("+00:00", "Z"),
+            "scraped_at_ist": ist_now.isoformat(),  # ex: 2025-12-17T19:35:33+05:30
+            "record_count": len(final_bids),
+            "bids": final_bids,
+        }
+
         with open(meta_path, "w", encoding="utf-8") as fh:
             fh.write(json.dumps(payload, ensure_ascii=False, indent=2))
-        logger.info("Wrote final metadata to %s (raw_ndjson_total=%d unique=%d)", meta_path, total, len(final_bids))
+
+        logger.info(
+            "Wrote final metadata to %s (raw_ndjson_total=%d unique=%d)",
+            meta_path, total, len(final_bids)
+        )
         return meta_path, len(final_bids)
+
     finally:
         # best-effort cleanup of NDJSON temp file
         try:
             os.remove(ndjson_path)
             logger.debug("Cleaned up tmp NDJSON in dedupe_and_write_final_json: %s", ndjson_path)
         except Exception:
-            logger.debug("Could not clean up tmp NDJSON (it may have been removed already): %s", ndjson_path)
+            logger.debug(
+                "Could not clean up tmp NDJSON (it may have been removed already): %s",
+                ndjson_path
+            )
+
 
 
 # ---------------- wrapper for restart-on-failure ----------------
 
-def _run_scrape_with_retries(target_date: datetime.date):
+def _run_scrape_with_retries(target_date: datetime.date, manifest: dict, existing: set):
     last_exc = None
     for attempt in range(1, BROWSER_RESTART_ATTEMPTS + 1):
         try:
-            return scrape_and_stream(target_date)
+
+            return scrape_and_stream(target_date, manifest, existing)
         except Exception as e:
             last_exc = e
             logger.exception("Scraping attempt %d failed: %s", attempt, e)
@@ -960,30 +974,45 @@ def _run_scrape_with_retries(target_date: datetime.date):
 
 
 def _parse_target_date_arg() -> datetime.date:
-    """Return the target date from CLI arg --date or positional, or default to yesterday."""
+    """
+    Return the target date from CLI arg --date or positional,
+    or default to yesterday IN INDIA TIME (Asia/Kolkata).
+
+    This ensures correct behavior regardless of container timezone (UTC on Render, etc.)
+    """
+
     parser = argparse.ArgumentParser(description="GeM bids scraper (target date YYYY-MM-DD).")
-    parser.add_argument("date", nargs="?", help="Target date in YYYY-MM-DD (defaults to yesterday)")
+    parser.add_argument("date", nargs="?", help="Target date in YYYY-MM-DD (defaults to yesterday IST)")
     args = parser.parse_args()
 
+    # 1) Explicit date always wins
     if args.date:
         try:
             return datetime.strptime(args.date, "%Y-%m-%d").date()
         except Exception:
             logger.error("Invalid date format '%s'. Expected YYYY-MM-DD.", args.date)
             sys.exit(2)
-    # fallback: yesterday
-    return (datetime.now().date() - timedelta(days=1))
+
+    # 2) Default: compute yesterday using IST timezone
+    ist_now = datetime.now(tz=ZoneInfo("Asia/Kolkata"))
+    return (ist_now.date() - timedelta(days=1))
 
 
 def main():
     start_time = time.time()
 
-    # determine target date from CLI (or default to yesterday)
     target_date = _parse_target_date_arg()
     logger.info("Effective target date: %s", target_date)
 
-    logger.info("Starting scrape for %s", target_date)
-    stats = _run_scrape_with_retries(target_date)
+    # 🔐 Load or create manifest immediately (JSON must exist before any PDF)
+    manifest = load_manifest(target_date)
+    existing = set(b.get("bid_number") for b in manifest.get("bids", []) if b.get("bid_number"))
+
+    logger.info("Starting scrape for %s (existing bids=%d)", target_date, len(existing))
+    stats = _run_scrape_with_retries(target_date, manifest, existing)
+
+
+
     ndjson_path = stats["ndjson_path"]
     logger.info("Streaming scrape complete: seen=%d parse_failures=%d", stats["seen_count"], stats["parse_failures"])
     if stats["parse_failure_samples"]:
@@ -991,18 +1020,17 @@ def main():
         for s in stats["parse_failure_samples"]:
             logger.info("  %s", s.replace("\n", " ")[:300])
 
-    meta_path, unique_count = dedupe_and_write_final_json(ndjson_path, target_date)
+    utc_now = datetime.utcnow()
+    manifest["status"] = "complete"
+    manifest["completed_at"] = utc_now.isoformat() + "Z"
+    manifest["scraped_at_utc"] = utc_now.isoformat() + "Z"
+    save_and_upload_manifest(manifest, target_date)
 
-    # Upload the run-level JSON to Supabase under daily_meta/
-    try:
-        object_name = f"daily_meta/{os.path.basename(meta_path)}"
-        upload_json_to_supabase(open(meta_path, "rb").read(), object_name)
-        logger.info("Uploaded run-level metadata to Supabase as %s", object_name)
-    except Exception as e:
-        logger.exception("Failed to upload run-level metadata: %s", e)
+    logger.info("Run finalized with %d bids", len(manifest["bids"]))
+
 
     elapsed_min = (time.time() - start_time) / 60.0
-    logger.info("Run complete: unique_bids=%d, total_runtime=%.1fmin", unique_count, elapsed_min)
+    logger.info("Run complete: unique_bids=%d, total_runtime=%.1fmin", len(manifest["bids"]), elapsed_min)
 
 
 if __name__ == "__main__":
