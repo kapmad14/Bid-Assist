@@ -25,6 +25,6 @@ jobs:
       - name: Run GeM updater
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SERVICE_ROLE_KEY: ${{ secrets.SERVICE_ROLE_KEY }}
+          SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           python gem-scraper/update_gem_results_from_scraper.py
