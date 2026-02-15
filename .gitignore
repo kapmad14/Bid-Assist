@@ -1,8 +1,8 @@
-# (from repo root) create/update .gitignore with the recommended content
 cat > .gitignore <<'GITIGNORE'
 # Virtual envs
 .venv/
 venv/
+env/
 __pycache__/
 *.pyc
 *.pyo
@@ -14,14 +14,10 @@ node_modules/
 dist/
 build/
 
-# Env files (ignore all .env anywhere)
+# Environment variables
 .env
-.env.local
-.env.*.local
-**/.env
-**/.env.local
-**/.env.*.local
-**/*.env
+.env.*
+!.env.example
 
 # Editor & OS
 .vscode/
@@ -34,15 +30,18 @@ Thumbs.db
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-GITIGNORE
 
-git add .gitignore
-git commit -m "Add .gitignore to ignore env files and common artifacts"
-git push
-
-#database
+# Data / Databases
 data/
 logs/
 *.db
-*.loggem-scraper/daily_data/
+*.sqlite
+
+# Scraper Output (runtime JSON)
+gem-scraper/daily_data/
 gem-scraper/results/
+GITIGNORE
+
+git add .gitignore
+git commit -m "Update .gitignore"
+git push

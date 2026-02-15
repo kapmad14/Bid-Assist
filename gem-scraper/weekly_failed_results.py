@@ -64,7 +64,7 @@ def count_failed_rows():
     )
 
     count_headers = HEADERS.copy()
-    count_headers["Prefer"] = "count=exact"
+    count_headers["Prefer"] = "count=planned"
 
     r = requests.get(url, headers=count_headers)
     r.raise_for_status()
