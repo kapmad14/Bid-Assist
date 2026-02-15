@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-update_tenders_from_pdfs_fixed_v3.py
+update_tenders_from_pdfs.py
 
 Changes in this revision:
 - Fetch only rows where simple_extraction IS NULL.

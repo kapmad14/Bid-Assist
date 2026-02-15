@@ -160,4 +160,6 @@ export type GemResult = {
   extraction_status?: 'pending' | 'success' | 'failed';
   scraped_on?: string;
   created_at?: string;
+
+  pdf_public_url?: string | null;
 };

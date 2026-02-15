@@ -139,7 +139,7 @@ export async function getGemResultsServer({
 
   // Fetch paginated data  ✅ (FIXED ORDER)
   let dataQuery = supabase
-    .from("gem_results")
+    .from("gem_results_with_archive")
     .select("*")
     .eq("extraction_status", "success");
 

@@ -209,77 +209,27 @@ export default function ResultsPageClient() {
     window.history.replaceState(null, "", newUrl);
   }, [itemFilter, ministryFilter, departmentFilter, sellerFilter, bidRaFilter, globalSearch]);
 
-  const openPreview = async (
+  const openPreview = (
     id: number,
-    bidNumber: string,
+    archiveUrl?: string | null,
     gemUrl?: string | null
   ) => {
-    // Toggle close if same card clicked again
     if (previewForId === id) {
       closePreview();
       return;
     }
 
-  setPreviewForId(id);
-  setPreviewUrl(null);
-  setPreviewLoading(true);
+    setPreviewForId(id);
+    setPreviewUrl(null);
+    setPreviewLoading(true);
 
-
-    try {
-      const res = await fetch(
-        `/api/tenders-archive?bid=${encodeURIComponent(bidNumber)}`
-      );
-
-      const json = await res.json();
-
-      // ---------- CASE 1: NO ARCHIVE ----------
-      if (!json?.hasArchive || !json?.pdf_public_url) {
-        console.warn("No archived URL — using GeM");
-        if (gemUrl) setPreviewUrl(encodeURI(gemUrl));
-        setPreviewLoading(false);
-        return;
-      }
-
-      const archiveUrl = encodeURI(String(json.pdf_public_url));
-
-      // ---------- CASE 2: VALIDATE PDF ONLY ----------
-      try {
-        const head = await fetch(archiveUrl, { method: "HEAD" });
-        const contentType = head.headers.get("content-type");
-
-        const isPdf =
-          head.ok &&
-          typeof contentType === "string" &&
-          contentType.toLowerCase().includes("application/pdf");
-
-        if (isPdf) {
-          console.log("Archive URL behaves like a PDF — embedding");
-          setPreviewUrl(archiveUrl);
-          setPreviewLoading(false);
-          return;
-        }
-
-        console.warn("Archive URL is NOT a PDF — using GeM");
-      } catch (err) {
-        console.warn("HEAD check failed — using GeM", err);
-      }
-
-      // ---------- FALLBACK TO GeM ----------
-      if (gemUrl) {
-        setPreviewUrl(encodeURI(String(gemUrl)));
-      }
-
-
-    } catch (err) {
-      console.error("Archive lookup failed:", err);
-
-      // If API itself fails → fall back to GeM
-      if (gemUrl) {
-        setPreviewUrl(encodeURI(gemUrl));
-      }
-    } finally {
-      setPreviewLoading(false);
+    if (archiveUrl) {
+      setPreviewUrl(archiveUrl);
+    } else if (gemUrl) {
+      setPreviewUrl(gemUrl);
     }
+
+    setPreviewLoading(false);
   };
 
 
@@ -537,7 +487,7 @@ export default function ResultsPageClient() {
                           onClick={(e) => {
                             e.preventDefault();
                             if (r.id) {
-                              openPreview(r.id, r.bid_number, r.bid_detail_url);
+                              openPreview(r.id, r.pdf_public_url, r.bid_detail_url);
                             }
                           }}
                           className="
